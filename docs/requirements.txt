@@ -1,0 +1,5 @@
+Sphinx
+jieba
+sphinx_rtd_theme
+breathe
+exhale

@@ -1,0 +1,9 @@
+build
+doxygen
+lib
+bin
+sphinx_env
+
+tags
+.vscode
+.vim
