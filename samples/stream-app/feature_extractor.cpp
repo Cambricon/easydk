@@ -41,7 +41,7 @@ bool FeatureExtractor::Init(const std::string &model_path, const std::string &fu
     LOG(ERROR) << "[FeatureExtractor] model should have exactly two output";
     return false;
   }
-  if (model_->InputShapes()[0].c != 3) {
+  if (model_->InputShape(0).C() != 3) {
     LOG(ERROR) << "[FeatureExtractor] feature extractor model wrong input shape!";
     return false;
   }
@@ -103,7 +103,7 @@ std::vector<float> FeatureExtractor::ExtractFeature(const edk::TrackFrame &frame
     mem_op_.MemcpyOutputD2H(output_cpu_ptr_, output_mlu_ptr_);
 
     const float *begin = reinterpret_cast<float *>(output_cpu_ptr_[1]);
-    const float *end = begin + model_->OutputShapes()[1].DataCount();
+    const float *end = begin + model_->OutputShape(1).BatchDataCount();
     return std::vector<float>(begin, end);
   } else {
 #if(CV_MAJOR_VERSION == 2)
@@ -126,10 +126,10 @@ std::vector<float> FeatureExtractor::ExtractFeature(const edk::TrackFrame &frame
 
 void FeatureExtractor::Preprocess(const cv::Mat &image) {
   // resize image
-  edk::Shape in_shape = model_->InputShapes()[0];
+  const edk::ShapeEx& in_shape = model_->InputShape(0);
   cv::Mat image_resized;
-  if (image.rows != static_cast<int>(in_shape.h) || image.cols != static_cast<int>(in_shape.w)) {
-    cv::resize(image, image_resized, cv::Size(in_shape.w, in_shape.h));
+  if (image.rows != static_cast<int>(in_shape.H()) || image.cols != static_cast<int>(in_shape.W())) {
+    cv::resize(image, image_resized, cv::Size(in_shape.W(), in_shape.H()));
   } else {
     image_resized = image;
   }
@@ -138,6 +138,6 @@ void FeatureExtractor::Preprocess(const cv::Mat &image) {
   cv::Mat image_float;
   image_resized.convertTo(image_float, CV_32FC3);
 
-  cv::Mat image_normalized(in_shape.h, in_shape.w, CV_32FC3, reinterpret_cast<float *>(input_cpu_ptr_[0]));
+  cv::Mat image_normalized(in_shape.H(), in_shape.W(), CV_32FC3, reinterpret_cast<float *>(input_cpu_ptr_[0]));
   cv::divide(image_float, 255.0, image_normalized);
 }

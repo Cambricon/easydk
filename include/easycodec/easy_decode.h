@@ -197,7 +197,7 @@ class EasyDecode {
   friend class DecodeHandler;
 
  private:
-  EasyDecode();
+  explicit EasyDecode(const Attr& attr);
   EasyDecode(const EasyDecode&) = delete;
   EasyDecode& operator=(const EasyDecode&) = delete;
   EasyDecode(EasyDecode&&) = delete;

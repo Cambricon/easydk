@@ -82,7 +82,7 @@ static size_t TypeSize(const DataType &type) {
 }
 
 static void TransLayout(const DataLayout &src_layout, const DataLayout &dst_layout, void *src_data, void *dst_data,
-                        const Shape &shape) {
+                        const ShapeEx &shape) {
   if (src_layout.order != DimOrder::NHWC && src_layout.order != DimOrder::NCHW) {
     THROW_EXCEPTION(Exception::INVALID_ARG, "TransLayout: Unsupport data order(src).");
   }
@@ -94,9 +94,8 @@ static void TransLayout(const DataLayout &src_layout, const DataLayout &dst_layo
   if (src_layout.dtype != dst_layout.dtype) bits |= 1 << 0;
   if (src_layout.order != dst_layout.order) bits |= 1 << 1;
   cnrtRet_t error_code = CNRT_RET_SUCCESS;
-  int size = shape.DataCount();
-  int dim_values[4] = {static_cast<int>(shape.n), static_cast<int>(shape.h), static_cast<int>(shape.w),
-                       static_cast<int>(shape.c)};
+  int size = shape.BatchDataCount();
+  int dim_values[4] = {shape.N(), shape.H(), shape.W(), shape.C()};
   int dim_order[4];
   if (dst_layout.order == DimOrder::NHWC) {
     dim_order[0] = 0, dim_order[1] = 2, dim_order[2] = 3, dim_order[3] = 1;
@@ -140,14 +139,14 @@ std::shared_ptr<ModelLoader> MluMemoryOp::Model() const { return model_; }
 void **MluMemoryOp::AllocCpuInput() const {
   CHECK_MODEL_LOADER;
   ONLY_SUPPORT_FLOAT32_ON_CPU;
-  auto &shapes = model_->InputShapes();
   uint32_t num = model_->InputNum();
 
   VLOG(4) << "Alloc memory on CPU for model input";
 
   void **ret = new void *[num];
   for (uint32_t i = 0; i < num; ++i) {
-    uint64_t data_size = shapes[i].DataCount();
+    auto &shape = model_->InputShape(i);
+    uint64_t data_size = shape.DataCount();
     VLOG(4) << "Alloc CPU input memory (" << i << ") on CPU in " << data_size << " bytes";
     ret[i] = reinterpret_cast<void *>(new float[data_size]);
   }
@@ -158,14 +157,14 @@ void **MluMemoryOp::AllocCpuInput(uint32_t batch_size) const { return AllocCpuIn
 void **MluMemoryOp::AllocCpuOutput() const {
   CHECK_MODEL_LOADER;
   ONLY_SUPPORT_FLOAT32_ON_CPU;
-  auto &shapes = model_->OutputShapes();
-  uint32_t num = shapes.size();
+  uint32_t num = model_->OutputNum();
 
   VLOG(4) << "Alloc memory on CPU for model output";
 
   void **ret = new void *[num];
   for (uint32_t i = 0; i < num; ++i) {
-    uint64_t data_size = shapes[i].DataCount();
+    auto &shape = model_->OutputShape(i);
+    uint64_t data_size = shape.DataCount();
     VLOG(4) << "Alloc output memory (" << i << ")"
             << "on CPU in " << data_size;
     ret[i] = reinterpret_cast<void *>(new float[data_size]);
@@ -309,7 +308,7 @@ void MluMemoryOp::MemcpyInputH2D(void **mlu_dst, void **cpu_src) const {
     // format data
     DataLayout cpu_layout = model_->GetCpuInputLayout(i);
     DataLayout mlu_layout = interface.GetMluInputLayout(i);
-    Shape sp = model_->InputShapes()[i];
+    const ShapeEx& sp = model_->InputShape(i);
     void *temp_data = malloc(size);
     CHECK(temp_data) << "Malloc temp data on cpu failed.";
     TransLayout(cpu_layout, mlu_layout, src, temp_data, sp);
@@ -342,7 +341,7 @@ void MluMemoryOp::MemcpyOutputD2H(void **cpu_dst, void **mlu_src) const {
     // format data
     DataLayout cpu_layout = model_->GetCpuOutputLayout(i);
     DataLayout mlu_layout = interface.GetMluOutputLayout(i);
-    Shape sp = model_->OutputShapes()[i];
+    const ShapeEx& sp = model_->OutputShape(i);
     TransLayout(mlu_layout, cpu_layout, temp_data, dst, sp);
     free(temp_data);
   }

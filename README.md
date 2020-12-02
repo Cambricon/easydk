@@ -80,6 +80,7 @@ After finished prerequiste, you can build instructions with the following steps:
 
    | cmake option       | range           | default | description              |
    | ------------------ | --------------- | ------- | ------------------------ |
+   | MLU                |                 | MLU270  | specify the MLU platform |
    | BUILD_SAMPLES      | ON / OFF        | OFF     | build with samples       |
    | BUILD_TESTS        | ON / OFF        | OFF     | build with tests         |
    | RELEASE            | ON / OFF        | ON      | release / debug          |
@@ -93,6 +94,8 @@ After finished prerequiste, you can build instructions with the following steps:
    | SANITIZE_ADDRESS   | ON / OFF        | OFF     | check address            |
    | SANITIZE_THREAD    | ON / OFF        | OFF     | check thread             |
    | SANITIZE_UNDEFINED | ON / OFF        | OFF     | check undefined behavior |
+
+   > Supported MLU platform: MLU270, MLU220, MLU220EDGE. (MLU220EDGE need cross-compile)
 
    Example:
 

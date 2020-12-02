@@ -208,7 +208,6 @@ bool SendData(edk::EasyEncode *encoder, PixelFmt pixel_format, CodecType codec_t
 
     cvt_bgr_to_yuv420sp(cv_image, align, pixel_format, p_data_buffer);
 
-    memset(&frame, 0, sizeof(frame));
     frame.pformat = pixel_format;
     frame.ptrs[0] = reinterpret_cast<void *>(p_data_buffer);
     frame.ptrs[1] = reinterpret_cast<void *>(p_data_buffer + width * height);
@@ -271,7 +270,6 @@ bool test_EasyEncode(const char *input_file, uint32_t w, uint32_t h, PixelFmt pi
   attr.eos_callback = eos_callback;
   attr.input_buffer_num = 4;
   attr.output_buffer_num = 4;
-  memset(&attr.rate_control, 0, sizeof(edk::RateControl));
   attr.rate_control.vbr = vbr;
   attr.rate_control.gop = 20;
   attr.rate_control.frame_rate_num = 30;

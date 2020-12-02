@@ -31,6 +31,9 @@
 #define attribute_deprecated __attribute__((deprecated))
 #elif defined(_MSC_VER)
 #define attribute_deprecated __declspec(deprecated)
+#else
+#pragma message("attribute_deprecated is not defined for this compiler")
+#define attribute_deprecated
 #endif
 
 #endif

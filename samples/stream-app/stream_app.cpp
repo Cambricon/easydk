@@ -415,10 +415,10 @@ int main(int argc, char **argv) {
   gflags::ParseCommandLineFlags(&argc, &argv, true);
 
   // check params
-  CHECK_NE(FLAGS_data_path.size(), 0);
-  CHECK_NE(FLAGS_model_path.size(), 0);
-  CHECK_NE(FLAGS_func_name.size(), 0);
-  CHECK_NE(FLAGS_label_path.size(), 0);
+  CHECK_NE(FLAGS_data_path.size(), 0u);
+  CHECK_NE(FLAGS_model_path.size(), 0u);
+  CHECK_NE(FLAGS_func_name.size(), 0u);
+  CHECK_NE(FLAGS_label_path.size(), 0u);
   CHECK_GE(FLAGS_wait_time, 0);
   CHECK_GE(FLAGS_repeat_time, 0);
 

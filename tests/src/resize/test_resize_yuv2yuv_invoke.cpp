@@ -5,16 +5,15 @@
 #include <thread>
 #include <vector>
 
-#include "gtest/gtest.h"
-#include "opencv2/opencv.hpp"
-
 #include "device/mlu_context.h"
 #include "easybang/resize.h"
+#include "gtest/gtest.h"
+#include "opencv2/opencv.hpp"
 #include "test_base.h"
 
 #define SAVE_RESULT 0
 
-static std::string exe_path = GetExePath();  //NOLINT
+static std::string exe_path = GetExePath();             // NOLINT
 static std::string dir = "../../samples/data/images/";  // NOLINT
 static std::mutex print_mutex;
 
@@ -35,7 +34,7 @@ static void SaveImg(cv::Mat yuv_img, bool yuv_nv12, int cnt, std::string prefix)
   // transfer from yuv to rgb
   cvtColor(yuv_img, rgb_image, CV_MODE);
   // save RGB image
-  cv::imwrite(exe_path + dir + prefix +  std::to_string(cnt) + ".jpg", rgb_image);
+  cv::imwrite(exe_path + dir + prefix + std::to_string(cnt) + ".jpg", rgb_image);
 }
 #endif
 
@@ -74,7 +73,7 @@ static void Rgb2Yuv(std::string path, TestResizeParam p, char* cpu_input, int fr
 
 #if SAVE_RESULT
 static void D2H(char* cpu_output, char* mlu_output, TestResizeParam param) {
-  cv::Mat dst_resize_image, dst_rgb_image,  dst_yuv_image;
+  cv::Mat dst_resize_image, dst_rgb_image, dst_yuv_image;
   int dst_img_size = param.dst_w * param.dst_h * 3 / 2;
   // copy result from mlu to cpu
   cnrtMemcpy(cpu_output, mlu_output, dst_img_size * param.bsize, CNRT_MEM_TRANS_DIR_DEV2HOST);
@@ -85,14 +84,14 @@ static void D2H(char* cpu_output, char* mlu_output, TestResizeParam param) {
   cvtColor(dst_resize_image, dst_yuv_image, CV_BGR2YUV_I420);
   // save to rgb
   for (int i = 0; i < param.bsize; i++) {
-    dst_yuv_image.data = (unsigned char*) cpu_output + dst_img_size * i;
+    dst_yuv_image.data = (unsigned char*)cpu_output + dst_img_size * i;
     SaveImg(dst_yuv_image, param.yuv_nv12, i, "dst_");
   }
 }
 #endif
 
 static void H2D(TestResizeParam param, std::vector<std::string> image_name, char** mlu_input, char** mlu_output,
-         char** cpu_input, char** cpu_output) {
+                char** cpu_input, char** cpu_output) {
   int src_img_size = param.src_w * param.src_h * 3 / 2;
   int dst_img_size = param.dst_w * param.dst_h * 3 / 2;
   if (*cpu_input != nullptr) {
@@ -144,9 +143,9 @@ static void InvokeResizeYuv2Yuv(char* mlu_input, char* mlu_output, TestResizePar
   attr.batch_size = param.bsize;
   attr.core = param.core_num;
   attr.channel_id = channel_id;
-  edk::MluResize *resize = new edk::MluResize();
+  edk::MluResize* resize = new edk::MluResize();
   if (!resize->Init(attr)) {
-    std::cerr << "resize->Init() failed: " << resize->GetLastError() << std::endl;;
+    std::cerr << "resize->Init() failed: " << resize->GetLastError() << std::endl;
   }
 
   // check attr
@@ -160,8 +159,8 @@ static void InvokeResizeYuv2Yuv(char* mlu_input, char* mlu_output, TestResizePar
   EXPECT_EQ(attr.batch_size, attr_inside.batch_size);
 
   // batching up
-  void **src_y_mlu_in_cpu = reinterpret_cast<void**>(malloc(param.bsize * sizeof(char*)));
-  void **src_uv_mlu_in_cpu = reinterpret_cast<void**>(malloc(param.bsize * sizeof(char*)));
+  void** src_y_mlu_in_cpu = reinterpret_cast<void**>(malloc(param.bsize * sizeof(char*)));
+  void** src_uv_mlu_in_cpu = reinterpret_cast<void**>(malloc(param.bsize * sizeof(char*)));
   for (int cnt = 0; cnt < batch_num; cnt++) {
     auto fr_start = std::chrono::high_resolution_clock::now();
     for (int i = 0; i < param.bsize; i++) {
@@ -191,8 +190,8 @@ static void InvokeResizeYuv2Yuv(char* mlu_input, char* mlu_output, TestResizePar
         std::lock_guard<std::mutex> lock_g(print_mutex);
         std::cout << "--------------------software " << diff.count() << "ms ---------------- " << std::endl;
         if (print_hardware_time) {
-          std::cout << "--------------------hardware "
-                    << total_hardware_time / 1000.f <<"ms ---------------- " << std::endl;
+          std::cout << "--------------------hardware " << total_hardware_time / 1000.f << "ms ---------------- "
+                    << std::endl;
         }
       }
     } else {
@@ -232,7 +231,7 @@ static void Process(const TestResizeParam& param, std::vector<std::string> image
   std::vector<char*> mlu_outputs, mlu_inputs;
   mlu_inputs.clear();
   mlu_outputs.clear();
-  for (uint32_t th_i = 0; th_i < thread_num ; ++th_i) {
+  for (uint32_t th_i = 0; th_i < thread_num; ++th_i) {
     // set context
     context.SetChannelId(th_i % 2);
     context.BindDevice();
@@ -242,11 +241,11 @@ static void Process(const TestResizeParam& param, std::vector<std::string> image
   }
   start_time = end_time = std::chrono::high_resolution_clock::now();
   std::vector<std::thread> ths;
-  for (uint32_t th_i = 0; th_i < thread_num ; ++th_i) {
+  for (uint32_t th_i = 0; th_i < thread_num; ++th_i) {
     ths.push_back(std::thread(&InvokeResizeYuv2Yuv, mlu_inputs[th_i], mlu_outputs[th_i], param, image_name, batch_num,
                               th_i, print_hw_time, print_time));
   }
-  for (auto &it : ths) {
+  for (auto& it : ths) {
     if (it.joinable()) {
       it.join();
     }
@@ -255,16 +254,19 @@ static void Process(const TestResizeParam& param, std::vector<std::string> image
   std::chrono::duration<double, std::milli> diff = end_time - start_time;
   std::cout << "========================== U " << param.core_num / 4 << " =============================" << std::endl;
   std::cout << std::endl;
-  std::cout << "****** bsize = " << param.bsize << " ****** " << thread_num << " threads ***** "
-            << batch_num << " batch ******" << std::endl << std::endl;
+  std::cout << "****** bsize = " << param.bsize << " ****** " << thread_num << " threads ***** " << batch_num
+            << " batch ******" << std::endl
+            << std::endl;
   std::cout << "  src_h = " << param.src_h << " src_w = " << param.src_w << " dst_h = " << param.dst_h
-            << " dst_w = " << param.dst_w << std::endl << std::endl;
-  std::cout << "=================== total time " << diff.count() << "ms =====================" <<std::endl << std::endl;
+            << " dst_w = " << param.dst_w << std::endl
+            << std::endl;
+  std::cout << "=================== total time " << diff.count() << "ms =====================" << std::endl
+            << std::endl;
 #if SAVE_RESULT
   // uncomment to copy result to host and save image
   D2H(cpu_output, mlu_outputs[0], param);
 #endif
-  for (uint32_t th_i = 0; th_i < thread_num ; ++th_i) {
+  for (uint32_t th_i = 0; th_i < thread_num; ++th_i) {
     // set context
     context.SetChannelId(th_i % 2);
     context.BindDevice();
@@ -295,7 +297,6 @@ TEST(resize, resize_yuv2yuv_invoke) {
     image_name.push_back(image_1);
     image_name.push_back(image_2);
   }
-  TestResizeParam
-     param = {src_width, src_height, dst_width, dst_height, batch_size, core_num, yuv_nv12};
+  TestResizeParam param = {src_width, src_height, dst_width, dst_height, batch_size, core_num, yuv_nv12};
   Process(param, image_name, thread_num, batch_num, print_hw_time, print_time);
 }

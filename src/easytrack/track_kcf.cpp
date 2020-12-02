@@ -32,8 +32,8 @@
 #include "device/mlu_context.h"
 #include "easyinfer/easy_infer.h"
 #include "easyinfer/mlu_memory_op.h"
-#include "easyinfer/mlu_task_queue.h"
 #include "easytrack/easy_track.h"
+#include "internal/mlu_task_queue.h"
 #include "kcf/kcf.h"
 #include "match.h"
 #include "track_data_type.h"
@@ -99,7 +99,6 @@ void KcfTrack::SetModel(std::shared_ptr<ModelLoader> model, int dev_id, uint32_t
   if (!model) {
     THROW_EXCEPTION(Exception::INVALID_ARG, "Model is nullptr");
   }
-  model->InitLayout();
   kcf_p_->model_loader_ = model;
   kcf_p_->device_id_ = dev_id;
   kcf_p_->batch_size_ = batch_size;
@@ -108,15 +107,15 @@ void KcfTrack::SetModel(std::shared_ptr<ModelLoader> model, int dev_id, uint32_t
   context.SetDeviceId(kcf_p_->device_id_);
   context.BindDevice();
 
-  kcf_p_->yuv2gray_.Init(kcf_p_->model_loader_, kcf_p_->batch_size_, dev_id);
+  kcf_p_->yuv2gray_.Init(kcf_p_->model_loader_, dev_id);
   kcf_p_->mem_op_.SetModel(kcf_p_->model_loader_);
-  kcf_p_->yuv2gray_outputs_ = kcf_p_->mem_op_.AllocMluOutput(kcf_p_->batch_size_);
+  kcf_p_->yuv2gray_outputs_ = kcf_p_->mem_op_.AllocMluOutput();
   kcf_p_->detect_float_output_ = new float[6 * DETECT_OUT_SIZE];
   kcf_p_->detect_half_output_ = new half[6 * DETECT_OUT_SIZE];
-  kcf_p_->detect_output_ = kcf_p_->mem_op_.AllocMlu(6 * DETECT_OUT_SIZE * sizeof(half), kcf_p_->batch_size_);
-  kcf_p_->yuv2gray_input_ = kcf_p_->mem_op_.AllocMluInput(kcf_p_->batch_size_);
+  kcf_p_->detect_output_ = kcf_p_->mem_op_.AllocMlu(6 * DETECT_OUT_SIZE * sizeof(half));
+  kcf_p_->yuv2gray_input_ = kcf_p_->mem_op_.AllocMluInput();
 
-  kcf_init(&(kcf_p_->handle_), kcf_p_->yuv2gray_.GetMluQueue()->queue, 0.5);
+  kcf_init(&(kcf_p_->handle_), MluTaskQueueProxy::GetCnrtQueue(kcf_p_->yuv2gray_.GetMluQueue()), 0.5);
 }
 
 void KcfTrack::SetParams(float max_iou_distance) { max_iou_distance_ = max_iou_distance; }
@@ -181,7 +180,7 @@ void KcfTrackPrivate::KcfUpdate(void *mlu_gray, uint32_t frame_index, uint32_t f
       cnrtConvertFloatToHalf(detect_half_output_ + i, detect_float_output_[i]);
     }
 
-    mem_op_.MemcpyH2D(detect_output_, detect_half_output_, 6 * DETECT_OUT_SIZE * sizeof(half), batch_size_);
+    mem_op_.MemcpyH2D(detect_output_, detect_half_output_, 6 * DETECT_OUT_SIZE * sizeof(half));
     kcf_initKernel(&handle_, reinterpret_cast<half *>(mlu_gray), reinterpret_cast<half *>(detect_output_), rois_,
                    &track_num_);
   } else {

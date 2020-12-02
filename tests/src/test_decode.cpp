@@ -145,7 +145,6 @@ bool SendData(edk::EasyDecode* decode, bool _abort = false) {
     fclose(fid);
     return false;
   }
-  memset(&packet, 0, sizeof(edk::CnPacket));
   packet.length = fread(g_data_buffer, 1, MAX_INPUT_DATA_SIZE, fid);
   fclose(fid);
   packet.data = g_data_buffer;

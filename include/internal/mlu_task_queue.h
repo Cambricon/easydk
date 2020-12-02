@@ -23,6 +23,8 @@
 
 #include <cnrt.h>
 
+#include <memory>
+
 #include "device/mlu_context.h"
 
 namespace edk {

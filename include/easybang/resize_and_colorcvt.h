@@ -169,7 +169,7 @@ class MluResizeConvertOp {
    *
    * @param input_data yuv data (YUV420SP NV21/NV12)
    *
-   * @attention input_data.crop_w will be set to input_data.src_w if input_data.crop_w is zero, 
+   * @attention input_data.crop_w will be set to input_data.src_w if input_data.crop_w is zero,
    *            input_data.crop_h will be set to input_data.src_h if input_data.crop_h is zero.
    */
   void BatchingUp(const InputData& input_data);

@@ -8,15 +8,15 @@ Version Record
 
 .. table:: version record
 
-	+-----------------+--------------------------------------------------------------+
-	| file name       |          Cambricon EasyDevelopmentKit Developer Guide        |
-	+-----------------+--------------------------------------------------------------+
-	| version         |                     V2.2.0                                   |
-	+-----------------+--------------------------------------------------------------+
-	| author          |                   Cambricon                                  |
-	+-----------------+--------------------------------------------------------------+
-	| create date     |                   2019.07.23                                 |
-	+-----------------+--------------------------------------------------------------+
+  +-----------------+--------------------------------------------------------------+
+  | file name       |          Cambricon EasyDevelopmentKit Developer Guide        |
+  +-----------------+--------------------------------------------------------------+
+  | version         |                     V2.3.0                                   |
+  +-----------------+--------------------------------------------------------------+
+  | author          |                   Cambricon                                  |
+  +-----------------+--------------------------------------------------------------+
+  | create date     |                   2019.07.23                                 |
+  +-----------------+--------------------------------------------------------------+
 
 Update History
 ------------------------------------
@@ -24,30 +24,30 @@ Update History
 - v1.2.0
 
   **update date**: 2019.7.23
-  
+
   **release notes**:
-  
-  * draft version
+
+    * draft version
 
 - v2.0.0
 
   **update data**: 2019.11.14
 
   **attention**: Not Upward Compatible!
-  
+
   **release notes**:
 
-  	1. Rename project from CNStream-Toolkit to Easy Development Kit, and refactor all modules.
+    1. Rename project from CNStream-Toolkit to Easy Development Kit, and refactor all modules.
 
-	  2. Remove useless modules (tiler, postproc, osd).
+    2. Remove useless modules (tiler, postproc, osd).
 
-	  3. Decode, encode, vformat are merged into EasyCodec.
+    3. Decode, encode, vformat are merged into EasyCodec.
 
-	  4. Support device to device memory copy.
+    4. Support device to device memory copy.
 
-	  5. Support KCF track algorithm.
+    5. Support KCF track algorithm.
 
-	  6. Normalize output log.
+    6. Normalize output log.
 
 - v2.1.0
 
@@ -66,30 +66,48 @@ Update History
 
 - v2.2.0
 
-	**update date**: 2020.11.05
-	**release notes**:
-		1. Use Cpp-style MluTaskQueue.
+  **update date**: 2020.11.05
 
-		2. Add API to query device number.
+  **release notes**:
 
-		3. Support to decode progresive JPEG with `turbo-jpeg` and `libyuv`.
+    1. Use Cpp-style MluTaskQueue.
 
-		4. Use unified exception type.
+    2. Add API to query device number.
 
-		5. Add Resize(YUV to YUV) operator in EasyBang.
+    3. Support to decode progresive JPEG with `turbo-jpeg` and `libyuv`.
 
-		6. Fix bugs in MluResizeConvertOp.
+    4. Use unified exception type.
 
-		7. Use new API instead of unreasonable ones:
+    5. Add Resize(YUV to YUV) operator in EasyBang.
 
-			1. MluContext::(ConfigureForThisThread, ChannelId, SetChannelId)
+    6. Fix bugs in MluResizeConvertOp.
 
-			2. MluResize::InvokeOp
+    7. Use new API instead of unreasonable ones:
 
-			3. EasyDecode::Create, EasyEncode::Create
+      1. MluContext::(ConfigureForThisThread, ChannelId, SetChannelId)
 
-			4. EasyInfer::(Init, Loader, BatchSize)
+      2. MluResize::InvokeOp
 
-			5. ModelLoader::InitLayout
+      3. EasyDecode::Create, EasyEncode::Create
 
-			6. MluMemoryOp::(SetLoader, Loader, AllocCpuInput, AllocCpuOutput, AllocMluInput, AllocMluOutput, AllocMlu, FreeArrayMlu, MemcpyInputH2D, MemcpyOutputD2H, MemcpyH2D, MemcpyD2H)
+      4. EasyInfer::(Init, Loader, BatchSize)
+
+      5. ModelLoader::InitLayout
+
+      6. MluMemoryOp::(SetLoader, Loader, AllocCpuInput, AllocCpuOutput, AllocMluInput, AllocMluOutput, AllocMlu, FreeArrayMlu, MemcpyInputH2D, MemcpyOutputD2H, MemcpyH2D, MemcpyD2H)
+
+- v2.3.0
+
+  **update date**: 2020.11.30
+
+  **release notes**:
+
+    1. Support platform MLU220 EDGE
+
+    2. Add ShapeEx which support shapes in any dimension
+
+    3. Deprecate API: ModelLoader::InputShapes(), ModelLoader::OutputShapes()
+
+    4. Add new API: ModelLoader::InputShape(uint32_t index), ModelLoader::OutputShape(uint32_t index)
+
+    5. Refactor EasyCodec implementation

@@ -29,7 +29,7 @@
 
 #include <cstdint>
 
-#define CN_MAXIMUM_PLANE 6
+#define CN_MAXIMUM_PLANE 3
 
 namespace edk {
 
@@ -71,7 +71,7 @@ enum class PixelFmt {
  * @note Type contains both video and image
  */
 enum class CodecType {
-  MPEG2,
+  MPEG2 = 0,
   MPEG4,  ///< MPEG4 video codec standard
   H264,   ///< H.264 video codec standard
   H265,   ///< H.265 video codec standard, aka HEVC
@@ -102,31 +102,31 @@ struct CnFrame {
    * Used to release buffer in EasyDecode::ReleaseBuffer
    * when frame memory from decoder will not be used. Useless in encoder.
    */
-  uint64_t buf_id;
+  uint64_t buf_id{0};
   /// Presentation time stamp
-  uint64_t pts;
+  uint64_t pts{0};
   /// Frame height in pixel
-  uint32_t height;
+  uint32_t height{0};
   /// Frame width in pixel
-  uint32_t width;
+  uint32_t width{0};
   /// Frame data size, unit: byte
-  uint64_t frame_size;
+  uint64_t frame_size{0};
   /// Frame color space, @see edk::PixelFmt
-  PixelFmt pformat;
+  PixelFmt pformat{PixelFmt::NV12};
   /// Color standard
-  ColorStd color_std;
+  ColorStd color_std{ColorStd::ITU_BT_709};
   /// MLU device identification
-  int device_id;
+  int device_id{0};
   /// MLU channel in which memory stored
-  int channel_id;
+  int channel_id{0};
   /// If use cpu decode
-  bool cpu_decode = false;
+  bool cpu_decode{false};
   /// Plane count for this frame
-  uint32_t n_planes;
+  uint32_t n_planes{0};
   /// Frame strides for each plane
-  uint32_t strides[CN_MAXIMUM_PLANE];
+  uint32_t strides[CN_MAXIMUM_PLANE]{0, 0, 0};
   /// Frame data pointer
-  void* ptrs[CN_MAXIMUM_PLANE];
+  void* ptrs[CN_MAXIMUM_PLANE]{nullptr, nullptr, nullptr};
 };
 
 /**
@@ -143,17 +143,17 @@ struct CnPacket {
    * Used to release buffer in EasyEncode::ReleaseBuffer
    * when memory from encoder will not be used. Useless in decoder.
    */
-  uint64_t buf_id;
+  uint64_t buf_id{0};
   /// Frame data pointer
-  void* data;
+  void* data{nullptr};
   /// Frame length, unit pixel
-  uint64_t length;
+  uint64_t length{0};
   /// Presentation time stamp
-  uint64_t pts;
+  uint64_t pts{0};
   /// Video codec type, @see edk::CodecType
-  CodecType codec_type;
+  CodecType codec_type{CodecType::H264};
   /// Bitstream slice type, only used in EasyEncode, @see edk::BitStreamSliceType
-  BitStreamSliceType slice_type;
+  BitStreamSliceType slice_type{BitStreamSliceType::FRAME};
 };
 
 }  // namespace edk

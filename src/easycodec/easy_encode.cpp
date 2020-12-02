@@ -425,9 +425,7 @@ EncodeHandler::~EncodeHandler() {
       if (!send_eos_ && handle_) {
         eos_lk.unlock();
         LOG(INFO) << "Send EOS in destruct";
-        CnFrame frame;
-        memset(&frame, 0, sizeof(CnFrame));
-        encoder_->SendDataCPU(frame, true);
+        encoder_->SendDataCPU({}, true);
       } else {
         if (!handle_) got_eos_ = true;
       }
