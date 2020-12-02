@@ -27,8 +27,8 @@ EASYDK_DIR=$CURRENT_DIR/..
 
   cmake -DBUILD_TESTS=ON -DCODE_COVERAGE_TEST=ON -DENABLE_KCF=OFF $EASYDK_DIR
   make -j8
-  export LD_LIBRARY_PATH=$LD_LIBRARY_PATH:../mlu/MLU270/libs/x86_64
-  ./tests/tests
+  export LD_LIBRARY_PATH=$LD_LIBRARY_PATH:/usr/local/neuware/lib64/
+  ./tests/tests_edk
   popd
 
   lcov --rc lcov_branch_coverage=1 -c -d . -o clog

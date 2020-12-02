@@ -173,16 +173,34 @@ class ModelLoader {
   /**
    * @brief Get model input data shapes
    *
+   * @deprecated use ModelLoader::InputShape(uint32_t) instead
    * @return Model input data shapes
    */
-  const std::vector<Shape>& InputShapes() const;
+  attribute_deprecated const std::vector<Shape>& InputShapes() const;
 
   /**
    * @brief Get model output data shapes
    *
+   * @deprecated use ModelLoader::OutputShape(uint32_t) instead
    * @return Model output data shapes
    */
-  const std::vector<Shape>& OutputShapes() const;
+  attribute_deprecated const std::vector<Shape>& OutputShapes() const;
+
+  /**
+   * @brief Get model input data shape
+   *
+   * @param index input index
+   * @return Model input data shape
+   */
+  const ShapeEx& InputShape(uint32_t index) const;
+
+  /**
+   * @brief Get model output data shape
+   *
+   * @param index output index
+   * @return Model output data shape
+   */
+  const ShapeEx& OutputShape(uint32_t index) const;
 
   /**
    * @brief Get model parallelism

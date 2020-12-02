@@ -40,21 +40,21 @@ namespace edk {
  */
 struct RateControl {
   /// Using variable bit rate or constant bit rate
-  bool vbr;
+  bool vbr{false};
   /// The interval of ISLICE.
-  uint32_t gop;
+  uint32_t gop{0};
   /// The numerator of encode frame rate of the venc channel
-  uint32_t frame_rate_num;
+  uint32_t frame_rate_num{0};
   /// The denominator of encode frame rate of the venc channel
-  uint32_t frame_rate_den;
+  uint32_t frame_rate_den{0};
   /// Average bitrate in unit of kpbs, for cbr only.
-  uint32_t bit_rate;
+  uint32_t bit_rate{0};
   /// The max bitrate in unit of kbps, for vbr only .
-  uint32_t max_bit_rate;
-  /// The max qp
-  uint32_t max_qp = 51;
-  /// The min qp
-  uint32_t min_qp = 0;
+  uint32_t max_bit_rate{0};
+  /// The max qp, range [min_qp, 51]
+  uint32_t max_qp{0};
+  /// The min qp, range [0, max_qp]
+  uint32_t min_qp{0};
 };
 
 /**
@@ -133,11 +133,11 @@ enum class GopType { BIDIRECTIONAL, LOW_DELAY, PYRAMID };
  * @attention Not support on MLU270 and MLU220
  */
 struct CropConfig {
-  bool enable = false;
-  uint32_t x;
-  uint32_t y;
-  uint32_t w;
-  uint32_t h;
+  bool enable{false};
+  uint32_t x{0};
+  uint32_t y{0};
+  uint32_t w{0};
+  uint32_t h{0};
 };
 
 /**

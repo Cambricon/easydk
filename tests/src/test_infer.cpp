@@ -46,6 +46,22 @@ TEST(Easyinfer, Shape) {
   EXPECT_TRUE(another_shape != shape);
 }
 
+TEST(Easyinfer, ShapeEx) {
+  edk::ShapeEx::value_type n = 1, c = 3, h = 124, w = 82;
+  edk::ShapeEx shape({n, h, w, c});
+  EXPECT_EQ(n, shape.N());
+  EXPECT_EQ(n, shape[0]);
+  EXPECT_EQ(h, shape.H());
+  EXPECT_EQ(h, shape[1]);
+  EXPECT_EQ(w, shape.W());
+  EXPECT_EQ(w, shape[2]);
+  EXPECT_EQ(c, shape.C());
+  EXPECT_EQ(c, shape[3]);
+  EXPECT_EQ(h * w * c, shape.DataCount());
+  EXPECT_EQ(n * c * h * w, shape.BatchDataCount());
+  std::cout << shape << std::endl;
+}
+
 TEST(Easyinfer, ModelLoader) {
   std::string function_name = "subnet0";
   edk::MluContext context;
@@ -64,27 +80,39 @@ TEST(Easyinfer, ModelLoader) {
   }
   int parallelism = 0, input_align = 0, output_align = 0;
   {
-    auto model_loader = std::make_shared<edk::ModelLoader>(model_path, function_name);
+    auto model = std::make_shared<edk::ModelLoader>(model_path, function_name);
 
     edk::DataLayout layout;
     layout.dtype = edk::DataType::FLOAT32;
     layout.order = edk::DimOrder::NHWC;
-    model_loader->SetCpuInputLayout(layout, 0);
+    model->SetCpuInputLayout(layout, 0);
     layout.dtype = edk::DataType::FLOAT32;
     layout.order = edk::DimOrder::NCHW;
-    model_loader->SetCpuOutputLayout(layout, 0);
+    model->SetCpuOutputLayout(layout, 0);
 
-    EXPECT_NO_THROW(model_loader->AdjustStackMemory());
-    parallelism = model_loader->ModelParallelism();
+    EXPECT_NO_THROW(model->AdjustStackMemory());
+    parallelism = model->ModelParallelism();
     EXPECT_NE(parallelism, 0);
-    input_align = model_loader->GetInputDataBatchAlignSize(0);
+    input_align = model->GetInputDataBatchAlignSize(0);
     EXPECT_NE(input_align, 0);
-    output_align = model_loader->GetOutputDataBatchAlignSize(0);
+    output_align = model->GetOutputDataBatchAlignSize(0);
     EXPECT_NE(output_align, 0);
-    ASSERT_FALSE(model_loader->InputShapes().empty());
-    EXPECT_GT(model_loader->InputShapes()[0].nhwc(), static_cast<uint32_t>(0));
-    ASSERT_FALSE(model_loader->OutputShapes().empty());
-    EXPECT_GT(model_loader->OutputShapes()[0].nhwc(), static_cast<uint32_t>(0));
+    ASSERT_FALSE(model->InputShapes().empty());
+    EXPECT_GT(model->InputShapes()[0].nhwc(), 0u);
+    ASSERT_FALSE(model->OutputShapes().empty());
+    EXPECT_GT(model->OutputShapes()[0].nhwc(), 0u);
+
+    ASSERT_NO_THROW(model->InputShape(0));
+    EXPECT_GT(model->InputShape(0).BatchDataCount(), 0);
+    ASSERT_NO_THROW(model->OutputShape(0));
+    EXPECT_GT(model->OutputShape(0).BatchDataCount(), 0);
+
+    for (size_t idx = 0; idx < model->InputNum(); ++idx) {
+      std::cout << "Model input shape[" << idx << "]: " << model->InputShape(idx) << std::endl;
+    }
+    for (size_t idx = 0; idx < model->OutputNum(); ++idx) {
+      std::cout << "Model output shape[" << idx << "]: " << model->OutputShape(idx) << std::endl;
+    }
   }
   {
     FILE *fd = fopen(model_path.c_str(), "rb");
@@ -101,25 +129,37 @@ TEST(Easyinfer, ModelLoader) {
       ASSERT_TRUE(false) << "read model file failed";
     }
 
-    auto model_loader = std::make_shared<edk::ModelLoader>(reinterpret_cast<void *>(mem_buf), function_name.c_str());
+    auto model = std::make_shared<edk::ModelLoader>(reinterpret_cast<void *>(mem_buf), function_name.c_str());
     delete[] mem_buf;
 
     edk::DataLayout layout;
     layout.dtype = edk::DataType::FLOAT32;
     layout.order = edk::DimOrder::NHWC;
-    model_loader->SetCpuInputLayout(layout, 0);
+    model->SetCpuInputLayout(layout, 0);
     layout.dtype = edk::DataType::FLOAT32;
     layout.order = edk::DimOrder::NCHW;
-    model_loader->SetCpuOutputLayout(layout, 0);
+    model->SetCpuOutputLayout(layout, 0);
 
-    EXPECT_EQ(parallelism, model_loader->ModelParallelism());
-    EXPECT_EQ(input_align, model_loader->GetInputDataBatchAlignSize(0));
-    EXPECT_EQ(output_align, model_loader->GetOutputDataBatchAlignSize(0));
-    EXPECT_NO_THROW(model_loader->AdjustStackMemory());
-    ASSERT_FALSE(model_loader->InputShapes().empty());
-    EXPECT_GT(model_loader->InputShapes()[0].nhwc(), static_cast<uint32_t>(0));
-    ASSERT_FALSE(model_loader->OutputShapes().empty());
-    EXPECT_GT(model_loader->OutputShapes()[0].nhwc(), static_cast<uint32_t>(0));
+    EXPECT_EQ(parallelism, model->ModelParallelism());
+    EXPECT_EQ(input_align, model->GetInputDataBatchAlignSize(0));
+    EXPECT_EQ(output_align, model->GetOutputDataBatchAlignSize(0));
+    EXPECT_NO_THROW(model->AdjustStackMemory());
+    ASSERT_FALSE(model->InputShapes().empty());
+    EXPECT_GT(model->InputShapes()[0].nhwc(), 0u);
+    ASSERT_FALSE(model->OutputShapes().empty());
+    EXPECT_GT(model->OutputShapes()[0].nhwc(), 0u);
+
+    ASSERT_NO_THROW(model->InputShape(0));
+    EXPECT_GT(model->InputShape(0).BatchDataCount(), 0);
+    ASSERT_NO_THROW(model->OutputShape(0));
+    EXPECT_GT(model->OutputShape(0).BatchDataCount(), 0);
+
+    for (size_t idx = 0; idx < model->InputNum(); ++idx) {
+      std::cout << "Model input shape[" << idx << "]: " << model->InputShape(idx) << std::endl;
+    }
+    for (size_t idx = 0; idx < model->OutputNum(); ++idx) {
+      std::cout << "Model output shape[" << idx << "]: " << model->OutputShape(idx) << std::endl;
+    }
   }
 }
 
@@ -173,14 +213,14 @@ TEST(Easyinfer, Infer) {
     } else {
       ASSERT_TRUE(false) << "Unsupport core version" << static_cast<int>(version);
     }
-    auto model_loader = std::make_shared<edk::ModelLoader>(model_path, function_name);
+    auto model = std::make_shared<edk::ModelLoader>(model_path, function_name);
 
     edk::MluMemoryOp mem_op;
-    mem_op.SetModel(model_loader);
-    EXPECT_EQ(mem_op.Model(), model_loader);
+    mem_op.SetModel(model);
+    EXPECT_EQ(mem_op.Model(), model);
     edk::EasyInfer infer;
-    infer.Init(model_loader, 0);
-    EXPECT_EQ(infer.Model(), model_loader);
+    infer.Init(model, 0);
+    EXPECT_EQ(infer.Model(), model);
     EXPECT_NE(infer.GetMluQueue().get(), nullptr);
 
     void **mlu_input = mem_op.AllocMluInput();

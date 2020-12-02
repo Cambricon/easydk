@@ -18,6 +18,8 @@
  * THE SOFTWARE.
  *************************************************************************/
 
+#include "easycodec/easy_decode.h"
+
 #include <cn_codec_common.h>
 #include <cn_jpeg_dec.h>
 #include <cn_video_dec.h>
@@ -26,20 +28,18 @@
 
 #include <condition_variable>
 #include <cstring>
-#include <iostream>
 #include <memory>
 #include <mutex>
 #include <queue>
 #include <string>
 #include <thread>
 #include <unordered_map>
-#include <utility>
 
-#include "cxxutil/threadsafe_queue.h"
-#include "easycodec/easy_decode.h"
 #include "format_info.h"
+#include "vpu_turbo_table.h"
 
 #ifdef ENABLE_TURBOJPEG
+#include "cxxutil/threadsafe_queue.h"
 extern "C" {
 #include "libyuv.h"
 #include "turbojpeg.h"
@@ -69,6 +69,7 @@ using std::unique_lock;
 
 #ifdef ENABLE_TURBOJPEG
 
+namespace edk {
 bool BGRToNV21(uint8_t* src, uint8_t* dst_y, int dst_y_stride, uint8_t* dst_uv, int dst_uv_stride,
                 int width, int height) {
   int i420_stride_y = width;
@@ -137,9 +138,7 @@ int CheckProgressiveMode(uint8_t* data, uint64_t length) {
   return 0;
 }
 
-namespace edk {
 
-static std::mutex g_vpu_instance_mutex;
 /* static constexpr unsigned int g_decode_input_buffer_size = 4 << 20; */
 
 static void PrintCreateAttr(cnvideoDecCreateInfo* p_attr) {
@@ -179,7 +178,9 @@ class DecodeHandler {
  public:
   explicit DecodeHandler(EasyDecode* decoder);
   ~DecodeHandler();
-  std::pair<bool, std::string> Init(const EasyDecode::Attr& attr);
+
+  void InitVideoDecode(const EasyDecode::Attr& attr);
+  void InitJpegDecode(const EasyDecode::Attr& attr);
 
   bool SendJpegData(const CnPacket& packet, bool eos);
   bool SendVideoData(const CnPacket& packet, bool eos, bool integral_frame);
@@ -208,6 +209,7 @@ class DecodeHandler {
   uint32_t SetVpuTimestamp(uint64_t pts);
   bool GetVpuTimestamp(uint32_t key, uint64_t *pts);
 
+  // event handle context
   std::queue<cncodecCbEventType> event_queue_;
   std::mutex event_mtx_;
   std::condition_variable event_cond_;
@@ -226,8 +228,8 @@ class DecodeHandler {
   uint32_t frames_count_ = 0;
   int minimum_buf_cnt_ = 0;
 
-  std::unordered_map<size_t, void*> memory_pool_map_;
 #ifdef ENABLE_TURBOJPEG
+  std::unordered_map<size_t, void*> memory_pool_map_;
   ThreadSafeQueue<size_t> memory_ids_;
   tjhandle tjinstance_;
   uint8_t* yuv_cpu_data_ = nullptr;
@@ -292,9 +294,7 @@ DecodeHandler::~DecodeHandler() {
       if (!send_eos_ && handle_) {
         eos_mtx_.unlock();
         LOG(INFO) << "Send EOS in destruct";
-        CnPacket packet;
-        memset(&packet, 0, sizeof(CnPacket));
-        decoder_->SendData(packet, true);
+        decoder_->SendData({}, true);
       } else {
         if (!handle_) got_eos_ = true;
       }
@@ -464,17 +464,16 @@ bool DecodeHandler::GetVpuTimestamp(uint32_t key, uint64_t *pts) {
   return false;
 }
 
-std::pair<bool, std::string> DecodeHandler::Init(const EasyDecode::Attr& attr) {
+void DecodeHandler::InitJpegDecode(const EasyDecode::Attr& attr) {
   attr_ = attr;
-  // 1. decoder create parameters.
-  jpeg_decode_ = attr.codec_type == CodecType::JPEG || attr.codec_type == CodecType::MJPEG;
+  jpeg_decode_ = true;
   pixel_fmt_info_ = FormatInfo::GetFormatInfo(attr.pixel_format);
-  if (jpeg_decode_) {
+
     memset(&jparams_, 0, sizeof(cnjpegDecCreateInfo));
     jparams_.deviceId = attr.dev_id;
     jparams_.instance = CNJPEGDEC_INSTANCE_AUTO;
     jparams_.pixelFmt = pixel_fmt_info_->cncodec_fmt;
-    jparams_.colorSpace = CNCODEC_COLOR_SPACE_BT_709;
+    jparams_.colorSpace = ColorStdCast(attr.color_std);
     jparams_.width = attr.frame_geometry.w;
     jparams_.height = attr.frame_geometry.h;
     jparams_.inputBufNum = attr.input_buffer_num;
@@ -489,7 +488,7 @@ std::pair<bool, std::string> DecodeHandler::Init(const EasyDecode::Attr& attr) {
     }
     int ecode = cnjpegDecCreate(&handle_, CNJPEGDEC_RUN_MODE_ASYNC, &EventHandler, &jparams_);
     if (0 != ecode) {
-      return std::make_pair(false, "Create jpeg decode failed: " + to_string(ecode));
+      THROW_EXCEPTION(Exception::INIT_FAILED, "Create jpeg decode failed: " + to_string(ecode));
     }
 #ifdef ENABLE_TURBOJPEG
     const size_t width = attr.frame_geometry.w;
@@ -512,55 +511,36 @@ std::pair<bool, std::string> DecodeHandler::Init(const EasyDecode::Attr& attr) {
     bgr_cpu_data_ = new uint8_t[width * height * 3];
     tjinstance_ = tjInitDecompress();
 #endif
+}
+
+void DecodeHandler::InitVideoDecode(const EasyDecode::Attr& attr) {
+  attr_ = attr;
+  // 1. decoder create parameters.
+  jpeg_decode_ = false;
+  pixel_fmt_info_ = FormatInfo::GetFormatInfo(attr.pixel_format);
+
+  memset(&vparams_, 0, sizeof(cnvideoDecCreateInfo));
+  vparams_.deviceId = attr.dev_id;
+  if (const char* turbo_env_p = std::getenv("VPU_TURBO_MODE")) {
+    LOG(INFO) << "VPU Turbo mode : " << turbo_env_p;
+    static std::mutex vpu_instance_mutex;
+    std::unique_lock<std::mutex> lk(vpu_instance_mutex);
+    static int _vpu_inst_cnt = 0;
+    vparams_.instance = g_vpudec_instances[_vpu_inst_cnt++ % 100];
   } else {
-    memset(&vparams_, 0, sizeof(cnvideoDecCreateInfo));
-    vparams_.deviceId = attr.dev_id;
-    if (const char* turbo_env_p = std::getenv("VPU_TURBO_MODE")) {
-      LOG(INFO) << "VPU Turbo mode : " << turbo_env_p;
-      std::unique_lock<std::mutex> lk(g_vpu_instance_mutex);
-      static int _vpu_inst_cnt = 0;
-      static cnvideoDecInstance _instances[] = {
-          // 100 channels:20+14+15+15+14+22
-          CNVIDEODEC_INSTANCE_0, CNVIDEODEC_INSTANCE_1, CNVIDEODEC_INSTANCE_2, CNVIDEODEC_INSTANCE_3,
-          CNVIDEODEC_INSTANCE_4, CNVIDEODEC_INSTANCE_5, CNVIDEODEC_INSTANCE_0, CNVIDEODEC_INSTANCE_1,
-          CNVIDEODEC_INSTANCE_2, CNVIDEODEC_INSTANCE_3, CNVIDEODEC_INSTANCE_4, CNVIDEODEC_INSTANCE_5,
-          CNVIDEODEC_INSTANCE_0, CNVIDEODEC_INSTANCE_1, CNVIDEODEC_INSTANCE_2, CNVIDEODEC_INSTANCE_3,
-          CNVIDEODEC_INSTANCE_4, CNVIDEODEC_INSTANCE_5, CNVIDEODEC_INSTANCE_0, CNVIDEODEC_INSTANCE_1,
-          CNVIDEODEC_INSTANCE_2, CNVIDEODEC_INSTANCE_3, CNVIDEODEC_INSTANCE_4, CNVIDEODEC_INSTANCE_5,
-          CNVIDEODEC_INSTANCE_0, CNVIDEODEC_INSTANCE_1, CNVIDEODEC_INSTANCE_2, CNVIDEODEC_INSTANCE_3,
-          CNVIDEODEC_INSTANCE_4, CNVIDEODEC_INSTANCE_5, CNVIDEODEC_INSTANCE_0, CNVIDEODEC_INSTANCE_1,
-          CNVIDEODEC_INSTANCE_2, CNVIDEODEC_INSTANCE_3, CNVIDEODEC_INSTANCE_4, CNVIDEODEC_INSTANCE_5,
-          CNVIDEODEC_INSTANCE_0, CNVIDEODEC_INSTANCE_1, CNVIDEODEC_INSTANCE_2, CNVIDEODEC_INSTANCE_3,
-          CNVIDEODEC_INSTANCE_4, CNVIDEODEC_INSTANCE_5, CNVIDEODEC_INSTANCE_0, CNVIDEODEC_INSTANCE_1,
-          CNVIDEODEC_INSTANCE_2, CNVIDEODEC_INSTANCE_3, CNVIDEODEC_INSTANCE_4, CNVIDEODEC_INSTANCE_5,
-          CNVIDEODEC_INSTANCE_0, CNVIDEODEC_INSTANCE_1, CNVIDEODEC_INSTANCE_2, CNVIDEODEC_INSTANCE_3,
-          CNVIDEODEC_INSTANCE_4, CNVIDEODEC_INSTANCE_5, CNVIDEODEC_INSTANCE_0, CNVIDEODEC_INSTANCE_1,
-          CNVIDEODEC_INSTANCE_2, CNVIDEODEC_INSTANCE_3, CNVIDEODEC_INSTANCE_4, CNVIDEODEC_INSTANCE_5,
-          CNVIDEODEC_INSTANCE_0, CNVIDEODEC_INSTANCE_1, CNVIDEODEC_INSTANCE_2, CNVIDEODEC_INSTANCE_3,
-          CNVIDEODEC_INSTANCE_4, CNVIDEODEC_INSTANCE_5, CNVIDEODEC_INSTANCE_0, CNVIDEODEC_INSTANCE_1,
-          CNVIDEODEC_INSTANCE_2, CNVIDEODEC_INSTANCE_3, CNVIDEODEC_INSTANCE_4, CNVIDEODEC_INSTANCE_5,
-          CNVIDEODEC_INSTANCE_0, CNVIDEODEC_INSTANCE_1, CNVIDEODEC_INSTANCE_2, CNVIDEODEC_INSTANCE_3,
-          CNVIDEODEC_INSTANCE_4, CNVIDEODEC_INSTANCE_5, CNVIDEODEC_INSTANCE_0, CNVIDEODEC_INSTANCE_1,
-          CNVIDEODEC_INSTANCE_3, CNVIDEODEC_INSTANCE_4, CNVIDEODEC_INSTANCE_5, CNVIDEODEC_INSTANCE_0,
-          CNVIDEODEC_INSTANCE_5, CNVIDEODEC_INSTANCE_0, CNVIDEODEC_INSTANCE_5, CNVIDEODEC_INSTANCE_0,
-          CNVIDEODEC_INSTANCE_5, CNVIDEODEC_INSTANCE_0, CNVIDEODEC_INSTANCE_5, CNVIDEODEC_INSTANCE_0,
-          CNVIDEODEC_INSTANCE_5, CNVIDEODEC_INSTANCE_0, CNVIDEODEC_INSTANCE_5, CNVIDEODEC_INSTANCE_3,
-          CNVIDEODEC_INSTANCE_5, CNVIDEODEC_INSTANCE_5, CNVIDEODEC_INSTANCE_2, CNVIDEODEC_INSTANCE_2};
-      vparams_.instance = _instances[_vpu_inst_cnt++ % 100];
-    } else {
-      vparams_.instance = CNVIDEODEC_INSTANCE_AUTO;
-    }
-    vparams_.codec = CodecTypeCast(attr.codec_type);
-    vparams_.pixelFmt = pixel_fmt_info_->cncodec_fmt;
-    vparams_.colorSpace = ColorStdCast(attr.color_std);
-    vparams_.width = attr.frame_geometry.w;
-    vparams_.height = attr.frame_geometry.h;
-    vparams_.bitDepthMinus8 = attr.pixel_format == PixelFmt::P010 ? 2 : 0;
-    vparams_.progressive = attr.interlaced ? 0 : 1;
-    vparams_.inputBufNum = attr.input_buffer_num;
-    vparams_.outputBufNum = attr.output_buffer_num;
-    vparams_.allocType = CNCODEC_BUF_ALLOC_LIB;
-    vparams_.userContext = reinterpret_cast<void*>(this);
+    vparams_.instance = CNVIDEODEC_INSTANCE_AUTO;
+  }
+  vparams_.codec = CodecTypeCast(attr.codec_type);
+  vparams_.pixelFmt = pixel_fmt_info_->cncodec_fmt;
+  vparams_.colorSpace = ColorStdCast(attr.color_std);
+  vparams_.width = attr.frame_geometry.w;
+  vparams_.height = attr.frame_geometry.h;
+  vparams_.bitDepthMinus8 = attr.pixel_format == PixelFmt::P010 ? 2 : 0;
+  vparams_.progressive = attr.interlaced ? 0 : 1;
+  vparams_.inputBufNum = attr.input_buffer_num;
+  vparams_.outputBufNum = attr.output_buffer_num;
+  vparams_.allocType = CNCODEC_BUF_ALLOC_LIB;
+  vparams_.userContext = reinterpret_cast<void*>(this);
 
 #ifdef ALLOC_BUFFER
     if (attr.buf_strategy == BufferStrategy::EDK) {
@@ -578,18 +558,13 @@ std::pair<bool, std::string> DecodeHandler::Init(const EasyDecode::Attr& attr) {
 
     int ecode = cnvideoDecCreate(&handle_, &EventHandler, &vparams_);
     if (0 != ecode) {
-      return std::make_pair(false, "Create video decode failed: " + to_string(ecode));
+      THROW_EXCEPTION(Exception::INIT_FAILED, "Create video decode failed: " + to_string(ecode));
     }
 
-    int ret = cnvideoDecSetAttributes(handle_, CNVIDEO_DEC_ATTR_OUT_BUF_ALIGNMENT, &(attr_.stride_align));
-    if (CNCODEC_SUCCESS != ret) {
-      return std::make_pair(false, "cnvideo decode set attributes faild: " + to_string(ret));
+    ecode = cnvideoDecSetAttributes(handle_, CNVIDEO_DEC_ATTR_OUT_BUF_ALIGNMENT, &(attr_.stride_align));
+    if (CNCODEC_SUCCESS != ecode) {
+      THROW_EXCEPTION(Exception::INIT_FAILED, "cnvideo decode set attributes faild: " + to_string(ecode));
     }
-  }
-
-  status_ = EasyDecode::Status::RUNNING;
-
-  return std::make_pair(true, "Init succeed");
 }
 
 void DecodeHandler::ReceiveFrame(void* out) {
@@ -724,8 +699,8 @@ bool DecodeHandler::SendJpegData(const CnPacket& packet, bool eos) {
       input.streamLength = packet.length;
       input.pts = packet.pts;
       input.flags = CNJPEGDEC_FLAG_TIMESTAMP;
-      VLOG(5) << "Feed stream info, data: " << input.streamBuffer << " ,length: " << input.streamLength
-              << " ,pts: " << input.pts;
+      VLOG(5) << "Feed stream info, data: " << reinterpret_cast<void*>(input.streamBuffer)
+              << " ,length: " << input.streamLength << " ,pts: " << input.pts;
 
       auto ecode = cnjpegDecFeedData(handle_, &input, 10000);
       if (-CNCODEC_TIMEOUT == ecode) {
@@ -924,21 +899,7 @@ void DecodeHandler::FreeOutputBuffer(const cnvideoDecCreateInfo& params) {
 }
 #endif
 
-EasyDecode* EasyDecode::Create(const Attr& attr) {
-  auto decoder = new EasyDecode();
-  // init members
-  decoder->handler_ = new DecodeHandler(decoder);
-
-  std::pair<bool, std::string> ret = decoder->handler_->Init(attr);
-  if (!ret.first) {
-    delete decoder->handler_;
-    decoder->handler_ = nullptr;
-    delete decoder;
-    THROW_EXCEPTION(Exception::INIT_FAILED, ret.second);
-  }
-
-  return decoder;
-}  // EasyDecode::Create
+EasyDecode* EasyDecode::Create(const Attr& attr) { return new EasyDecode(attr); }
 
 std::unique_ptr<EasyDecode> EasyDecode::New(const Attr& attr) {
   struct __ShowCodecVersion {
@@ -950,21 +911,24 @@ std::unique_ptr<EasyDecode> EasyDecode::New(const Attr& attr) {
   };
   static __ShowCodecVersion show_version;
 
-  auto decoder = new EasyDecode();
-  // init members
-  decoder->handler_ = new DecodeHandler(decoder);
-
-  std::pair<bool, std::string> ret = decoder->handler_->Init(attr);
-  if (!ret.first) {
-    delete decoder->handler_;
-    decoder->handler_ = nullptr;
-    delete decoder;
-    THROW_EXCEPTION(Exception::INIT_FAILED, ret.second);
-  }
-  return std::unique_ptr<EasyDecode>(decoder);
+  return std::unique_ptr<EasyDecode>(new EasyDecode(attr));
 }
 
-EasyDecode::EasyDecode() {}
+EasyDecode::EasyDecode(const Attr& attr) {
+  handler_ = new DecodeHandler(this);
+  bool jpeg_decode = attr.codec_type == CodecType::JPEG || attr.codec_type == CodecType::MJPEG;
+  try {
+    if (jpeg_decode) {
+      handler_->InitJpegDecode(attr);
+    } else {
+      handler_->InitVideoDecode(attr);
+    }
+  } catch (...) {
+    delete handler_;
+    handler_ = nullptr;
+    throw;
+  }
+}
 
 EasyDecode::~EasyDecode() {
   if (handler_) {
@@ -1039,13 +1003,15 @@ bool EasyDecode::SendData(const CnPacket& packet, bool eos, bool integral_frame)
 void EasyDecode::ReleaseBuffer(uint64_t buf_id) {
   VLOG(4) << "Release decode buffer reference " << buf_id;
   if (handler_->jpeg_decode_) {
-    if (handler_->memory_pool_map_.find(buf_id) != handler_->memory_pool_map_.end()) {
 #ifdef ENABLE_TURBOJPEG
+    if (handler_->memory_pool_map_.find(buf_id) != handler_->memory_pool_map_.end()) {
       handler_->ReleaseBuffer(buf_id);
-#endif
     } else {
       cnjpegDecReleaseReference(handler_->handle_, reinterpret_cast<cncodecFrame*>(buf_id));
     }
+#else
+    cnjpegDecReleaseReference(handler_->handle_, reinterpret_cast<cncodecFrame*>(buf_id));
+#endif
   } else {
     cnvideoDecReleaseReference(handler_->handle_, reinterpret_cast<cncodecFrame*>(buf_id));
   }

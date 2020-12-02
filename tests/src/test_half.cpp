@@ -19,7 +19,7 @@ TEST(EasyBang_Half, operator) {
 
   ret = h2 - h1;
 
-  EXPECT_TRUE((int)ret == 100);
+  EXPECT_EQ(static_cast<int>(ret), 100);
 
   ret = h2 / h1;
 
@@ -39,15 +39,15 @@ TEST(EasyBang_Half, operator) {
 
   ret = 1 + ret;
 
-  EXPECT_TRUE(int(ret) == 3);
+  EXPECT_EQ(static_cast<int>(ret), 3);
 
-  float tf = (float)ret;
+  float tf = static_cast<float>(ret);
 
-  EXPECT_TRUE(tf == 3.0f);
+  EXPECT_EQ(tf, 3.0f);
 
-  double td = (double)ret;
+  double td = static_cast<double>(ret);
 
-  EXPECT_TRUE(td == 3.0);
+  EXPECT_EQ(td, 3.0);
 
   std::stringstream ss;
   ss << ret;
