@@ -146,7 +146,7 @@ void **MluMemoryOp::AllocCpuInput() const {
   void **ret = new void *[num];
   for (uint32_t i = 0; i < num; ++i) {
     auto &shape = model_->InputShape(i);
-    uint64_t data_size = shape.DataCount();
+    uint64_t data_size = shape.BatchDataCount();
     VLOG(4) << "Alloc CPU input memory (" << i << ") on CPU in " << data_size << " bytes";
     ret[i] = reinterpret_cast<void *>(new float[data_size]);
   }
@@ -164,9 +164,8 @@ void **MluMemoryOp::AllocCpuOutput() const {
   void **ret = new void *[num];
   for (uint32_t i = 0; i < num; ++i) {
     auto &shape = model_->OutputShape(i);
-    uint64_t data_size = shape.DataCount();
-    VLOG(4) << "Alloc output memory (" << i << ")"
-            << "on CPU in " << data_size;
+    uint64_t data_size = shape.BatchDataCount();
+    VLOG(4) << "Alloc output memory (" << i << ") on CPU in " << data_size << " bytes";
     ret[i] = reinterpret_cast<void *>(new float[data_size]);
   }
   return ret;
