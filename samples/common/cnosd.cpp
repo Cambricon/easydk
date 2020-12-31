@@ -1,9 +1,35 @@
+/*************************************************************************
+ * Copyright (C) [2019] by Cambricon, Inc. All rights reserved
+ *
+ *  Licensed under the Apache License, Version 2.0 (the "License");
+ *  you may not use this file except in compliance with the License.
+ *  You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * The above copyright notice and this permission notice shall be included in
+ * all copies or substantial portions of the Software.
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS
+ * OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL
+ * THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+ * THE SOFTWARE.
+ *************************************************************************/
+
 #include "cnosd.h"
 #include <algorithm>
 #include <string>
 #include <vector>
 
 using std::to_string;
+
+#if CV_VERSION_EPOCH == 2
+#define OPENCV_MAJOR_VERSION 2
+#elif CV_VERSION_MAJOR >= 3
+#define OPENCV_MAJOR_VERSION CV_VERSION_MAJOR
+#endif
 
 // Keep 2 digits after decimal
 static string FloatToString(float number) {
@@ -89,11 +115,11 @@ static vector<string> LoadLabels(const string& filename) {
   return labels;
 }
 
-CnOsd::CnOsd(size_t rows, size_t cols, const vector<string>& labels) : rows_(rows), cols_(cols), labels_(labels) {
+CnOsd::CnOsd(const vector<string>& labels) : labels_(labels) {
   colors_ = ::GenerateColors(labels_.size());
 }
 
-CnOsd::CnOsd(size_t rows, size_t cols, const string& label_fname) : rows_(rows), cols_(cols) {
+CnOsd::CnOsd(const string& label_fname) {
   LoadLabels(label_fname);
 }
 
@@ -111,11 +137,6 @@ void CnOsd::DrawId(Mat image, string text) const {
   cv::putText(image, text, Point(0, text_size.height), font_, scale, color, 1, 8, false);
 }
 
-void CnOsd::DrawId(Mat image, size_t chn_id) const {
-  string text = "CHN:" + std::to_string(chn_id);
-  DrawId(image, text);
-}
-
 void CnOsd::DrawFps(Mat image, float fps) const {
   // check input data
   if (image.cols * image.rows == 0) {
@@ -129,92 +150,10 @@ void CnOsd::DrawFps(Mat image, float fps) const {
   cv::putText(image, text, Point(image.cols - text_size.width, text_size.height), font_, scale, color, 1, 8, false);
 }
 
-void CnOsd::DrawChannelFps(Mat image, const vector<float>& fps) const {
-  // check input data
-  if (cols() * rows() == 0) {
-    return;
-  }
-
-  if (image.cols * image.rows == 0) {
-    return;
-  }
-
-  // draw
-  size_t width = image.cols / cols();
-  size_t height = image.rows / rows();
-  size_t chns = chn_num();
-  size_t process_chn_num = std::min(chns, fps.size());
-
-  for (decltype(process_chn_num) chn = 0; chn < process_chn_num; ++chn) {
-    size_t r = chn / cols();  // channel on which row.
-    size_t c = chn % cols();  // channel on which col.
-    Mat roi = image(cv::Rect(c * width, r * height, width, height));
-    DrawFps(roi, fps[chn]);
-  }
-}
-
-void CnOsd::DrawChannelFps(Mat image, float* fps, size_t len) const {
-  vector<float> vec;
-  vec.reserve(len);
-  for (size_t i = 0; i < len; ++i) {
-    vec.push_back(fps[i]);
-  }
-  DrawChannelFps(image, vec);
-}
-
-void CnOsd::DrawChannels(Mat image) const {
-  // check input data
-  if (cols() * rows() == 0) {
-    // Invalid tiling cols() * rows()
-    return;
-  }
-
-  if (image.cols * image.rows == 0) {
-    // Invalid image size [image.cols * image.rows]
-    return;
-  }
-
-  // draw
-  size_t width = image.cols / cols();
-  size_t height = image.rows / rows();
-  for (size_t chn = 0; chn < chn_num(); ++chn) {
-    size_t r = chn / cols();  // channel on which row.
-    size_t c = chn % cols();  // channel on which col.
-    cv::Mat roi = image(cv::Rect(c * width, r * height, width, height));
-    DrawId(roi, chn);
-  }
-}
-
-void CnOsd::DrawChannel(Mat image, size_t chn_id) const {
-  // check input data
-  if (cols() * rows() == 0) {
-    // Invalid tiling cols() * rows()
-    return;
-  }
-
-  if (image.cols * image.rows == 0) {
-    // Invalid image size [image.cols * image.rows]
-    return;
-  }
-
-  if (chn_id >= chn_num()) {
-    // Invalid channel id: chn_id while there are chn_num() channels
-    return;
-  }
-
-  // draw
-  size_t width = image.cols / cols();
-  size_t height = image.rows / rows();
-  size_t r = chn_id / cols();  // channel on which row.
-  size_t c = chn_id % cols();  // channel on which col.
-  cv::Mat roi = image(cv::Rect(c * width, r * height, width, height));
-  DrawId(roi, chn_id);
-}
-
 // tl: top left
 // br: bottom right
 // bl: bottom left
-void CnOsd::DrawLabel(Mat image, const vector<edk::DetectObject>& objects, bool tiled) const {
+void CnOsd::DrawLabel(Mat image, const vector<edk::DetectObject>& objects) const {
   // check input data
   if (image.rows * image.cols == 0) {
     return;
@@ -250,10 +189,6 @@ void CnOsd::DrawLabel(Mat image, const vector<edk::DetectObject>& objects, bool 
 
     float scale = CalScale(image.cols * image.rows);
 
-    if (tiled && (cols() * rows() != 0)) {
-      scale = scale / (cols() * rows());
-    }
-
     int text_thickness = 1;
     cv::Size text_size = cv::getTextSize(text, font_, scale, text_thickness, nullptr);
 
@@ -270,7 +205,11 @@ void CnOsd::DrawLabel(Mat image, const vector<edk::DetectObject>& objects, bool 
       label_right.x = image.cols;
       label_left.x = image.cols - text_size.width;
     }
+#if OPENCV_MAJOR_VERSION > 2
+    cv::rectangle(image, label_left, label_right, color, cv::FILLED);
+#else
     cv::rectangle(image, label_left, label_right, color, CV_FILLED);
+#endif
     cv::putText(image, text, label_left + Point(0, text_size.height), font_, scale, Scalar(255, 255, 255) - color,
                 text_thickness, 8, false);
   }

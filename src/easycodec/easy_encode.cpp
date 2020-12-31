@@ -826,19 +826,6 @@ static int32_t EventHandler(cncodecCbEventType type, void *user_data, void *pack
   return 0;
 }
 
-EasyEncode* EasyEncode::Create(const Attr &attr) {
-  LOG(INFO) << "Create EasyEncode";
-  auto encoder = new EasyEncode();
-  try {
-    encoder->handler_ = new EncodeHandler(encoder, attr);
-  } catch (Exception &e) {
-    LOG(ERROR) << "Create encode failed, error message: " << e.what();
-    delete encoder;
-    return nullptr;
-  }
-  return encoder;
-}
-
 std::unique_ptr<EasyEncode> EasyEncode::New(const Attr &attr) {
   struct __ShowCodecVersion {
     __ShowCodecVersion() {

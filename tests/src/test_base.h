@@ -24,6 +24,5 @@
 #include <string>
 
 std::string GetExePath();
-void CheckExePath(const std::string& path);
 
 #endif  // TEST_BASE_H_

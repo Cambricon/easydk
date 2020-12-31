@@ -160,22 +160,6 @@ bool MluResizeYuv2Rgba::Init(const MluResizeAttr& attr) {
   return success;
 }
 
-int MluResizeYuv2Rgba::InvokeOp(void* dst, void* srcY, void* srcUV) {
-  if (nullptr == d_ptr_->queue_) {
-    THROW_EXCEPTION(Exception::INTERNAL, "cnrt queue is null.");
-  }
-  if (d_ptr_->attr_.batch_size != 1) {
-    THROW_EXCEPTION(Exception::INVALID_ARG,
-                    "InvokeOp is vaild only if the batchsize is 1. Please Use BatchingUp "
-                    "and SyncOneOutput to replase InvokeOp.");
-  }
-  BatchingUp(srcY, srcUV);
-  if (!SyncOneOutput(dst)) {
-    return -1;
-  }
-  return 0;
-}
-
 void MluResizeYuv2Rgba::BatchingUp(void* src_y, void* src_uv) {
   VLOG(5) << "Store resize and convert operator input for batching, " << src_y << " , " << src_uv;
   d_ptr_->yuv_ptrs_cache_.push_back(std::make_pair(src_y, src_uv));

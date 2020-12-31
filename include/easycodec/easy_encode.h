@@ -237,15 +237,6 @@ class EasyEncode {
 
   /**
    * @brief Create encoder by attr. Throw a Exception while error encountered.
-   *        use New(const Attr&) instead
-   * @deprecated
-   * @param attr Encoder attribute description
-   * @return Pointer to new encoder instance
-   */
-  attribute_deprecated static EasyEncode* Create(const Attr& attr);
-
-  /**
-   * @brief Create encoder by attr. Throw a Exception while error encountered.
    * @param attr Encoder attribute description
    * @return Pointer to new encoder instance
    */

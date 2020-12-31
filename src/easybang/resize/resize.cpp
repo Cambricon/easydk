@@ -145,22 +145,6 @@ bool MluResize::Init(const MluResize::Attr& attr) {
                                    &d_ptr_->estr_);
 }
 
-int MluResize::InvokeOp(void* dst_y, void* dst_uv, void* srcY, void* srcUV) {
-  if (nullptr == d_ptr_->queue_) {
-    THROW_EXCEPTION(Exception::INTERNAL, "cnrt queue is null.");
-  }
-  if (d_ptr_->attr_.batch_size != 1) {
-    THROW_EXCEPTION(Exception::INVALID_ARG,
-                    "InvokeOp is vaild only if the batchsize is 1. Please Use BatchingUp "
-                    "and SyncOneOutput to replase InvokeOp.");
-  }
-  BatchingUp(srcY, srcUV);
-  if (!SyncOneOutput(dst_y, dst_uv)) {
-    return -1;
-  }
-  return 0;
-}
-
 void MluResize::BatchingUp(void* src_y, void* src_uv) {
   d_ptr_->yuv_ptrs_cache_.push_back(std::make_pair(src_y, src_uv));
 }

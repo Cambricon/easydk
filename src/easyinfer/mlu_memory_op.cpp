@@ -128,11 +128,7 @@ static void TransLayout(const DataLayout &src_layout, const DataLayout &dst_layo
 
 MluMemoryOp::MluMemoryOp() : model_(nullptr) {}
 
-void MluMemoryOp::SetLoader(std::shared_ptr<ModelLoader> model) { model_ = model; }
-
 void MluMemoryOp::SetModel(std::shared_ptr<ModelLoader> model) { model_ = model; }
-
-std::shared_ptr<ModelLoader> MluMemoryOp::Loader() const { return model_; }
 
 std::shared_ptr<ModelLoader> MluMemoryOp::Model() const { return model_; }
 
@@ -152,7 +148,6 @@ void **MluMemoryOp::AllocCpuInput() const {
   }
   return ret;
 }
-void **MluMemoryOp::AllocCpuInput(uint32_t batch_size) const { return AllocCpuInput(); }
 
 void **MluMemoryOp::AllocCpuOutput() const {
   CHECK_MODEL_LOADER;
@@ -170,7 +165,6 @@ void **MluMemoryOp::AllocCpuOutput() const {
   }
   return ret;
 }
-void **MluMemoryOp::AllocCpuOutput(uint32_t batch_size) const { return AllocCpuOutput(); }
 
 void **MluMemoryOp::AllocMluInput() const {
   CHECK_MODEL_LOADER;
@@ -192,7 +186,6 @@ void **MluMemoryOp::AllocMluInput() const {
   }
   return ret;
 }
-void **MluMemoryOp::AllocMluInput(uint32_t batch_size) const { return AllocMluInput(); }
 
 void **MluMemoryOp::AllocMluOutput() const {
   CHECK_MODEL_LOADER;
@@ -214,7 +207,6 @@ void **MluMemoryOp::AllocMluOutput() const {
   }
   return ret;
 }
-void **MluMemoryOp::AllocMluOutput(uint32_t batch_size) const { return AllocMluOutput(); }
 
 void *MluMemoryOp::AllocMlu(size_t nBytes) const {
   void *ret = nullptr;
@@ -224,7 +216,6 @@ void *MluMemoryOp::AllocMlu(size_t nBytes) const {
   CHECK_CNRT_RET(error_code, "Mlu malloc failed.");
   return ret;
 }
-void *MluMemoryOp::AllocMlu(size_t nBytes, uint32_t batch_size) const { return AllocMlu(nBytes * batch_size); }
 
 void MluMemoryOp::FreeCpuInput(void **ptr) const {
   CHECK_MODEL_LOADER;
@@ -242,17 +233,6 @@ void MluMemoryOp::FreeCpuOutput(void **ptr) const {
   uint32_t num = model_->OutputNum();
   for (uint32_t i = 0; i < num; ++i) {
     delete[] reinterpret_cast<float *>(ptr[i]);
-  }
-  delete[] ptr;
-}
-
-void MluMemoryOp::FreeArrayMlu(void **ptr, uint32_t mem_num) const {
-  VLOG(4) << "Free memory array on MLU";
-  for (uint32_t i = 0; i < mem_num; ++i) {
-    cnrtRet_t ret = cnrtFree(ptr[i]);
-    if (ret != CNRT_RET_SUCCESS) {
-      LOG(ERROR) << "free MLU memory array failed";
-    }
   }
   delete[] ptr;
 }
@@ -317,9 +297,6 @@ void MluMemoryOp::MemcpyInputH2D(void **mlu_dst, void **cpu_src) const {
     free(temp_data);
   }
 }
-void MluMemoryOp::MemcpyInputH2D(void **mlu_dst, void **cpu_src, uint32_t batch_size) const {
-  MemcpyInputH2D(mlu_dst, cpu_src);
-}
 
 void MluMemoryOp::MemcpyOutputD2H(void **cpu_dst, void **mlu_src) const {
   CHECK_MODEL_LOADER;
@@ -345,9 +322,6 @@ void MluMemoryOp::MemcpyOutputD2H(void **cpu_dst, void **mlu_src) const {
     free(temp_data);
   }
 }
-void MluMemoryOp::MemcpyOutputD2H(void **cpu_dst, void **mlu_src, uint32_t batch_size) const {
-  MemcpyOutputD2H(cpu_dst, mlu_src);
-}
 
 void MluMemoryOp::MemcpyH2D(void *mlu_dst, void *cpu_src, size_t nBytes) const {
   cnrtRet_t error_code;
@@ -356,9 +330,6 @@ void MluMemoryOp::MemcpyH2D(void *mlu_dst, void *cpu_src, size_t nBytes) const {
   error_code = cnrtMemcpy(mlu_dst, cpu_src, nBytes, CNRT_MEM_TRANS_DIR_HOST2DEV);
   CHECK_CNRT_RET(error_code, "Memcpy host to device failed.");
 }
-void MluMemoryOp::MemcpyH2D(void *mlu_dst, void *cpu_src, size_t nBytes, uint32_t batch_size) const {
-  MemcpyH2D(mlu_dst, cpu_src, nBytes);
-}
 
 void MluMemoryOp::MemcpyD2H(void *cpu_dst, void *mlu_src, size_t nBytes) const {
   cnrtRet_t error_code;
@@ -366,9 +337,6 @@ void MluMemoryOp::MemcpyD2H(void *cpu_dst, void *mlu_src, size_t nBytes) const {
           << ", src: " << mlu_src;
   error_code = cnrtMemcpy(cpu_dst, mlu_src, nBytes, CNRT_MEM_TRANS_DIR_DEV2HOST);
   CHECK_CNRT_RET(error_code, "Memcpy host to device failed.");
-}
-void MluMemoryOp::MemcpyD2H(void *cpu_dst, void *mlu_src, size_t nBytes, uint32_t batch_size) const {
-  MemcpyD2H(cpu_dst, mlu_src, nBytes);
 }
 
 void MluMemoryOp::MemcpyD2D(void *mlu_dst, void *mlu_src, size_t nBytes) const {

@@ -110,16 +110,6 @@ class EasyDecode {
 
   /**
    * @brief Create decoder by attr. Throw a Exception while error encountered.
-   *        use New(const Attr&) instead
-   * @deprecated
-   * @param attr Decoder attribute description
-   * @attention status is RUNNING after object be constructed.
-   * @return Pointer to new decoder instance
-   */
-  attribute_deprecated static EasyDecode* Create(const Attr& attr) noexcept(false);
-
-  /**
-   * @brief Create decoder by attr. Throw a Exception while error encountered.
    * @param attr Decoder attribute description
    * @attention status is RUNNING after object be constructed.
    * @return Pointer to new decoder instance
@@ -158,13 +148,36 @@ class EasyDecode {
    * @brief Send data to decoder, block when STATUS is pause.
    *        An Exception is thrown when send data failed.
    *
+   * @deprecated use `bool FeedData(const CnPacket&, bool)` and `bool FeedEos()` instead
    * @param packet bytestream data
    * @param eos indicate whether this packet is end-of-stream
    * @param integral_frame indicate whether packet contain an integral frame
    *
    * @return return false when STATUS is not UNINITIALIZED or STOP.
    */
-  bool SendData(const CnPacket& packet, bool eos = false, bool integral_frame = false) noexcept(false);
+  attribute_deprecated bool SendData(const CnPacket& packet, bool eos = false,
+                                     bool integral_frame = false) noexcept(false);
+
+  /**
+   * @brief Send data to decoder, block when STATUS is pause.
+   *        An Exception is thrown when send data failed.
+   *
+   * @param packet bytestream data
+   * @param integral_frame indicate whether packet contain an integral frame
+   *
+   * @retval true Feed data succeed
+   * @retval false otherwise
+   */
+  bool FeedData(const CnPacket& packet, bool integral_frame = true) noexcept(false);
+
+  /**
+   * @brief Send EOS to decoder, block when STATUS is pause.
+   *        An Exception is thrown when send EOS failed.
+   *
+   * @retval false if an EOS has been sent
+   * @retval true otherwise.
+   */
+  bool FeedEos() noexcept(false);
 
   /**
    * @brief Release decoder's buffer.

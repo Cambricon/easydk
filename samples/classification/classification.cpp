@@ -1,0 +1,94 @@
+/*************************************************************************
+ * Copyright (C) [2020] by Cambricon, Inc. All rights reserved
+ *
+ *  Licensed under the Apache License, Version 2.0 (the "License");
+ *  you may not use this file except in compliance with the License.
+ *  You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * The above copyright notice and this permission notice shall be included in
+ * all copies or substantial portions of the Software.
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS
+ * OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL
+ * THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+ * THE SOFTWARE.
+ *************************************************************************/
+
+#include <gflags/gflags.h>
+#include <glog/logging.h>
+#include <unistd.h>
+
+#include <csignal>
+#include <future>
+#include <iostream>
+#include <memory>
+#include <utility>
+
+#include "device/mlu_context.h"
+#include "classification_runner.h"
+
+DEFINE_bool(show, false, "show image");
+DEFINE_bool(save_video, true, "save output to local video file");
+DEFINE_int32(repeat_time, 0, "process repeat time");
+DEFINE_string(data_path, "", "video path");
+DEFINE_string(model_path, "", "infer offline model path");
+DEFINE_string(label_path, "", "label path");
+DEFINE_string(func_name, "subnet0", "model function name");
+DEFINE_int32(wait_time, 0, "time of one test case");
+
+std::shared_ptr<StreamRunner> g_runner;
+bool g_exit = false;
+
+void HandleSignal(int sig) {
+  g_runner->Stop();
+  g_exit = true;
+  LOG(INFO) << "Got INT signal, ready to exit!";
+}
+
+int main(int argc, char** argv) {
+  gflags::ParseCommandLineFlags(&argc, &argv, true);
+
+  // check params
+  CHECK_NE(FLAGS_data_path.size(), 0u);
+  CHECK_NE(FLAGS_model_path.size(), 0u);
+  CHECK_NE(FLAGS_func_name.size(), 0u);
+  CHECK_NE(FLAGS_label_path.size(), 0u);
+  CHECK_GE(FLAGS_wait_time, 0);
+  CHECK_GE(FLAGS_repeat_time, 0);
+
+  try {
+    g_runner = std::make_shared<ClassificationRunner>(FLAGS_model_path, FLAGS_func_name, FLAGS_label_path,
+                                                      FLAGS_data_path, FLAGS_show, FLAGS_save_video);
+  } catch (edk::Exception& e) {
+    LOG(ERROR) << "Create stream runner failed" << e.what();
+    return -1;
+  }
+
+  std::future<bool> process_loop_return = std::async(std::launch::async, &StreamRunner::RunLoop, g_runner.get());
+
+  if (0 < FLAGS_wait_time) {
+    alarm(FLAGS_wait_time);
+  }
+  signal(SIGALRM, HandleSignal);
+
+  // set mlu environment
+  edk::MluContext context;
+  context.SetDeviceId(0);
+  context.BindDevice();
+
+  g_runner->DemuxLoop(FLAGS_repeat_time);
+
+  process_loop_return.wait();
+  g_runner.reset();
+
+  if (!process_loop_return.get()) {
+    return 1;
+  }
+
+  std::cout << "run stream app SUCCEED!!!" << std::endl;
+  return 0;
+}

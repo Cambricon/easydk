@@ -78,9 +78,9 @@ Easydk仅支持源码编译的方式使用，按如下步骤编译Easydk (`${EAS
 
    Cambricon EasyDK提供了一个CMakeLists.txt描述编译流程，您可以从 http://www.cmake.org/ 免费下载和使用cmake。
 
-   | cmake 选项          | 范围            | 默认值   | 描述                      |
-   | ------------------ | --------------- | ------- | ------------------------ |
-   | MLU                |                 | MLU270  | 指定编译MLU平台            |
+   | cmake 选项         | 范围            | 默认值  | 描述                      |
+   | ------------------ | --------------- | ------- | ------------------------  |
+   | MLU                |                 | MLU270  | 指定编译MLU平台           |
    | RELEASE            | ON / OFF        | ON      | 编译模式release / debug   |
    | BUILD_SAMPLES      | ON / OFF        | OFF     | 编译samples               |
    | BUILD_TESTS        | ON / OFF        | OFF     | 编译tests                 |
@@ -88,12 +88,14 @@ Easydk仅支持源码编译的方式使用，按如下步骤编译Easydk (`${EAS
    | WITH_INFER         | ON / OFF        | ON      | 编译EasyInfer             |
    | WITH_TRACKER       | ON / OFF        | ON      | 编译EasyTracker           |
    | WITH_BANG          | ON / OFF        | ON      | 编译EasyBang              |
+   | WITH_INFER_SERVER  | ON / OFF        | ON      | 编译infer-server          |
+   | WITH_CURL          | ON / OFF        | ON      | 依赖libcurl               |
    | WITH_TURBOJPEG     | ON / OFF        | ON      | 编译turbo-jpeg            |
    | ENABLE_KCF         | ON / OFF        | OFF     | Easytrack支持KCF          |
    | SANITIZE_MEMORY    | ON / OFF        | OFF     | 检查内存                  |
    | SANITIZE_ADDRESS   | ON / OFF        | OFF     | 检查地址                  |
-   | SANITIZE_THREAD    | ON / OFF        | OFF     | 检查多线程                 |
-   | SANITIZE_UNDEFINED | ON / OFF        | OFF     | 检查未定义行为             |
+   | SANITIZE_THREAD    | ON / OFF        | OFF     | 检查多线程                |
+   | SANITIZE_UNDEFINED | ON / OFF        | OFF     | 检查未定义行为            |
 
    > MLU平台支持： MLU270, MLU220, MLU220EDGE。（MLU220EDGE需要交叉编译）
 
@@ -114,36 +116,4 @@ Easydk仅支持源码编译的方式使用，按如下步骤编译Easydk (`${EAS
    ```
 
    编译后的库文件存放在 `${EASYDK_DIR}/lib` ，头文件在 `${EASYDK_DIR/include}` 
-
-
-### 开发示例 ###
-
-EasyDK开发示例为用户提供了离线模型，视频文件，运行脚本以及开发示例代码，帮助用户快速体验如何使用EasyDK完成简单的深度学习应用部署。用户可以直接通过脚本运行示例代码，无需修改任何设置。
-
-
-#### 开发示例目录结构 ####
-
-MLU270 和 MLU220 M.2 平台下，开发示例存放于 `${EASYDK_DIR}/samples/stream-app/` 文件夹下。开发示例包含的文件如下:
-
-  - stream_app.cpp: 示例代码整体流程
-  - cnosd.*: 将检测结果绘制在图像上的代码和头文件
-  - cnpostproc.*: 网络输出后处理的代码和头文件
-  - feature_extractor.*: 提取特征用于Featurematch追踪的代码和头文件
-  - run.sh: 运行开发示例时执行的脚本文件
-  - CMakelists.txt: CMake文件，编译示例时使用，用户无需做任何设置和改动
-
-
-#### 编译和运行开发示例 ####
-
-1. 编译样例。编译EasyDK时打开 `BUILD_SAMPLES` 选项即可编译示例代码
-
-2. 运行样例。在stream-app目录下运行如下命令:
-   
-   ```bash  
-   EXPORT LD_LIBRARY_PATH=${LD_LIBRARY_PATH}:${NEUWARE_HOME}/lib64
-   ./run.sh MLU270    # MLU270 平台
-   # ./run.sh MLU220  # MLU220 M.2 平台
-   ```
-
-   运行结束后程序会自动退出。
 

@@ -45,6 +45,15 @@ static edk::BoundingBox to_xyah(const edk::BoundingBox &bbox) {
   return xyah;
 }
 
+static edk::BoundingBox to_tlwh(const edk::BoundingBox &xyah) {
+  edk::BoundingBox tlwh;
+  tlwh.width = xyah.width * xyah.height;
+  tlwh.height = xyah.height;
+  tlwh.x = xyah.x - tlwh.width / 2;
+  tlwh.y = xyah.y - tlwh.height / 2;
+  return tlwh;
+}
+
 namespace edk {
 
 struct FeatureMatchTrackObject {
@@ -292,6 +301,7 @@ void FeatureMatchTrack::UpdateFrame(const TrackFrame &frame, const Objects &dete
       }
       fm_p_->tracks_[i].time_since_last_update++;
       fm_p_->tracks_[i].kf->Predict();
+      fm_p_->tracks_[i].pos = BoundingBox2Rect(to_tlwh(fm_p_->tracks_[i].kf->GetCurPos()));
     }
 
     // match with features
@@ -316,7 +326,7 @@ void FeatureMatchTrack::UpdateFrame(const TrackFrame &frame, const Objects &dete
     // match with iou
     MatchResult &res_iou = fm_p_->MatchIou(res_f.unmatched_detections, match_iou_track);
     VLOG(6) << "FeatureMatch) IoU result, matched " << res_iou.matches.size() << " unmatched detects " \
-               << res_iou.unmatched_detections.size() << " unmatched tracks " << res_iou.unmatched_tracks.size();
+            << res_iou.unmatched_detections.size() << " unmatched tracks " << res_iou.unmatched_tracks.size();
 
     // update matched
     DetectObject tmp_obj;
@@ -332,12 +342,12 @@ void FeatureMatchTrack::UpdateFrame(const TrackFrame &frame, const Objects &dete
       tracks->push_back(*pdetect_obj);
       tracks->rbegin()->track_id = ptrack_obj->track_id;
       tracks->rbegin()->detect_id = pair.first;
-      if (!ptrack_obj->feature_unmatched) {
-        ptrack_obj->features.emplace_back(pdetect_obj->feature);
-        if (ptrack_obj->features.size() > nn_budget_) {
-          ptrack_obj->features.erase(ptrack_obj->features.begin());
-        }
+
+      ptrack_obj->features.emplace_back(pdetect_obj->feature);
+      if (ptrack_obj->features.size() > nn_budget_) {
+        ptrack_obj->features.erase(ptrack_obj->features.begin());
       }
+
       ptrack_obj->time_since_last_update = 0;
       ptrack_obj->age++;
       if (ptrack_obj->state == TrackState::TENTATIVE && ptrack_obj->age > n_init_) {

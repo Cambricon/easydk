@@ -11,7 +11,7 @@ Version Record
   +-----------------+--------------------------------------------------------------+
   | file name       |          Cambricon EasyDevelopmentKit Developer Guide        |
   +-----------------+--------------------------------------------------------------+
-  | version         |                     V2.3.0                                   |
+  | version         |                     V2.4.0                                   |
   +-----------------+--------------------------------------------------------------+
   | author          |                   Cambricon                                  |
   +-----------------+--------------------------------------------------------------+
@@ -35,8 +35,7 @@ Update History
 
   **attention**: Not Upward Compatible!
 
-  **release notes**:
-
+  **release notes**: 
     1. Rename project from CNStream-Toolkit to Easy Development Kit, and refactor all modules.
 
     2. Remove useless modules (tiler, postproc, osd).
@@ -111,3 +110,21 @@ Update History
     4. Add new API: ModelLoader::InputShape(uint32_t index), ModelLoader::OutputShape(uint32_t index)
 
     5. Refactor EasyCodec implementation
+
+- v2.4.0
+
+  **update date**: 2020.12.31
+
+  **release notes**:
+
+    1. Remove API deprecated before v2.3.0
+
+    2. Provide vivid samples, which support decode rtsp stream, save output video to local file
+
+    3. [*Early Access*] Add InferServer program
+
+    4. Improve track accuracy
+
+    5. Add async run to EasyInfer
+
+    6. Fix error occured in MluResizeConvertOp while run on a partial batch. This bug is introduced in the version *v2.3.0*

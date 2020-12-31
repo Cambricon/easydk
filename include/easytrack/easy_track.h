@@ -227,8 +227,8 @@ class KcfTrack : public EasyTrack {
  * @return reference to output stream
  */
 inline std::ostream &operator<<(std::ostream &os, const DetectObject &obj) {
-  os << "[Object] label: " << obj.label << "  score: " << obj.score << '\t' << "bbox: " << obj.bbox.x << "  "
-     << obj.bbox.y << "  " << obj.bbox.width << "  " << obj.bbox.height << std::endl;
+  os << "[Object] label: " << obj.label << " score: " << obj.score << " track_id: " << obj.track_id << '\t'
+     << "bbox: " << obj.bbox.x << "  " << obj.bbox.y << "  " << obj.bbox.width << "  " << obj.bbox.height;
   return os;
 }
 
