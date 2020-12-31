@@ -55,7 +55,7 @@ TEST(Device, MluContext) {
 }
 
 TEST(Device, MluTaskQueue) {
-  auto task_queue = edk::CreateTaskQueue();
+  auto task_queue = edk::MluTaskQueue::Create();
   ASSERT_TRUE(task_queue);
   EXPECT_TRUE(edk::MluTaskQueueProxy::GetCnrtQueue(task_queue));
   task_queue = edk::MluTaskQueue::Create();

@@ -26,6 +26,7 @@
 #include <cnrt.h>
 #include <glog/logging.h>
 
+#include <atomic>
 #include <condition_variable>
 #include <cstring>
 #include <memory>
@@ -67,9 +68,10 @@ using std::unique_lock;
 #define CNCODEC_VERSION 0
 #endif
 
-#ifdef ENABLE_TURBOJPEG
-
 namespace edk {
+
+namespace detail {
+#ifdef ENABLE_TURBOJPEG
 bool BGRToNV21(uint8_t* src, uint8_t* dst_y, int dst_y_stride, uint8_t* dst_uv, int dst_uv_stride,
                 int width, int height) {
   int i420_stride_y = width;
@@ -117,11 +119,11 @@ bool BGRToNV12(uint8_t* src, uint8_t* dst_y,
 }
 #endif
 
-#define JPEG_HEADER 0xFFD8
 int CheckProgressiveMode(uint8_t* data, uint64_t length) {
+  static constexpr uint16_t kJPEG_HEADER = 0xFFD8;
   uint64_t i = 0;
   uint16_t header = (data[i] << 8) | data[i + 1];
-  if (header != JPEG_HEADER) {
+  if (header != kJPEG_HEADER) {
     LOG(ERROR) << "Not Support image format, header is: " << header;
     return -1;
   }
@@ -137,9 +139,7 @@ int CheckProgressiveMode(uint8_t* data, uint64_t length) {
   }
   return 0;
 }
-
-
-/* static constexpr unsigned int g_decode_input_buffer_size = 4 << 20; */
+}  // namespace detail
 
 static void PrintCreateAttr(cnvideoDecCreateInfo* p_attr) {
   printf("%-32s%s\n", "param", "value");
@@ -182,8 +182,10 @@ class DecodeHandler {
   void InitVideoDecode(const EasyDecode::Attr& attr);
   void InitJpegDecode(const EasyDecode::Attr& attr);
 
-  bool SendJpegData(const CnPacket& packet, bool eos);
-  bool SendVideoData(const CnPacket& packet, bool eos, bool integral_frame);
+  void DecodeProgressiveJpeg(const CnPacket& packet);
+  void FeedJpegData(const CnPacket& packet, int progressive_mode);
+  void FeedVideoData(const CnPacket& packet, bool integral_frame);
+  bool FeedEos();
 
   void AbortDecoder();
 
@@ -236,9 +238,7 @@ class DecodeHandler {
   uint8_t* bgr_cpu_data_ = nullptr;
 #endif
 
-  EasyDecode::Status status_ = EasyDecode::Status::RUNNING;
-  std::mutex status_mtx_;
-  std::condition_variable status_cond_;
+  std::atomic<EasyDecode::Status> status_{EasyDecode::Status::RUNNING};
 
   /// eos workarround
   std::mutex eos_mtx_;
@@ -283,9 +283,7 @@ DecodeHandler::~DecodeHandler() {
     /**
      * Decode destroied. status set to STOP.
      */
-    unique_lock<mutex> status_lk(status_mtx_);
-    status_ = EasyDecode::Status::STOP;
-    status_lk.unlock();
+    status_.store(EasyDecode::Status::STOP);
     /**
      * Release resources.
      */
@@ -294,7 +292,7 @@ DecodeHandler::~DecodeHandler() {
       if (!send_eos_ && handle_) {
         eos_mtx_.unlock();
         LOG(INFO) << "Send EOS in destruct";
-        decoder_->SendData({}, true);
+        decoder_->FeedEos();
       } else {
         if (!handle_) got_eos_ = true;
       }
@@ -351,8 +349,6 @@ DecodeHandler::~DecodeHandler() {
       }
       handle_ = nullptr;
     }
-  } catch (std::system_error& e) {
-    LOG(ERROR) << e.what();
   } catch (Exception& e) {
     LOG(ERROR) << e.what();
   }
@@ -431,8 +427,7 @@ void DecodeHandler::AbortDecoder() {
     if (attr_.eos_callback) {
       attr_.eos_callback();
     }
-    unique_lock<mutex> status_lk(status_mtx_);
-    status_ = EasyDecode::Status::EOS;
+    status_.store(EasyDecode::Status::EOS);
 
     unique_lock<mutex> eos_lk(eos_mtx_);
     got_eos_ = true;
@@ -568,13 +563,7 @@ void DecodeHandler::InitVideoDecode(const EasyDecode::Attr& attr) {
 }
 
 void DecodeHandler::ReceiveFrame(void* out) {
-  // 1. handle decoder status
-  if (EasyDecode::Status::PAUSED == status_) {
-    unique_lock<mutex> status_lk(status_mtx_);
-    status_cond_.wait(status_lk, [this]() -> bool { return EasyDecode::Status::RUNNING == status_; });
-  }
-
-  // 2. config CnFrame for user callback.
+  // config CnFrame for user callback.
   CnFrame finfo;
   cncodecFrame* frame = nullptr;
   if (jpeg_decode_) {
@@ -677,170 +666,179 @@ void DecodeHandler::ReceiveEOS() {
   if (attr_.eos_callback) {
     attr_.eos_callback();
   }
-  unique_lock<mutex> status_lk(status_mtx_);
-  status_ = EasyDecode::Status::EOS;
+  status_.store(EasyDecode::Status::EOS);
 
   unique_lock<mutex> eos_lk(eos_mtx_);
   got_eos_ = true;
   eos_cond_.notify_one();
 }
 
-
-bool DecodeHandler::SendJpegData(const CnPacket& packet, bool eos) {
-  cnjpegDecInput input;
-  if (packet.data != NULL && packet.length > 0) {
-    int progressive_mode = CheckProgressiveMode(reinterpret_cast<uint8_t*>(packet.data), packet.length);
-    if (progressive_mode < 0) {
-      return false;
-    }
-    if (progressive_mode == 0) {
-      memset(&input, 0, sizeof(cnjpegDecInput));
-      input.streamBuffer = reinterpret_cast<uint8_t*>(packet.data);
-      input.streamLength = packet.length;
-      input.pts = packet.pts;
-      input.flags = CNJPEGDEC_FLAG_TIMESTAMP;
-      VLOG(5) << "Feed stream info, data: " << reinterpret_cast<void*>(input.streamBuffer)
-              << " ,length: " << input.streamLength << " ,pts: " << input.pts;
-
-      auto ecode = cnjpegDecFeedData(handle_, &input, 10000);
-      if (-CNCODEC_TIMEOUT == ecode) {
-        LOG(ERROR) << "cnjpegDecFeedData timeout";
-        return false;
-      } else if (CNCODEC_SUCCESS != ecode) {
-        THROW_EXCEPTION(Exception::INTERNAL, "Send data failed. cncodec error code: " + to_string(ecode));
-      }
-    } else {
 #ifdef ENABLE_TURBOJPEG
-      int jpegSubsamp, width, height;
-      tjDecompressHeader2(tjinstance_, reinterpret_cast<uint8_t*>(packet.data),
-                          packet.length, &width, &height, &jpegSubsamp);
-      tjDecompress2(tjinstance_, reinterpret_cast<uint8_t*>(packet.data),
-                    packet.length, bgr_cpu_data_, width, 0/*pitch*/, height, TJPF_RGB, TJFLAG_FASTDCT);
-      int y_stride = ALIGN(width, 128);
-      int uv_stride = ALIGN(width, 128);
-      uint64_t data_length = height * y_stride * 3 / 2;
-      if (jparams_.pixelFmt == CNCODEC_PIX_FMT_NV21) {
-        BGRToNV21(bgr_cpu_data_, yuv_cpu_data_, y_stride,
-                  yuv_cpu_data_ + height * y_stride, uv_stride,
-                  width, height);
-      } else if (jparams_.pixelFmt == CNCODEC_PIX_FMT_NV12) {
-        BGRToNV12(bgr_cpu_data_, yuv_cpu_data_, y_stride,
-                  yuv_cpu_data_ + height * y_stride, uv_stride,
-                  width, height);
-      } else {
-        THROW_EXCEPTION(Exception::UNSUPPORTED, "Not support output type.");
-      }
-
-      size_t buf_id;
-      memory_ids_.TryPop(buf_id);  // get one available buffer
-      void* mlu_ptr = memory_pool_map_[buf_id];
-      cnrtMemcpy(mlu_ptr, yuv_cpu_data_, data_length, CNRT_MEM_TRANS_DIR_HOST2DEV);
-
-      // 2. config CnFrame for user callback.
-      CnFrame finfo;
-      finfo.pts = packet.pts;
-      finfo.cpu_decode = true;
-      finfo.device_id = attr_.dev_id;
-      finfo.buf_id = buf_id;
-      finfo.width = width;
-      finfo.height = height;
-      finfo.n_planes = 2;
-      finfo.frame_size = height * y_stride * 3 / 2;
-      finfo.strides[0] = y_stride;
-      finfo.strides[1] = uv_stride;
-      finfo.ptrs[0] = mlu_ptr;
-      finfo.ptrs[1] = reinterpret_cast<void*>(reinterpret_cast<uint8_t*>(mlu_ptr) + height * y_stride);
-      finfo.pformat = attr_.pixel_format;
-      finfo.color_std = attr_.color_std;
-
-      VLOG(5) << "Frame: width " << finfo.width << " height " << finfo.height << " planes " << finfo.n_planes
-              << " frame size " << finfo.frame_size;
-      if (NULL != attr_.frame_callback) {
-        VLOG(4) << "Add decode buffer Reference " << finfo.buf_id;
-        attr_.frame_callback(finfo);
-      }
-#endif
-    }
+void DecodeHandler::DecodeProgressiveJpeg(const CnPacket& packet) {
+  int jpegSubsamp, width, height;
+  tjDecompressHeader2(tjinstance_, reinterpret_cast<uint8_t*>(packet.data), packet.length, &width, &height,
+                      &jpegSubsamp);
+  tjDecompress2(tjinstance_, reinterpret_cast<uint8_t*>(packet.data), packet.length, bgr_cpu_data_, width, 0 /*pitch*/,
+                height, TJPF_RGB, TJFLAG_FASTDCT);
+  int y_stride = ALIGN(width, 128);
+  int uv_stride = ALIGN(width, 128);
+  uint64_t data_length = height * y_stride * 3 / 2;
+  if (jparams_.pixelFmt == CNCODEC_PIX_FMT_NV21) {
+    detail::BGRToNV21(bgr_cpu_data_, yuv_cpu_data_, y_stride, yuv_cpu_data_ + height * y_stride, uv_stride, width,
+                      height);
+  } else if (jparams_.pixelFmt == CNCODEC_PIX_FMT_NV12) {
+    detail::BGRToNV12(bgr_cpu_data_, yuv_cpu_data_, y_stride, yuv_cpu_data_ + height * y_stride, uv_stride, width,
+                      height);
+  } else {
+    THROW_EXCEPTION(Exception::UNSUPPORTED, "Not support output type.");
   }
 
-  if (eos) {
-    unique_lock<mutex> eos_lk(eos_mtx_);
-    input.streamBuffer = nullptr;
-    input.streamLength = 0;
-    input.pts = 0;
-    input.flags = CNJPEGDEC_FLAG_EOS;
-    LOG(INFO) << "Thread id: " << std::this_thread::get_id() << ",Feed EOS data";
-    auto ecode = cnjpegDecFeedData(handle_, &input, 10000);
-    if (-CNCODEC_TIMEOUT == ecode) {
-      LOG(ERROR) << "cnjpegDecFeedData send EOS timeout";
-      return false;
-    } else if (CNCODEC_SUCCESS != ecode) {
-      THROW_EXCEPTION(Exception::INTERNAL, "Send EOS failed. cncodec error code: " + to_string(ecode));
-    }
-    send_eos_ = true;
-  }
+  size_t buf_id;
+  memory_ids_.TryPop(buf_id);  // get one available buffer
+  void* mlu_ptr = memory_pool_map_[buf_id];
+  cnrtMemcpy(mlu_ptr, yuv_cpu_data_, data_length, CNRT_MEM_TRANS_DIR_HOST2DEV);
 
-  return true;
+  // 2. config CnFrame for user callback.
+  CnFrame finfo;
+  finfo.pts = packet.pts;
+  finfo.cpu_decode = true;
+  finfo.device_id = attr_.dev_id;
+  finfo.buf_id = buf_id;
+  finfo.width = width;
+  finfo.height = height;
+  finfo.n_planes = 2;
+  finfo.frame_size = height * y_stride * 3 / 2;
+  finfo.strides[0] = y_stride;
+  finfo.strides[1] = uv_stride;
+  finfo.ptrs[0] = mlu_ptr;
+  finfo.ptrs[1] = reinterpret_cast<void*>(reinterpret_cast<uint8_t*>(mlu_ptr) + height * y_stride);
+  finfo.pformat = attr_.pixel_format;
+  finfo.color_std = attr_.color_std;
+
+  VLOG(5) << "Frame: width " << finfo.width << " height " << finfo.height << " planes " << finfo.n_planes
+          << " frame size " << finfo.frame_size;
+  if (NULL != attr_.frame_callback) {
+    VLOG(4) << "Add decode buffer Reference " << finfo.buf_id;
+    attr_.frame_callback(finfo);
+  }
 }
-#ifdef ENABLE_TURBOJPEG
 
 bool DecodeHandler::ReleaseBuffer(size_t buf_id) {
   memory_ids_.Push(buf_id);
   return true;
 }
+
+#else
+void DecodeHandler::DecodeProgressiveJpeg(const CnPacket& packet) {
+  THROW_EXCEPTION(Exception::UNSUPPORTED, "Unsupport decode progressive JPEG");
+}
 #endif
 
-bool DecodeHandler::SendVideoData(const CnPacket& packet, bool eos, bool integral_frame) {
+void DecodeHandler::FeedVideoData(const CnPacket& packet, bool integral_frame) {
   cnvideoDecInput input;
-  if (packet.data != NULL && packet.length > 0) {
-    memset(&input, 0, sizeof(cnvideoDecInput));
-    input.streamBuf = reinterpret_cast<u8_t*>(packet.data);
-    input.streamLength = packet.length;
-    input.pts = SetVpuTimestamp(packet.pts);
-    input.flags = CNVIDEODEC_FLAG_TIMESTAMP;
+  memset(&input, 0, sizeof(cnvideoDecInput));
+  input.streamBuf = reinterpret_cast<u8_t*>(packet.data);
+  input.streamLength = packet.length;
+  input.pts = SetVpuTimestamp(packet.pts);
+  input.flags = CNVIDEODEC_FLAG_TIMESTAMP;
 #if CNCODEC_VERSION >= 10600
-    if (integral_frame) {
-      input.flags |= CNVIDEODEC_FLAG_END_OF_FRAME;
-    }
+  if (integral_frame) {
+    input.flags |= CNVIDEODEC_FLAG_END_OF_FRAME;
+  }
 #endif
-    VLOG(5) << "Feed stream info, data: " << input.streamBuf << " ,length: " << input.streamLength
-            << " ,pts: " << input.pts;
+  VLOG(5) << "Feed stream info, data: " << reinterpret_cast<void*>(input.streamBuf)
+          << " ,length: " << input.streamLength << " ,pts: " << input.pts;
 
+  int retry_time = 3;
+  while (retry_time--) {
     auto ecode = cnvideoDecFeedData(handle_, &input, 10000);
     if (-CNCODEC_TIMEOUT == ecode) {
-      LOG(ERROR) << "cnvideoDecFeedData timeout";
-      GetVpuTimestamp(input.pts, nullptr);  // Failed to feeddata, erase record
-      return false;
+      LOG(WARNING) << "cnvideoDecFeedData timeout, retry feed data, time: " << 3 - retry_time;
+      if (!retry_time) {
+        GetVpuTimestamp(input.pts, nullptr);  // Failed to feeddata, erase record
+        THROW_EXCEPTION(Exception::TIMEOUT, "easydecode timeout");
+      }
+      continue;
     } else if (CNCODEC_SUCCESS != ecode) {
       GetVpuTimestamp(input.pts, nullptr);  // Failed to feeddata, erase record
-      THROW_EXCEPTION(Exception::INTERNAL, "Send data failed. cncodec error code: " + to_string(ecode));
+      THROW_EXCEPTION(Exception::INTERNAL, "Feed data failed. cncodec error code: " + to_string(ecode));
+    } else {
+      break;
     }
-
-    packets_count_++;
   }
 
-  if (eos) {
-    unique_lock<mutex> eos_lk(eos_mtx_);
+  packets_count_++;
+}
+
+void DecodeHandler::FeedJpegData(const CnPacket& packet, int progressive_mode) {
+  cnjpegDecInput input;
+  CHECK_GE(progressive_mode, 0);
+
+  memset(&input, 0, sizeof(cnjpegDecInput));
+  input.streamBuffer = reinterpret_cast<uint8_t*>(packet.data);
+  input.streamLength = packet.length;
+  input.pts = packet.pts;
+  input.flags = CNJPEGDEC_FLAG_TIMESTAMP;
+  VLOG(5) << "Feed stream info, data: " << reinterpret_cast<void*>(input.streamBuffer)
+          << " ,length: " << input.streamLength << " ,pts: " << input.pts;
+
+  int retry_time = 3;
+  while (retry_time--) {
+    auto ecode = cnjpegDecFeedData(handle_, &input, 10000);
+    if (-CNCODEC_TIMEOUT == ecode) {
+      LOG(WARNING) << "cnjpegDecFeedData timeout, retry feed data, time: " << 3 - retry_time;
+      if (!retry_time) {
+        GetVpuTimestamp(input.pts, nullptr);  // Failed to feeddata, erase record
+        THROW_EXCEPTION(Exception::TIMEOUT, "easydecode timeout");
+      }
+      continue;
+    } else if (CNCODEC_SUCCESS != ecode) {
+      GetVpuTimestamp(input.pts, nullptr);  // Failed to feeddata, erase record
+      THROW_EXCEPTION(Exception::INTERNAL, "Feedd data failed. cncodec error code: " + to_string(ecode));
+    } else {
+      break;
+    }
+  }
+}
+
+bool DecodeHandler::FeedEos() {
+  unique_lock<mutex> eos_lk(eos_mtx_);
+  if (send_eos_) {
+    LOG(WARNING) << "EOS had been feed, won't feed again";
+    return false;
+  }
+
+  i32_t ecode = CNCODEC_SUCCESS;
+  LOG(INFO) << "Thread id: " << std::this_thread::get_id() << ",Feed EOS data";
+  if (jpeg_decode_) {
+    cnjpegDecInput input;
+    input.streamBuffer = nullptr;
+    input.streamLength = 0;
+    input.pts = 0;
+    input.flags = CNJPEGDEC_FLAG_EOS;
+    ecode = cnjpegDecFeedData(handle_, &input, 10000);
+  } else {
+    cnvideoDecInput input;
     input.streamBuf = nullptr;
     input.streamLength = 0;
     input.pts = 0;
     input.flags = CNVIDEODEC_FLAG_EOS;
-    LOG(INFO) << "Thread id: " << std::this_thread::get_id() << ",Feed EOS data";
-    auto ecode = cnvideoDecFeedData(handle_, &input, 10000);
-    if (-CNCODEC_TIMEOUT == ecode) {
-      LOG(ERROR) << "cnvideoDecFeedData send EOS timeout";
-      return false;
-    } else if (CNCODEC_SUCCESS != ecode) {
-      THROW_EXCEPTION(Exception::INTERNAL, "Send EOS failed. cncodec error code: " + to_string(ecode));
-    }
-
-    send_eos_ = true;
+    ecode = cnvideoDecFeedData(handle_, &input, 10000);
   }
 
+  if (-CNCODEC_TIMEOUT == ecode) {
+    THROW_EXCEPTION(Exception::TIMEOUT, "EasyDecode feed EOS timeout");
+  } else if (CNCODEC_SUCCESS != ecode) {
+    THROW_EXCEPTION(Exception::INTERNAL, "Feed EOS failed. cncodec error code: " + to_string(ecode));
+  }
+
+  send_eos_ = true;
   return true;
 }
 
 #ifdef ALLOC_BUFFER
+static constexpr unsigned int g_decode_input_buffer_size = 4 << 20;
+
 void DecodeHandler::AllocInputBuffer(cnvideoDecCreateInfo* params) {
   LOG(INFO) << "Alloc Input Buffer";
   for (unsigned int i = 0; i < params->inputBufNum; i++) {
@@ -899,8 +897,6 @@ void DecodeHandler::FreeOutputBuffer(const cnvideoDecCreateInfo& params) {
 }
 #endif
 
-EasyDecode* EasyDecode::Create(const Attr& attr) { return new EasyDecode(attr); }
-
 std::unique_ptr<EasyDecode> EasyDecode::New(const Attr& attr) {
   struct __ShowCodecVersion {
     __ShowCodecVersion() {
@@ -938,19 +934,16 @@ EasyDecode::~EasyDecode() {
 }
 
 bool EasyDecode::Pause() {
-  unique_lock<mutex> lock(handler_->status_mtx_);
-  if (Status::RUNNING == handler_->status_) {
-    handler_->status_ = Status::PAUSED;
+  Status expected = Status::RUNNING;
+  if (handler_->status_.compare_exchange_strong(expected, Status::PAUSED)) {
     return true;
   }
   return false;
 }
 
 bool EasyDecode::Resume() {
-  unique_lock<mutex> lock(handler_->status_mtx_);
-  if (Status::PAUSED == handler_->status_) {
-    handler_->status_ = Status::RUNNING;
-    handler_->status_cond_.notify_all();
+  Status expected = Status::PAUSED;
+  if (handler_->status_.compare_exchange_strong(expected, Status::RUNNING)) {
     return true;
   }
   return false;
@@ -958,46 +951,54 @@ bool EasyDecode::Resume() {
 
 void EasyDecode::AbortDecoder() { handler_->AbortDecoder(); }
 
-EasyDecode::Status EasyDecode::GetStatus() const {
-  unique_lock<mutex> lock(handler_->status_mtx_);
-  return handler_->status_;
-}
+EasyDecode::Status EasyDecode::GetStatus() const { return handler_->status_.load(); }
 
-bool EasyDecode::SendData(const CnPacket& packet, bool eos, bool integral_frame) {
+bool EasyDecode::FeedData(const CnPacket& packet, bool integral_frame) {
   if (!handler_->handle_) {
     LOG(ERROR) << "Decoder has not been init";
     return false;
   }
   if (handler_->send_eos_) {
-    LOG(WARNING) << "EOS had been sent, won't feed data or EOS";
+    LOG(WARNING) << "EOS had been sent, won't feed data";
     return false;
   }
-  // check status
-  unique_lock<mutex> lock(handler_->status_mtx_);
-
-  if (Status::PAUSED == handler_->status_) {
-    handler_->status_cond_.wait(lock, [this]() -> bool { return Status::RUNNING == handler_->status_; });
+  if (Status::PAUSED == handler_->status_.load()) {
+    return false;
   }
-  if (packet.length == 0 && !eos) {
-    LOG(ERROR) << "Packet length is equal to 0. The packet will not be sent.";
-    return true;
+  if (packet.length == 0 || (!packet.data)) {
+    LOG(ERROR) << "Packet do not have data. The packet will not be sent.";
+    return false;
   }
 
-  bool ret = false;
-  if (handler_->jpeg_decode_) {
-    ret = handler_->SendJpegData(packet, eos);
+  if (!handler_->jpeg_decode_) {
+    handler_->FeedVideoData(packet, integral_frame);
   } else {
-    ret = handler_->SendVideoData(packet, eos, integral_frame);
+    int progressive_mode = detail::CheckProgressiveMode(reinterpret_cast<uint8_t*>(packet.data), packet.length);
+    if (progressive_mode < 0) {
+      // not jpeg
+      return false;
+    } else if (progressive_mode == 0) {
+      // not progressive
+      handler_->FeedJpegData(packet, progressive_mode);
+    } else {
+      // progressive
+      handler_->DecodeProgressiveJpeg(packet);
+    }
+  }
+  return true;
+}
+
+bool EasyDecode::FeedEos() { return handler_->FeedEos(); }
+
+bool EasyDecode::SendData(const CnPacket& packet, bool eos, bool integral_frame) {
+  if (packet.length > 0 && packet.data) {
+    if (!FeedData(packet, integral_frame)) return false;
+  } else if (!eos) {
+    LOG(ERROR) << "Packet do not have data. The packet will not be sent.";
+    return false;
   }
 
-  // timeout
-  if (!ret) {
-    lock.unlock();
-    handler_->AbortDecoder();
-    THROW_EXCEPTION(Exception::TIMEOUT, "cndecode timeout");
-  }
-
-  return ret;
+  return eos ? handler_->FeedEos() : true;
 }
 
 void EasyDecode::ReleaseBuffer(uint64_t buf_id) {

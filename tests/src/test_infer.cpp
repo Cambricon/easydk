@@ -10,11 +10,13 @@
 #include "easyinfer/easy_infer.h"
 #include "easyinfer/mlu_memory_op.h"
 #include "easyinfer/model_loader.h"
+#include "internal/mlu_task_queue.h"
 #include "test_base.h"
 
 constexpr const char *gmodel_path_220 =
     "../../samples/data/models/MLU220/inceptionv3/inception-v3_int8_scale_dense_4batch_4core.cambricon";
 constexpr const char *gmodel_path_270 = "../../samples/data/models/MLU270/resnet50_offline.cambricon";
+using MluTaskQueue_t = std::shared_ptr<edk::MluTaskQueue>;
 
 TEST(Easyinfer, Shape) {
   uint32_t n = 1, c = 3, h = 124, w = 82, stride = 128;
@@ -196,7 +198,7 @@ TEST(Easyinfer, MluMemoryOp) {
   delete[] str_out;
 }
 
-TEST(Easyinfer, Infer) {
+void TestInfer(bool async_launch = false) {
   std::string function_name = "subnet0";
   try {
     edk::MluContext context;
@@ -228,11 +230,18 @@ TEST(Easyinfer, Infer) {
     void **cpu_output = mem_op.AllocCpuOutput();
     void **cpu_input = mem_op.AllocCpuInput();
 
-    float hw_time = 0;
     mem_op.MemcpyInputH2D(mlu_input, cpu_input);
-    infer.Run(mlu_input, mlu_output, &hw_time);
-    EXPECT_GT(hw_time, 0);
-    EXPECT_LT(hw_time, 100);
+    if (!async_launch) {
+      float hw_time = 0;
+      infer.Run(mlu_input, mlu_output, &hw_time);
+      EXPECT_GT(hw_time, 0);
+      EXPECT_LT(hw_time, 100);
+    } else {
+      MluTaskQueue_t task_queue = edk::MluTaskQueue::Create();
+      infer.RunAsync(mlu_input, mlu_output, task_queue);
+      EXPECT_NO_THROW(task_queue->Sync());
+    }
+
     mem_op.MemcpyOutputD2H(cpu_output, mlu_output);
 
     mem_op.FreeMluInput(mlu_input);
@@ -242,4 +251,9 @@ TEST(Easyinfer, Infer) {
   } catch (edk::Exception &err) {
     EXPECT_TRUE(false) << err.what();
   }
+}
+
+TEST(Easyinfer, Infer) {
+  TestInfer();
+  TestInfer(true);
 }

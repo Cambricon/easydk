@@ -70,7 +70,6 @@ class MluResizeConvertPrivate {
   MluTaskQueue_t queue_ = nullptr;
   KernelParam* kparam_ = nullptr;
   std::deque<MluResizeConvertOp::InputData> input_datas_cache_;
-  std::vector<MluResizeConvertOp::InputData> fake_mlu_data_;
   void **y_ptrs_cpu_ = nullptr, **uv_ptrs_cpu_ = nullptr;
   void **y_ptrs_mlu_ = nullptr, **uv_ptrs_mlu_ = nullptr;
   int **src_whs_mlu_ = nullptr;
@@ -88,6 +87,7 @@ class MluResizeConvertPrivate {
 MluResizeConvertOp::MluResizeConvertOp() { d_ptr_ = new MluResizeConvertPrivate; }
 
 MluResizeConvertOp::~MluResizeConvertOp() {
+  Destroy();
   delete d_ptr_;
   d_ptr_ = nullptr;
 }
@@ -125,21 +125,7 @@ bool MluResizeConvertOp::Init(const MluResizeConvertOp::Attr& attr) {
 
   d_ptr_->y_ptrs_cpu_ = new void*[batchsize];
   d_ptr_->uv_ptrs_cpu_ = new void*[batchsize];
-  d_ptr_->fake_mlu_data_.resize(batchsize - 1);
   cnrtRet_t cnret;
-  size_t frame_size = attr.dst_h * attr.dst_w;
-  for (int i = 0; i < batchsize - 1; ++i) {
-    auto& in = d_ptr_->fake_mlu_data_[i];
-    cnret = cnrtMalloc(&in.planes[0], frame_size);
-    CHECK_CNRT_RET(cnret, d_ptr_->estr_, "Malloc mlu buffer failed. cnrt error code:" + std::to_string(cnret), {},
-                   false);
-    cnret = cnrtMalloc(&in.planes[1], frame_size);
-    CHECK_CNRT_RET(cnret, d_ptr_->estr_, "Malloc mlu buffer failed. cnrt error code:" + std::to_string(cnret), {},
-                   false);
-    in.src_h = attr.dst_h;
-    in.src_w = attr.dst_w;
-    in.src_stride = attr.dst_w;
-  }
   cnret = cnrtMalloc(reinterpret_cast<void**>(&d_ptr_->y_ptrs_mlu_), sizeof(void*) * batchsize);
   CHECK_CNRT_RET(cnret, d_ptr_->estr_, "Malloc mlu buffer failed. cnrt error code:" + std::to_string(cnret), {}, false);
   cnret = cnrtMalloc(reinterpret_cast<void**>(&d_ptr_->uv_ptrs_mlu_), sizeof(void*) * batchsize);
@@ -233,9 +219,8 @@ bool MluResizeConvertOp::SyncOneOutput(void* dst) {
     return false;
   }
   // while cache count less than batch size, fill with copy to batch size
-  int fake_idx = 0;
   while (static_cast<int>(d_ptr_->input_datas_cache_.size()) < d_ptr_->attr_.batch_size) {
-    d_ptr_->input_datas_cache_.push_back(d_ptr_->fake_mlu_data_[fake_idx++]);
+    d_ptr_->input_datas_cache_.push_back(d_ptr_->input_datas_cache_[0]);
   }
   for (int bi = 0; bi < d_ptr_->attr_.batch_size; ++bi) {
     InputData& input_data = d_ptr_->input_datas_cache_.front();
@@ -289,7 +274,7 @@ bool MluResizeConvertOp::SyncOneOutput(void* dst) {
 
   if (!ret) {
     LOG(ERROR) << "Resize convert failed. Info: ";
-    LOG(ERROR) << "dst w, dst h: " << d_ptr_->attr_.dst_w << d_ptr_->attr_.dst_h;
+    LOG(ERROR) << "dst w, dst h: " << d_ptr_->attr_.dst_w << " " << d_ptr_->attr_.dst_h;
     LOG(ERROR) << "keep aspect ratio: " << d_ptr_->attr_.keep_aspect_ratio;
     LOG(ERROR) << "batchsize: " << d_ptr_->attr_.batch_size;
     auto inputs = GetLastBatchInput();
@@ -325,16 +310,6 @@ void MluResizeConvertOp::Destroy() {
   if (d_ptr_->kparam_) {
     ::FreeKernelParam(d_ptr_->kparam_);
     d_ptr_->kparam_ = nullptr;
-  }
-  for (auto& it : d_ptr_->fake_mlu_data_) {
-    if (it.planes[0]) {
-      cnrtFree(it.planes[0]);
-      it.planes[0] = nullptr;
-    }
-    if (it.planes[1]) {
-      cnrtFree(it.planes[1]);
-      it.planes[1] = nullptr;
-    }
   }
   if (d_ptr_->y_ptrs_cpu_) {
     delete[] d_ptr_->y_ptrs_cpu_;

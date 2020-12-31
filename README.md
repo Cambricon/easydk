@@ -88,6 +88,8 @@ After finished prerequiste, you can build instructions with the following steps:
    | WITH_INFER         | ON / OFF        | ON      | build infer              |
    | WITH_TRACKER       | ON / OFF        | ON      | build tracker            |
    | WITH_BANG          | ON / OFF        | ON      | build bang               |
+   | WITH_INFER_SERVER  | ON / OFF        | ON      | build infer-server       |
+   | WITH_CURL          | ON / OFF        | ON      | build with libcurl       |
    | WITH_TURBOJPEG     | ON / OFF        | ON      | build with turbo-jpeg    |
    | ENABLE_KCF         | ON / OFF        | OFF     | build with KCF track     |
    | SANITIZE_MEMORY    | ON / OFF        | OFF     | check memory             |

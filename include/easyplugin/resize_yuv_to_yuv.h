@@ -92,18 +92,6 @@ class MluResizeYuv2Yuv {
   const MluResizeAttr& GetAttr();
 
   /**
-   * @brief Excute operator, use BatchingUp and SyncOneOutput instead
-   * @deprecated
-   *
-   * @param dst_y[out] Operator output y plane in MLU memory
-   * @param dst_uv[out] Operator output uv plane in MLU memory
-   * @param src_y[in] Operator input y plane in MLU memory
-   * @param src_uv[in] Operator input uv plane in MLU memory
-   * @return Return 0 if invoke succeeded, otherwise return -1
-   */
-  int InvokeOp(void* dst_y, void* dst_uv, void* src_y, void* src_uv);
-
-  /**
    * @brief Deinitialize resources
    */
   void Destroy();

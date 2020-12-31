@@ -3,6 +3,7 @@ doxygen
 lib
 bin
 sphinx_env
+cache
 
 tags
 .vscode

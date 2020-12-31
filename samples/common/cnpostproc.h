@@ -18,8 +18,8 @@
  * THE SOFTWARE.
  *************************************************************************/
 
-#ifndef CNPOSTPROC_H_
-#define CNPOSTPROC_H_
+#ifndef EDK_SAMPLES_CNPOSTPROC_H_
+#define EDK_SAMPLES_CNPOSTPROC_H_
 
 #include <string>
 #include <utility>
@@ -33,7 +33,6 @@ class CnPostproc {
  public:
   virtual ~CnPostproc() {}
 
-  void set_batch_index(const int batch_index);
   void set_threshold(const float threshold);
   /*********************************************************
    * @brief post proc
@@ -49,14 +48,6 @@ class CnPostproc {
    *********************************************************/
   virtual std::vector<DetectObject> Postproc(const std::vector<std::pair<float*, uint64_t>>& net_outputs) = 0;
 
-  /***************************************
-   * @brief called by Execute.
-   * if false is reutrned, the corresponding object is
-   * discarded by Execute.
-   ***************************************/
-  virtual bool CheckInvalidObject(const DetectObject& obj);
-
-  uint32_t batch_index_ = 0;
   float threshold_ = 0;
 };  // class CnPostproc
 
@@ -69,11 +60,6 @@ class SsdPostproc : public CnPostproc {
  protected:
   std::vector<DetectObject> Postproc(const std::vector<std::pair<float*, uint64_t>>& net_outputs) override;
 };  // class SsdPostproc
-
-class FasterrcnnPostproc : public CnPostproc {
- protected:
-  std::vector<DetectObject> Postproc(const std::vector<std::pair<float*, uint64_t>>& net_outputs) override;
-};  // class FasterrcnnPostproc
 
 class Yolov3Postproc : public CnPostproc {
  public:
@@ -101,4 +87,4 @@ class Yolov3Postproc : public CnPostproc {
 
 }  // namespace edk
 
-#endif  // ifndef CNPOSTPROC_H_
+#endif  // EDK_SAMPLES_CNPOSTPROC_H_

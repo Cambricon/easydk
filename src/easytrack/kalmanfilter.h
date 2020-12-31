@@ -46,6 +46,8 @@ class KalmanFilter {
    */
   Matrix GatingDistance(const std::vector<BoundingBox>& measurements);
 
+  BoundingBox GetCurPos();
+
  private:
   Matrix motion_mat_;
   Matrix update_mat_;

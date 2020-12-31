@@ -9,7 +9,7 @@ endif()
 # ---[ easydk project
 project(easydk C CXX)
 
-set(EDK_VERSION 2.3.0)
+set(EDK_VERSION 2.4.0)
 set(EDK_VERSION_MAJOR 2)
 
 #######################################################################
@@ -29,6 +29,7 @@ option(WITH_BANG "Build easy Bang" ON)
 option(WITH_CNPLUGIN "Build CNPlugin operator" OFF)
 option(ENABLE_KCF "Build with KCF track" OFF)
 
+option(WITH_INFER_SERVER "Build infer server" ON)
 option(WITH_TURBOJPEG "Build Turbo Jpeg" ON)
 
 option(SANITIZE_MEMORY "Enable MemorySanitizer for sanitized targets." OFF)
@@ -251,9 +252,13 @@ set_target_properties(easydk PROPERTIES SOVERSION ${EDK_VERSION_MAJOR})
 
 install(TARGETS easydk LIBRARY DESTINATION lib)
 
+if (WITH_INFER_SERVER)
+  add_subdirectory(infer_server)
+endif()
+
 if(BUILD_SAMPLES AND WITH_INFER AND WITH_CODEC AND WITH_TRACKER AND WITH_BANG)
   message(STATUS "---------------- Build samples -----------------")
-  add_subdirectory(samples/stream-app)
+  add_subdirectory(samples)
 endif()
 
 if(BUILD_TESTS)

@@ -75,22 +75,6 @@ struct MluTaskQueue {
 using MluTaskQueue_t = std::shared_ptr<MluTaskQueue>;
 
 /**
- * @brief Create a MluTaskQueue
- *
- * @deprecated
- * @return a MluTaskQueue_t
- */
-attribute_deprecated MluTaskQueue_t CreateTaskQueue();
-
-/**
- * @brief Sync MluTaskQueue
- *
- * @deprecated
- * @param queue MLU task queue
- */
-attribute_deprecated  void Sync(MluTaskQueue_t queue);
-
-/**
  * @brief MLU environment helper class
  */
 class MluContext {
@@ -139,13 +123,6 @@ class MluContext {
    * @param id MLU channel id
    */
   attribute_deprecated inline void SetChannelId(int id) { channel_id_ = id; }
-
-  /**
-   * @brief Bind MLU environment for this thread, use BindDevice instead
-   * @note Each thread processing MLU memory or task need to set MLU environment
-   * @deprecated
-   */
-  attribute_deprecated void ConfigureForThisThread();
 
   /**
    * @brief Bind MLU device

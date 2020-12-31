@@ -48,17 +48,6 @@ class MluMemoryOp {
   /**
    * @brief Set ModelLoader
    *
-   * @deprecated
-   * @note model loader is used for manage model's input and output memory easily,
-   *       do not need to set if this feature is not used.
-   * @param model Model loader
-   * @see edk::ModelLoader
-   */
-  attribute_deprecated void SetLoader(std::shared_ptr<ModelLoader> ploader);
-
-  /**
-   * @brief Set ModelLoader
-   *
    * @note model loader is used for manage model's input and output memory easily,
    *       do not need to set if this feature is not used.
    * @param model Model loader
@@ -69,28 +58,9 @@ class MluMemoryOp {
   /**
    * @brief Get model loader
    *
-   * @deprecated
-   * @return Model loader
-   */
-  attribute_deprecated std::shared_ptr<ModelLoader> Loader() const;
-
-  /**
-   * @brief Get model loader
-   *
    * @return Model loader
    */
   std::shared_ptr<ModelLoader> Model() const;
-
-  /**
-   * @brief Alloc memory on CPU for model input
-   * @deprecated use AllocCpuInput(void) instead
-   *
-   * @note Input data shape is described by input_shapes from ModelLoader
-   * @attention Ensure SetModel has been called once
-   * @param batch_size batch size
-   * @return Alloced CPU memory
-   */
-  attribute_deprecated void **AllocCpuInput(uint32_t batch_size) const;
 
   /**
    * @brief Alloc memory on CPU for model input
@@ -103,33 +73,12 @@ class MluMemoryOp {
 
   /**
    * @brief Alloc memory on CPU for model output
-   * @deprecated use AllocCpuOutput(void) instead
-   *
-   * @note Output data shape is described by output_shapes from ModelLoader
-   * @attention Ensure SetModel has been called once
-   * @param batch_size batch size
-   * @return Alloced CPU memory
-   */
-  attribute_deprecated void **AllocCpuOutput(uint32_t batch_size) const;
-
-  /**
-   * @brief Alloc memory on CPU for model output
    *
    * @note Output data shape is described by output_shapes from ModelLoader
    * @attention Ensure SetModel has been called once
    * @return Alloced CPU memory
    */
   void **AllocCpuOutput() const;
-
-  /**
-   * @brief Alloc memory on MLU according to nBytes.
-   * @deprecated use AllocMlu(size_t) instead
-   *
-   * @param nBytes Alloced memory size in bytes
-   * @param batch_size Batch size
-   * @return Alloced MLU memory
-   */
-  attribute_deprecated void *AllocMlu(size_t nBytes, uint32_t batch_size) const;
 
   /**
    * @brief Alloc memory on MLU according to nBytes.
@@ -141,34 +90,12 @@ class MluMemoryOp {
 
   /**
    * @brief Alloc memory on MLU for model input
-   * @deprecated use AllocMluInput(void) instead
-   *
-   * @note Input data shape is described by input_data_descs from ModelLoader
-   * @attention Ensure SetModel has been called once
-   * @param batch_size Batch size
-   * @return Alloced MLU memory
-   */
-  attribute_deprecated void **AllocMluInput(uint32_t batch_size) const;
-
-  /**
-   * @brief Alloc memory on MLU for model input
    *
    * @note Input data shape is described by input_data_descs from ModelLoader
    * @attention Ensure SetModel has been called once
    * @return Alloced MLU memory
    */
   void **AllocMluInput() const;
-
-  /**
-   * @brief Alloc memory on MLU for model output
-   * @deprecated use AllocMluOutput(void) instead
-   *
-   * @note Input data shape is described by output_data_descs from ModelLoader
-   * @attention Ensure SetModel has been called once
-   * @param batch_size Batch size
-   * @return Alloced MLU memory
-   */
-  attribute_deprecated void **AllocMluOutput(uint32_t batch_size) const;
 
   /**
    * @brief Alloc memory on MLU for model output
@@ -196,15 +123,6 @@ class MluMemoryOp {
   void FreeCpuOutput(void **ptr) const;
 
   /**
-   * @brief Free memory array on MLU
-   *
-   * @deprecated
-   * @param ptr Memory array on MLU
-   * @param mem_num Memory number, usually input_num or output_num got from ModelLoader
-   */
-  attribute_deprecated void FreeArrayMlu(void **ptr, uint32_t mem_num) const;
-
-  /**
    * @brief Free input memory on MLU
    *
    * @param ptr Memory array on MLU
@@ -229,34 +147,12 @@ class MluMemoryOp {
 
   /**
    * @brief Copy model input data, from host(CPU) to device(MLU)
-   * @deprecated use MemcpyInputH2D(void**, void**) instead
-   *
-   * @attention Ensure SetModel has been called once
-   * @param mlu_dst Copy destination, memory on MLU
-   * @param cpu_src Copy source, data on CPU
-   * @param batch_size Batch size
-   */
-  attribute_deprecated void MemcpyInputH2D(void **mlu_dst, void **cpu_src, uint32_t batch_size) const;
-
-  /**
-   * @brief Copy model input data, from host(CPU) to device(MLU)
    *
    * @attention Ensure SetModel has been called once
    * @param mlu_dst Copy destination, memory on MLU
    * @param cpu_src Copy source, data on CPU
    */
   void MemcpyInputH2D(void **mlu_dst, void **cpu_src) const;
-
-  /**
-   * @brief Copy model output data, from device to host
-   * @deprecated use MemcpyOutputD2H(void**, void**) instead
-   *
-   * @attention Ensure SetModel has been called once
-   * @param cpu_dst Copy destination, memory on CPU
-   * @param mlu_src Copy source, data on MLU
-   * @param batch_size Batch size
-   */
-  attribute_deprecated void MemcpyOutputD2H(void **cpu_dst, void **mlu_src, uint32_t batch_size) const;
 
   /**
    * @brief Copy model output data, from device to host
@@ -269,34 +165,12 @@ class MluMemoryOp {
 
   /**
    * @brief Copy data from host to device
-   * @deprecated use MemcpyH2D(void**, void**, size_t) instead
-   *
-   * @param mlu_dst Copy destination, memory on MLU
-   * @param cpu_src Copy source, data on CPU
-   * @param nBytes Memory size in bytes
-   * @param batch_size Batch size
-   */
-  attribute_deprecated void MemcpyH2D(void *mlu_dst, void *cpu_src, size_t nBytes, uint32_t batch_size) const;
-
-  /**
-   * @brief Copy data from host to device
    *
    * @param mlu_dst Copy destination, memory on MLU
    * @param cpu_src Copy source, data on CPU
    * @param nBytes Memory size in bytes
    */
   void MemcpyH2D(void *mlu_dst, void *cpu_src, size_t nBytes) const;
-
-  /**
-   * @brief Copy data from device to host
-   * @deprecated use MemcpyD2H(void**, void**, size_t) instead
-   *
-   * @param cpu_dst Copy destination, memory on CPU
-   * @param mlu_src Copy source, data on MLU
-   * @param nBytes Memory size in bytes
-   * @param batch_size Batch size
-   */
-  attribute_deprecated void MemcpyD2H(void *cpu_dst, void *mlu_src, size_t nBytes, uint32_t batch_size) const;
 
   /**
    * @brief Copy data from device to host

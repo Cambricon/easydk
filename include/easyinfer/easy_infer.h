@@ -56,16 +56,6 @@ class EasyInfer {
 
   /**
    * @brief Initialize the inference helper class
-   * @deprecated use Init(std::shared_ptr<ModelLoader>, int) instead
-   *
-   * @param model Model loader which contain neural network offline model and informations
-   * @param batch_size Batch size for inference, only supported on MLU100
-   * @param dev_id init cninfer in device with origin id dev_id. only supported on MLU270
-   */
-  attribute_deprecated void Init(std::shared_ptr<ModelLoader> model, int batch_size, int dev_id);
-
-  /**
-   * @brief Initialize the inference helper class
    *
    * @param model Model loader which contain neural network offline model and informations
    * @param dev_id init cninfer in device with origin id dev_id. only supported on MLU270
@@ -82,29 +72,21 @@ class EasyInfer {
   void Run(void** input, void** output, float* hw_time = nullptr) const;
 
   /**
+   * @brief  Async invoke inference function
+   *
+   * @param input Input data in MLU
+   * @param output Output data in MLU
+   * @param task_queue 
+   */
+  void RunAsync(void** input, void** output, MluTaskQueue_t task_queue) const;
+
+  /**
    * @brief Get the model loader
    *
    * @see edk::ModelLoader
    * @return Model loader
    */
   std::shared_ptr<ModelLoader> Model() const;
-
-  /**
-   * @brief Get the model loader
-   *
-   * @deprecated
-   * @see edk::ModelLoader
-   * @return Model loader
-   */
-  attribute_deprecated std::shared_ptr<ModelLoader> Loader() const;
-
-  /**
-   * @brief Get the batch size
-   * @deprecated
-   *
-   * @return Batch size
-   */
-  attribute_deprecated int BatchSize() const;
 
   /**
    * @brief Get the MLU task queue, used to share MLU queue with Bang kernel

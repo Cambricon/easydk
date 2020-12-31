@@ -302,7 +302,7 @@ class Shape {
    * @param other Another shape
    * @return Return true if two shapes are equal
    */
-  bool operator==(const Shape &other);
+  bool operator==(const Shape &other) const;
 
   /**
    * @brief Judge whether two shapes are not equal
@@ -310,7 +310,7 @@ class Shape {
    * @param other Another shape
    * @return Return true if two shapes are not equal
    */
-  bool operator!=(const Shape &other);
+  bool operator!=(const Shape &other) const;
 
   /// data number
   uint32_t n;

@@ -21,14 +21,9 @@
 #include "test_base.h"
 
 #include <unistd.h>
-#include <cerrno>
-#include <cstring>
-#include <iostream>
 #include <string>
 
 #define PATH_MAX_LENGTH 1024
-
-extern int errno;
 
 std::string GetExePath() {
   char path[PATH_MAX_LENGTH];
@@ -36,19 +31,11 @@ std::string GetExePath() {
   if (cnt < 0 || cnt >= PATH_MAX_LENGTH) {
     return "";
   }
-  for (int i = cnt; i >= 0; --i) {
-    if ('/' == path[i]) {
-      path[i + 1] = '\0';
-      break;
-    }
+  if (path[cnt - 1] == '/') {
+    path[cnt - 1] = '\0';
+  } else {
+    path[cnt] = '\0';
   }
   std::string result(path);
-  return result;
-}
-
-void CheckExePath(const std::string& path) {
-  if (path.size() == 0) {
-    if (errno != 0) std::cerr << std::string(std::strerror(errno)) << std::endl;
-    std::cerr << "length of exe path is larger than " << PATH_MAX_LENGTH << std::endl;
-  }
+  return std::string(path).substr(0, result.find_last_of('/') + 1);
 }

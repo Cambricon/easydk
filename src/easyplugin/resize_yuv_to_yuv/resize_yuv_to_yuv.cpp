@@ -154,23 +154,6 @@ bool MluResizeYuv2Yuv::Init(const MluResizeAttr& attr) {
   return success;
 }
 
-int MluResizeYuv2Yuv::InvokeOp(void* dst_y, void* dst_uv, void* src_y, void* src_uv) {
-  if (nullptr == d_ptr_->queue_) {
-    THROW_EXCEPTION(Exception::INTERNAL, "cnrt queue is null.");
-  }
-  if (d_ptr_->attr_.batch_size != 1) {
-    THROW_EXCEPTION(Exception::INVALID_ARG,
-                    "InvokeOp is vaild only if the batchsize is 1. Please Use BatchingUp "
-                    "and SyncOneOutput to replace InvokeOp.");
-  }
-  SrcBatchingUp(src_y, src_uv);
-  DstBatchingUp(dst_y, dst_uv);
-  if (!SyncOneOutput()) {
-    return -1;
-  }
-  return 0;
-}
-
 void MluResizeYuv2Yuv::SrcBatchingUp(void* y, void* uv) {
   VLOG(5) << "Store resize yuv2yuv input for batching, " << y << ", " <<  uv;
   d_ptr_->src_yuv_ptrs_cache_.push_back(std::make_pair(y, uv));

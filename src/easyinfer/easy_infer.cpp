@@ -104,9 +104,6 @@ void EasyInfer::Init(std::shared_ptr<ModelLoader> model, int dev_id) {
   CALL_CNRT_FUNC(cnrtCreateNotifier(&d_ptr_->notifier_start_), "Create notifier failed");
   CALL_CNRT_FUNC(cnrtCreateNotifier(&d_ptr_->notifier_end_), "Create notifier failed");
 }
-void EasyInfer::Init(std::shared_ptr<ModelLoader> model, int batch_size, int dev_id) {
-  Init(std::move(model), dev_id);
-}
 
 void EasyInfer::Run(void** input, void** output, float* hw_time) const {
   int i_num = d_ptr_->model_->InputNum();
@@ -143,10 +140,33 @@ void EasyInfer::Run(void** input, void** output, float* hw_time) const {
   }
 }
 
-std::shared_ptr<ModelLoader> EasyInfer::Loader() const { return d_ptr_->model_; }
-std::shared_ptr<ModelLoader> EasyInfer::Model() const { return d_ptr_->model_; }
+void EasyInfer::RunAsync(void** input, void** output, MluTaskQueue_t task_queue) const {
+  int i_num = d_ptr_->model_->InputNum();
+  int o_num = d_ptr_->model_->OutputNum();
 
-int EasyInfer::BatchSize() const { return d_ptr_->batch_size_; }
+  VLOG(5) << "Process inference on one frame, input num: " << i_num << " output num: " << o_num;
+  VLOG(5) << "Inference, input: " << input << " output: " << output;
+  // prepare params for invokefunction
+  for (int i = 0; i < i_num; ++i) {
+    d_ptr_->param_[i] = input[i];
+  }
+  for (int i = 0; i < o_num; ++i) {
+    d_ptr_->param_[i_num + i] = output[i];
+  }
+
+  void* extra = nullptr;
+  cnrtInvokeParam_t cnrt_invoke_param;
+  unsigned int ui_affinity = static_cast<unsigned int>(-1);
+  extra = reinterpret_cast<void*>(&cnrt_invoke_param);
+  cnrt_invoke_param.invoke_param_type = CNRT_INVOKE_PARAM_TYPE_0;
+  cnrt_invoke_param.cluster_affinity.affinity = &ui_affinity;
+
+  cnrtQueue_t q = MluTaskQueueProxy::GetCnrtQueue(task_queue);
+  CALL_CNRT_FUNC(cnrtInvokeRuntimeContext(d_ptr_->runtime_context_, d_ptr_->param_, q, extra),
+                 "Invoke Runtime Context failed");
+}
+
+std::shared_ptr<ModelLoader> EasyInfer::Model() const { return d_ptr_->model_; }
 
 MluTaskQueue_t EasyInfer::GetMluQueue() const { return d_ptr_->queue_; }
 

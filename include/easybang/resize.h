@@ -101,17 +101,6 @@ class MluResize {
   const Attr& GetAttr();
 
   /**
-   * @brief Excute operator, use BatchingUp and SyncOneOutput instead
-   * @deprecated
-   *
-   * @param dst_y Operator output y plane in MLU memory
-   * @param dst_y Operator output uv plane in MLU memory
-   * @param src_y Operator input y plane in MLU memory
-   * @param src_uv Operator input uv plane in MLU memory
-   * @return Return 0 if invoke succeeded, otherwise return -1
-   */
-  attribute_deprecated int InvokeOp(void* dst_y, void* dst_uv, void* src_y, void* src_uv);
-  /**
    * @brief Deinitialize resources
    */
   void Destroy();

@@ -19,11 +19,6 @@
 #include "internal/mlu_task_queue.h"
 #include "test_base.h"
 
-#ifdef __GNUC__
-#pragma GCC diagnostic push
-#pragma GCC diagnostic ignored "-Wdeprecated-declarations"
-#endif
-
 #define FULL_TEST 0
 
 namespace {
@@ -177,12 +172,12 @@ bool MluResizeAndCvt(const std::vector<ImgInfo> &src_imgs,
   for (const auto &img : src_imgs) {
     size_t y_plane_len = img.w * img.h * sizeof(uint8_t);
     size_t uv_plane_len = img.w * img.h / 2 * sizeof(uint8_t);
-    void *y_plane_mlu = mem_op.AllocMlu(img.w * img.h, 1);
-    void *uv_plane_mlu = mem_op.AllocMlu(img.w * img.h / 2, 1);
+    void *y_plane_mlu = mem_op.AllocMlu(img.w * img.h);
+    void *uv_plane_mlu = mem_op.AllocMlu(img.w * img.h / 2);
     void *y_plane_cpu = static_cast<void*>(const_cast<uint8_t*>(img.data.data()));
     void *uv_plane_cpu = static_cast<void*>(const_cast<uint8_t*>(img.data.data()) + y_plane_len);
-    EXPECT_NO_THROW(mem_op.MemcpyH2D(y_plane_mlu, y_plane_cpu, y_plane_len, 1));
-    EXPECT_NO_THROW(mem_op.MemcpyH2D(uv_plane_mlu, uv_plane_cpu, uv_plane_len, 1));
+    EXPECT_NO_THROW(mem_op.MemcpyH2D(y_plane_mlu, y_plane_cpu, y_plane_len));
+    EXPECT_NO_THROW(mem_op.MemcpyH2D(uv_plane_mlu, uv_plane_cpu, uv_plane_len));
 
     mlu_ptrs.push_back(y_plane_mlu);  // save for deallocate
     mlu_ptrs.push_back(uv_plane_mlu);  // save for deallocate
@@ -203,7 +198,7 @@ bool MluResizeAndCvt(const std::vector<ImgInfo> &src_imgs,
 
   size_t output_size = params.dst_w * params.dst_h * 4 * batchsize * sizeof(uint8_t);
   void *output_mlu = nullptr;
-  EXPECT_NO_THROW(output_mlu = mem_op.AllocMlu(output_size, 1));
+  EXPECT_NO_THROW(output_mlu = mem_op.AllocMlu(output_size));
   EXPECT_EQ(CNRT_RET_SUCCESS, cnrtMemset(output_mlu, 0, output_size));  // keep aspect ratio: pad value not verified.
   if (!op.SyncOneOutput(output_mlu)) {
     LOG(ERROR) << "invoke kernel failed.";
@@ -213,7 +208,7 @@ bool MluResizeAndCvt(const std::vector<ImgInfo> &src_imgs,
   uint8_t *output_cpu = new (std::nothrow) uint8_t[output_size];
   EXPECT_TRUE(output_cpu) << "alloc memory on cpu failed.";
 
-  EXPECT_NO_THROW(mem_op.MemcpyD2H(static_cast<void*>(output_cpu), output_mlu, output_size, 1));
+  EXPECT_NO_THROW(mem_op.MemcpyD2H(static_cast<void *>(output_cpu), output_mlu, output_size));
 
   pdst_imgs->clear();
   pdst_imgs->reserve(batchsize);
@@ -353,7 +348,6 @@ bool CompareData(const ImgInfo &cpu_data, const ImgInfo &mlu_data,
   bool ret = true;
   float thres = 0.02;
   float diff = 0.0;
-  float diffSum = 0.0;
   float mae = 0.0;
   float mse = 0.0;
   float ma = 0.0;
@@ -372,7 +366,6 @@ bool CompareData(const ImgInfo &cpu_data, const ImgInfo &mlu_data,
               static_cast<float>(cpu_data.data[i * width * 4 + j * 4 + k]);
 
         mae += std::abs(diff);
-        diffSum += diff;
         mse += diff * diff;
       }
     }
@@ -657,19 +650,56 @@ TEST(Bang, RCOpRunAfterCoreDump) {
   input_data.src_w = 100;
   input_data.src_h = 100;
   input_data.src_stride = 100;
-  ASSERT_NO_THROW(input_data.planes[0] = mem_op.AllocMlu(size_t(1) * input_data.src_w * input_data.src_h, 1));
-  ASSERT_NO_THROW(input_data.planes[1] = mem_op.AllocMlu(size_t(1) * input_data.src_w * input_data.src_h / 2, 1));
-  ASSERT_NO_THROW(output_mlu = mem_op.AllocMlu(output_size / 2, 1));  // make a DMA WRITE FAILED.
+  ASSERT_NO_THROW(input_data.planes[0] = mem_op.AllocMlu(size_t(1) * input_data.src_w * input_data.src_h));
+  ASSERT_NO_THROW(input_data.planes[1] = mem_op.AllocMlu(size_t(1) * input_data.src_w * input_data.src_h / 2));
+  ASSERT_NO_THROW(output_mlu = mem_op.AllocMlu(output_size / 2));  // make a DMA WRITE FAILED.
   ASSERT_NO_THROW(op.BatchingUp(input_data));
   ASSERT_FALSE(op.SyncOneOutput(output_mlu));
 
   /** run normally **/
   mem_op.FreeMlu(output_mlu);
-  ASSERT_NO_THROW(output_mlu = mem_op.AllocMlu(output_size, 1));
+  ASSERT_NO_THROW(output_mlu = mem_op.AllocMlu(output_size));
   ASSERT_NO_THROW(op.BatchingUp(input_data));
   EXPECT_TRUE(op.SyncOneOutput(output_mlu));
 
   op.Destroy();
+  mem_op.FreeMlu(input_data.planes[0]);
+  mem_op.FreeMlu(input_data.planes[1]);
+  mem_op.FreeMlu(output_mlu);
+}
+
+TEST(Bang, RCOpBatchNotFull) {
+  edk::MluContext context;
+  context.SetDeviceId(0);
+  context.BindDevice();
+
+  edk::MluMemoryOp mem_op;
+  edk::MluResizeConvertOp op;
+  edk::MluResizeConvertOp::Attr attr;
+  attr.dst_h = 512;
+  attr.dst_w = 512;
+  attr.core_version = context.GetCoreVersion();
+  attr.core_number = 4;
+  attr.keep_aspect_ratio = true;
+  attr.batch_size = 16;
+  ASSERT_TRUE(op.Init(attr));
+
+  size_t output_size = attr.batch_size * attr.dst_w * attr.dst_h * 4 * sizeof(uint8_t);
+  void* output_mlu = nullptr;
+
+  // only one data in batchs
+  edk::MluResizeConvertOp::InputData input_data;
+  input_data.src_w = 1920;
+  input_data.src_h = 1080;
+  input_data.src_stride = 1920;
+  ASSERT_NO_THROW(input_data.planes[0] = mem_op.AllocMlu(size_t(1) * input_data.src_w * input_data.src_h));
+  ASSERT_NO_THROW(input_data.planes[1] = mem_op.AllocMlu(size_t(1) * input_data.src_w * input_data.src_h / 2));
+  ASSERT_NO_THROW(output_mlu = mem_op.AllocMlu(output_size));
+  ASSERT_NO_THROW(op.BatchingUp(input_data));
+  EXPECT_TRUE(op.SyncOneOutput(output_mlu));
+
+  op.Destroy();
+  mem_op.FreeMlu(output_mlu);
   mem_op.FreeMlu(input_data.planes[0]);
   mem_op.FreeMlu(input_data.planes[1]);
   mem_op.FreeMlu(output_mlu);

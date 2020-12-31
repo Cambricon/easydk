@@ -150,10 +150,6 @@ void MluContext::BindDevice() {
   }
 }
 
-void MluContext::ConfigureForThisThread() {
-  BindDevice();
-}
-
 CoreVersion MluContext::GetCoreVersion() {
   _cnrt_init_tool::cnrt_init_tool.Init();
   static std::mutex m;

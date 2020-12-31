@@ -339,8 +339,6 @@ bool ModelLoader::WithYUVInput() const {
   return false;
 }
 
-void ModelLoader::InitLayout() {}
-
 void ModelLoader::SetCpuInputLayout(DataLayout layout, int data_index) {
   if (data_index < 0 || static_cast<uint32_t>(data_index) >= d_ptr_->i_num_) {
     THROW_EXCEPTION(Exception::INVALID_ARG, "SetCpuInputLayout: Data index out of range");

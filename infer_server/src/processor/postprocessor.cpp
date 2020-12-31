@@ -1,0 +1,196 @@
+/*************************************************************************
+ * Copyright (C) [2020] by Cambricon, Inc. All rights reserved
+ *
+ *  Licensed under the Apache License, Version 2.0 (the "License");
+ *  you may not use this file except in compliance with the License.
+ *  You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * The above copyright notice and this permission notice shall be included in
+ * all copies or substantial portions of the Software.
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS
+ * OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL
+ * THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+ * THE SOFTWARE.
+ *************************************************************************/
+
+#include <glog/logging.h>
+#include <memory>
+#include <utility>
+#include <vector>
+
+#include "cnrt.h"
+
+#include "core/data_type.h"
+#include "device/mlu_context.h"
+#include "model/model.h"
+#include "processor.h"
+#include "util/env.h"
+#include "util/thread_pool.h"
+
+using std::shared_ptr;
+using std::vector;
+
+namespace infer_server {
+
+#define CALL_CNRT_FUNC(func, msg)                    \
+  do {                                               \
+    cnrtRet_t ret = (func);                          \
+    if (CNRT_RET_SUCCESS != ret) {                   \
+      LOG(ERROR) << (msg) << " error code: " << ret; \
+      return Status::ERROR_BACKEND;                  \
+    }                                                \
+  } while (0)
+struct PostprocessorPrivate {
+  static std::unique_ptr<EqualityThreadPool> tp;
+  static std::mutex tp_mutex;
+  ModelPtr model{nullptr};
+  Postprocessor::ProcessFunction process_func;
+  // output layouts of model output on device
+  vector<DataLayout> layouts;
+  // user specified output layout on host
+  DataLayout host_layout;
+  bool increased_tp{false};
+};
+
+// init thread pool
+std::unique_ptr<EqualityThreadPool> PostprocessorPrivate::tp{new EqualityThreadPool(nullptr)};
+std::mutex PostprocessorPrivate::tp_mutex;
+
+Postprocessor::Postprocessor() noexcept : ProcessorForkable("Postprocessor"), priv_(new PostprocessorPrivate) {}
+
+Postprocessor::~Postprocessor() {
+  std::unique_lock<std::mutex> lk(priv_->tp_mutex);
+  if (priv_->increased_tp) {
+    int idle_num = priv_->tp->IdleNumber();
+    // TODO(dmh): 2?
+    if (idle_num > 2) priv_->tp->Resize(priv_->tp->Size() - 2);
+    lk.unlock();
+  }
+  delete priv_;
+  priv_ = nullptr;
+}
+
+Status Postprocessor::Init() noexcept {
+  constexpr const char* params[] = {"model_info", "device_id", "host_output_layout"};
+  for (auto p : params) {
+    if (!HaveParam(p)) {
+      LOG(ERROR) << p << " has not been set";
+      return Status::INVALID_PARAM;
+    }
+  }
+
+  try {
+    priv_->model = GetParam<ModelPtr>("model_info");
+    priv_->host_layout = GetParam<DataLayout>("host_output_layout");
+    priv_->process_func = HaveParam("process_function") ? GetParam<ProcessFunction>("process_function") : nullptr;
+    if (!priv_->process_func) {
+      LOG(WARNING) << "process_function has not been set, postprocessor will output ModelIO directly";
+    }
+    int device_id = GetParam<int>("device_id");
+
+    edk::MluContext ctx;
+    ctx.SetDeviceId(device_id);
+    ctx.BindDevice();
+  } catch (edk::Exception& e) {
+    LOG(ERROR) << e.what();
+    return Status::ERROR_BACKEND;
+  } catch (bad_any_cast&) {
+    LOG(ERROR) << "unmatched param type";
+    return Status::WRONG_TYPE;
+  }
+
+  if (priv_->process_func) {
+    std::unique_lock<std::mutex> lk(priv_->tp_mutex);
+    int th_num = priv_->tp->Size();
+    static const int max_th_num = GetCpuCoreNumber();
+    if (th_num < max_th_num) {
+      // TODO(dmh): add 2 thread for each instance?
+      priv_->tp->Resize(th_num + 2);
+    }
+    priv_->increased_tp = true;
+    lk.unlock();
+  }
+
+  size_t o_num = priv_->model->OutputNum();
+  priv_->layouts.reserve(o_num);
+  for (size_t i = 0; i < o_num; ++i) {
+    priv_->layouts.emplace_back(priv_->model->OutputLayout(i));
+  }
+
+  return Status::SUCCESS;
+}
+
+Status Postprocessor::Process(PackagePtr pack) noexcept {
+  CHECK(pack);
+  if (pack->data.size() != 1) {
+    LOG(ERROR) << "Postprocessor can process continuous data only";
+    return Status::INVALID_PARAM;
+  }
+
+  InferDataPtr cdata = pack->data[0];
+  pack->data.clear();
+
+  ModelIO& out_mlu = cdata->GetLref<ModelIO>();
+  vector<Buffer> out_cpu;
+
+  size_t host_type_size = GetTypeSize(priv_->host_layout.dtype);
+  for (size_t out_idx = 0; out_idx < out_mlu.buffers.size(); ++out_idx) {
+    const Shape& s = priv_->model->OutputShape(out_idx);
+    size_t batch_data_len = s.BatchDataCount();
+    size_t type_size = GetTypeSize(priv_->layouts[out_idx].dtype);
+    Buffer out_tmp(batch_data_len * type_size);
+    out_cpu.emplace_back(batch_data_len * host_type_size);
+    // copy to host
+    out_mlu.buffers[out_idx].CopyTo(&out_tmp, batch_data_len * type_size);
+    // transform data layout
+    detail::TransLayout(out_tmp.MutableData(), out_cpu[out_idx].MutableData(), priv_->layouts[out_idx],
+                        priv_->host_layout, s);
+  }
+
+  // use real number of data as batch size
+  const size_t batch_size = pack->descs.size();
+  pack->data.reserve(pack->descs.size());
+  std::vector<std::future<bool>> res;
+  res.reserve(batch_size);
+  for (size_t batch_idx = 0; batch_idx < batch_size; ++batch_idx) {
+    pack->data.emplace_back(new InferData);
+    ModelIO outputs;
+    for (size_t out_idx = 0; out_idx < out_cpu.size(); ++out_idx) {
+      Shape s = out_mlu.shapes[out_idx];
+      s[0] = 1;
+      outputs.buffers.emplace_back(out_cpu[out_idx](batch_idx * host_type_size * s.DataCount()));
+      outputs.shapes.emplace_back(std::move(s));
+    }
+    if (priv_->process_func) {
+      res.emplace_back(priv_->tp->Push(0, priv_->process_func, pack->data[batch_idx].get(), std::move(outputs),
+                                       std::ref(*(priv_->model))));
+    } else {
+      VLOG(5) << "do not have process_function, output ModelIO directly";
+      pack->data[batch_idx]->Set(std::move(outputs));
+    }
+  }
+
+  // wait for process finish
+  try {
+    for (auto& fut : res) {
+      if (!fut.get()) {
+        LOG(ERROR) << "postprocess failed";
+        return Status::ERROR_BACKEND;
+      }
+    }
+  } catch (std::exception& e) {
+    LOG(ERROR) << "Catch exception in preprocess: " << e.what();
+    return Status::ERROR_BACKEND;
+  }
+
+  cdata.reset();
+
+  return Status::SUCCESS;
+}
+
+}  // namespace infer_server
