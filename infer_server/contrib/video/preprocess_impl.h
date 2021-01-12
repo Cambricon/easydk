@@ -44,21 +44,7 @@ namespace infer_server {
 namespace video {
 namespace detail {
 
-void ResizeBoundingBox(BoundingBox* box) {
-  if (box->x >= 1 || box->y >= 1 || box->w > 1 || box->h > 1) {
-    LOG(ERROR) << "Invalid value!";
-    box->x = 0;
-    box->y = 0;
-    box->w = 0;
-    box->y = 0;
-  }
-  box->w = std::min(box->x + box->w, box->w);
-  box->h = std::min(box->y + box->h, box->h);
-  box->x = std::max(0.f, box->x);
-  box->y = std::max(0.f, box->y);
-  box->w = (box->x + box->w) > 1 ? (1 - box->x) : box->w;
-  box->h = (box->y + box->h) > 1 ? (1 - box->y) : box->h;
-}
+void ClipBoundingBox(BoundingBox* box) noexcept;
 
 class PreprocessBase {
  public:
@@ -236,7 +222,7 @@ bool ResizeConvert::Execute(Package* pack, Buffer* model_input) {
     input_data.planes[0] = frame.plane[0].MutableData();
     input_data.planes[1] = frame.plane[1].MutableData();
 
-    ResizeBoundingBox(&frame.roi);
+    ClipBoundingBox(&frame.roi);
     int32_t crop_x = frame.roi.x * frame.width;
     int32_t crop_y = frame.roi.y * frame.height;
     input_data.crop_x = crop_x;
@@ -314,7 +300,7 @@ bool Scaler::Process(VideoFrame* frame, Buffer* model_input, int instance_id, in
 
   work_info.inMsg.instance = instance_id;
 
-  ResizeBoundingBox(&frame->roi);
+  ClipBoundingBox(&frame->roi);
   cncodecRectangle roi;
   roi.left = frame->roi.x * src_frame.width;
   roi.top = frame->roi.y * src_frame.height;

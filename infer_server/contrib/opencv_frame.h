@@ -39,8 +39,12 @@ struct OpencvFrame {
 template <PixelFmt dst_fmt>
 struct OpencvResizeConvertBase {};
 
+namespace detail {
+void ClipBoundingBox(BoundingBox* box) noexcept;
+}  // namespace detail
+
 template <>
-struct OpencvResizeConvertBase<PixelFmt::BGR24> {
+struct OpencvResizeConvertBase<PixelFmt::RGBA> {
   bool operator()(ModelIO* model_input, const InferData& in, const ModelInfo&) {
     const auto& frame = in.GetLref<OpencvFrame>();
     if (model_input->buffers.size() != 1) {
@@ -56,39 +60,48 @@ struct OpencvResizeConvertBase<PixelFmt::BGR24> {
     int dst_width = s.GetW();
     int dst_height = s.GetH();
 
+    cv::Mat img;
+    auto roi = frame.roi;
+    if (roi.w == 0 || roi.h == 0) {
+      img = frame.img;
+    } else {
+      detail::ClipBoundingBox(&roi);
+      img = frame.img(cv::Rect(roi.x, roi.y, roi.w, roi.h));
+    }
+
     cv::Mat tmp;
     switch (frame.fmt) {
       case PixelFmt::I420:
-        cv::cvtColor(frame.img, tmp, cv::COLOR_YUV2BGR_I420);
+        cv::cvtColor(img, tmp, cv::COLOR_YUV2RGBA_I420);
         break;
       case PixelFmt::NV12:
-        cv::cvtColor(frame.img, tmp, cv::COLOR_YUV2BGR_NV12);
+        cv::cvtColor(img, tmp, cv::COLOR_YUV2RGBA_NV12);
         break;
       case PixelFmt::NV21:
-        cv::cvtColor(frame.img, tmp, cv::COLOR_YUV2BGR_NV21);
+        cv::cvtColor(img, tmp, cv::COLOR_YUV2RGBA_NV21);
         break;
       case PixelFmt::RGB24:
-        cv::cvtColor(frame.img, tmp, cv::COLOR_RGB2BGR);
+        cv::cvtColor(img, tmp, cv::COLOR_RGB2RGBA);
         break;
       case PixelFmt::BGR24:
-        tmp = frame.img;
+        cv::cvtColor(img, tmp, cv::COLOR_BGR2RGBA);
         break;
       default:
         std::cerr << "unsupport pixel format";
         return false;
     }
 
-    cv::Mat dst(dst_height, dst_width, CV_8UC3, b.MutableData());
+    cv::Mat dst(dst_height, dst_width, CV_8UC4, b.MutableData());
     cv::resize(tmp, dst, cv::Size(dst_width, dst_height));
     return true;
   }
 
   static PreprocessorHost::ProcessFunction GetFunction() {
-    return PreprocessorHost::ProcessFunction(OpencvResizeConvertBase<PixelFmt::BGR24>());
+    return PreprocessorHost::ProcessFunction(OpencvResizeConvertBase<PixelFmt::RGBA>());
   }
 };
 
-using DefaultOpencvPreproc = OpencvResizeConvertBase<PixelFmt::BGR24>;
+using DefaultOpencvPreproc = OpencvResizeConvertBase<PixelFmt::RGBA>;
 
 }  // namespace video
 }  // namespace infer_server
