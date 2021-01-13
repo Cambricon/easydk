@@ -9,7 +9,7 @@ endif()
 # ---[ easydk project
 project(easydk C CXX)
 
-set(EDK_VERSION 2.4.0)
+set(EDK_VERSION 2.4.1)
 set(EDK_VERSION_MAJOR 2)
 
 #######################################################################

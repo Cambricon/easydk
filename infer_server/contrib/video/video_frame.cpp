@@ -19,6 +19,8 @@
  *************************************************************************/
 
 #include <glog/logging.h>
+#include <algorithm>
+
 #include "video_helper.h"
 
 namespace infer_server {
@@ -87,6 +89,23 @@ size_t VideoFrame::GetTotalSize() const noexcept {
   }
   return bytes;
 }
+
+namespace detail {
+void ClipBoundingBox(BoundingBox* box) noexcept {
+  if (box->x >= 1 || box->y >= 1 ||
+      box->w <= 0 || box->h <= 0 ||
+      box->w > 1 || box->h > 1) {
+    box->x = 0, box->y = 0, box->w = 0, box->h = 0;
+    return;
+  }
+  box->w = std::max(std::min(box->x + box->w, box->w), 0.f);
+  box->h = std::max(std::min(box->y + box->h, box->h), 0.f);
+  box->x = std::max(0.f, box->x);
+  box->y = std::max(0.f, box->y);
+  box->w = (box->x + box->w) > 1 ? (1 - box->x) : box->w;
+  box->h = (box->y + box->h) > 1 ? (1 - box->y) : box->h;
+}
+}  // namespace detail
 
 }  // namespace video
 }  // namespace infer_server
