@@ -37,9 +37,9 @@
 #include <vector>
 
 #include "cache.h"
-#include "engine.h"
 #include "infer_server.h"
 #include "priority.h"
+#include "profile.h"
 #include "request_ctrl.h"
 #include "util/thread_pool.h"
 
@@ -53,10 +53,18 @@ class Session {
   Session(const std::string& name, Executor_t executor, bool sync_link, bool show_perf) noexcept
       : name_(name), executor_(executor), running_(true), is_sync_link_(sync_link) {
 #ifdef CNIS_RECORD_PERF
-    if (show_perf) {
-      // print performance information every 2 second
-      perf_timer_.NotifyEvery(2000, &Session::PrintPerformance, this);
-    }
+    profiler_.SetSelfUpdate(false);
+    // update and print performance information every 2 second
+    perf_timer_.NotifyEvery(2000, [this, show_perf]() {
+      profiler_.Update();
+      if (show_perf) {
+        VLOG(3) << "[" << name_ << "] Session rps (total): " << profiler_.RequestPerSecond();
+        VLOG(3) << "[" << name_ << "] Session ups (total): " << profiler_.UnitPerSecond();
+        VLOG(3) << "[" << name_ << "] Session rps (realtime): " << profiler_.RequestThroughoutRealtime();
+        VLOG(3) << "[" << name_ << "] Session ups (realtime): " << profiler_.UnitThroughoutRealtime();
+        recorder_.PrintPerformance(name_);
+      }
+    });
 #endif
   }
 
@@ -75,8 +83,8 @@ class Session {
 #ifdef CNIS_RECORD_PERF
     // stop print perf
     if (!perf_timer_.Idle()) {
-      PrintPerformance();
       perf_timer_.Cancel();
+      recorder_.PrintPerformance(name_);
     }
 #endif
   }
@@ -107,6 +115,9 @@ class Session {
     lk_head.unlock();
     lk_tail.unlock();
     flag.get();
+#ifdef CNIS_RECORD_PERF
+    profiler_.RemoveTag(tag);
+#endif
   }
 
   void DiscardTask(const std::string& tag) noexcept {
@@ -118,41 +129,15 @@ class Session {
         it->Discard();
       }
     });
+#ifdef CNIS_RECORD_PERF
+    profiler_.RemoveTag(tag);
+#endif
   }
 
 #ifdef CNIS_RECORD_PERF
-  void RecordPerformance(const std::string& perf_key, uint32_t unit_cnt, float time_ms) noexcept {
-    std::unique_lock<std::mutex> lk(perf_mutex_);
-    if (!perf_record_.count(perf_key)) {
-      perf_record_[perf_key] = PerfStatistic();
-    }
-
-    auto& perf = perf_record_[perf_key];
-    perf.unit_cnt += unit_cnt;
-    perf.total += time_ms;
-    float ave = time_ms / unit_cnt;
-    if (ave > perf.max) perf.max = ave;
-    if (ave < perf.min) perf.min = ave;
-  }
-
-  const std::map<std::string, PerfStatistic>& GetPerformance() const noexcept { return perf_record_; }
-
-  void PrintPerformance() {
-    std::unique_lock<std::mutex> lk(perf_mutex_);
-    if (perf_record_.empty()) return;
-    printf("\n-------------------------------- %s --------------------------------\n", name_.c_str());
-    for (auto& p : perf_record_) {
-      if (p.first == "Batch") {
-        printf("  %-16s: total unit %d, unit count %-u, max %d, min %d, average %.3f\n", p.first.c_str(),
-               static_cast<int>(p.second.total), p.second.unit_cnt, static_cast<int>(p.second.max),
-               static_cast<int>(p.second.min), p.second.total / p.second.unit_cnt);
-      } else {
-        printf("  %-16s: total time %.3f ms, unit count %-u, max %.3f, min %.3f, average %.3f\n", p.first.c_str(),
-               p.second.total, p.second.unit_cnt, p.second.max, p.second.min, p.second.total / p.second.unit_cnt);
-      }
-    }
-    printf("-------------------------------- %s END --------------------------------\n\n", name_.c_str());
-  }
+  const std::map<std::string, LatencyStatistic>& GetPerformance() const noexcept { return recorder_.GetPerformance(); }
+  ThroughoutStatistic GetThroughout(const std::string& tag) noexcept { return profiler_.Summary(tag); }
+  ThroughoutStatistic GetThroughout() noexcept { return profiler_.Summary(); }
 #endif
 
  private:
@@ -166,9 +151,9 @@ class Session {
 
 #ifdef CNIS_RECORD_PERF
   // performance statistics
-  std::map<std::string, PerfStatistic> perf_record_;
-  std::mutex perf_mutex_;
+  LatencyRecorder recorder_;
   Timer perf_timer_;
+  TagSetProfiler profiler_;
 #endif
 
   int64_t request_id_{0};
@@ -177,6 +162,7 @@ class Session {
   bool is_sync_link_{false};
 };  // class Session
 
+class Engine;
 class Executor {
  public:
   Executor(SessionDesc desc, PriorityThreadPool* tp, int device_id);
@@ -233,7 +219,7 @@ class Executor {
   std::mutex dispatch_mutex_;
   std::condition_variable dispatch_cond_;
 
-  PerfStatistic batch_record_;
+  LatencyStatistic batch_record_;
   std::atomic_bool running_{false};
   int device_id_;
 };  // class Executor

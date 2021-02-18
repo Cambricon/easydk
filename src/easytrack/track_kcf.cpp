@@ -20,8 +20,6 @@
 
 #ifdef ENABLE_KCF
 
-#include <glog/logging.h>
-
 #include <algorithm>
 #include <cstring>
 #include <memory>
@@ -29,6 +27,7 @@
 #include <utility>
 #include <vector>
 
+#include "cxxutil/log.h"
 #include "device/mlu_context.h"
 #include "easyinfer/easy_infer.h"
 #include "easyinfer/mlu_memory_op.h"
@@ -148,7 +147,7 @@ KcfTrackPrivate::~KcfTrackPrivate() {
 
     if (model_loader_) kcf_destroy(&handle_);
   } catch (Exception &e) {
-    LOG(ERROR) << e.what();
+    LOGE(TRACK) << e.what();
   }
 }
 
@@ -172,7 +171,7 @@ void KcfTrackPrivate::KcfUpdate(void *mlu_gray, uint32_t frame_index, uint32_t f
         //    obj.label, obj.score, obj.x, obj.y, obj.w, obj.h);
       }
     } else {
-      VLOG(3) << "@@@@@@ no detect result";
+      LOGD(TRACK) << "@@@@@@ no detect result";
       memset(detect_float_output_, 0, 6 * DETECT_OUT_SIZE * sizeof(float));
     }
 

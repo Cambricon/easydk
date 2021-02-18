@@ -1,10 +1,11 @@
-/* #include <glog/logging.h> */
 #include <gtest/gtest.h>
 
+#include "cxxutil/log.h"
+
 int main(int argc, char *argv[]) {
-  /* google::InitGoogleLogging(argv[0]); */
+  edk::log::InitLogging(true, true);
   ::testing::InitGoogleTest(&argc, argv);
   int ret = RUN_ALL_TESTS();
-  /* google::ShutdownGoogleLogging(); */
+  edk::log::ShutdownLogging();
   return ret;
 }

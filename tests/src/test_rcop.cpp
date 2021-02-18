@@ -1,7 +1,7 @@
-#include <glog/logging.h>
 #include <gtest/gtest.h>
 #include <opencv2/opencv.hpp>
 #include <sys/time.h>
+
 #include <algorithm>
 #include <chrono>
 #include <fstream>
@@ -13,6 +13,7 @@
 #include <utility>
 #include <vector>
 
+#include "cxxutil/log.h"
 #include "device/mlu_context.h"
 #include "easybang/resize_and_colorcvt.h"
 #include "easyinfer/mlu_memory_op.h"
@@ -137,7 +138,7 @@ bool MluResizeAndCvt(const std::vector<ImgInfo> &src_imgs,
                      std::vector<ImgInfo> *pdst_imgs,
                      const OperatorParams &params) {
   if (gmode_map.find(params.cvt_mode) == gmode_map.end()) {
-    LOG(ERROR) << "Unkonw color space convert mode." << static_cast<uint64_t>(params.cvt_mode);
+    LOGE(TEST) << "Unkonw color space convert mode." << static_cast<uint64_t>(params.cvt_mode);
     return false;
   }
 
@@ -161,7 +162,7 @@ bool MluResizeAndCvt(const std::vector<ImgInfo> &src_imgs,
   attr.keep_aspect_ratio = params.keep_aspect_ratio;
   attr.batch_size = batchsize;
   if (!op.Init(attr)) {
-    LOG(ERROR) << "Init mlu resize convert op failed.";
+    LOGE(TEST) << "Init mlu resize convert op failed.";
     return false;
   }
 
@@ -201,7 +202,7 @@ bool MluResizeAndCvt(const std::vector<ImgInfo> &src_imgs,
   EXPECT_NO_THROW(output_mlu = mem_op.AllocMlu(output_size));
   EXPECT_EQ(CNRT_RET_SUCCESS, cnrtMemset(output_mlu, 0, output_size));  // keep aspect ratio: pad value not verified.
   if (!op.SyncOneOutput(output_mlu)) {
-    LOG(ERROR) << "invoke kernel failed.";
+    LOGE(TEST) << "invoke kernel failed.";
     return false;
   }
 
@@ -418,7 +419,7 @@ bool TestFunc(const std::vector<ImgInfo> &src_imgs, const OperatorParams &op_par
         ofs.close();
       }
     } else {
-      LOG(ERROR) << "Dump input data failed. Check directory permissions.";
+      LOGE(TEST) << "Dump input data failed. Check directory permissions.";
     }
   }
 
@@ -702,7 +703,6 @@ TEST(Bang, RCOpBatchNotFull) {
   mem_op.FreeMlu(output_mlu);
   mem_op.FreeMlu(input_data.planes[0]);
   mem_op.FreeMlu(input_data.planes[1]);
-  mem_op.FreeMlu(output_mlu);
 }
 
 }  // namespace

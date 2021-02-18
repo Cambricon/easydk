@@ -35,6 +35,13 @@
 #include "util/any.h"
 #include "util/base_object.h"
 
+#define CNIS_VERSION_MAJOR 0
+#define CNIS_VERSION_MINOR 6
+#define CNIS_VERSION_PATCH 0
+
+#define CNIS_GET_VERSION(major, minor, patch) (((major) << 20) | ((minor) << 10) | (patch))
+#define CNIS_VERSION CNIS_GET_VERSION(CNIS_VERSION_MAJOR, CNIS_VERSION_MINOR, CNIS_VERSION_PATCH)
+
 namespace infer_server {
 
 /**
@@ -104,6 +111,19 @@ std::string ToString(BatchStrategy strategy) noexcept;
  * @return std::ostream& ostream
  */
 inline std::ostream& operator<<(std::ostream& os, BatchStrategy s) { return os << ToString(s); }
+
+/**
+ * @brief Get CNIS version string
+ *
+ * @return std::string version string
+ */
+inline std::string Version() {
+  // clang-format off
+  return std::to_string(CNIS_VERSION_MAJOR) + "." +
+         std::to_string(CNIS_VERSION_MINOR) + "." +
+         std::to_string(CNIS_VERSION_PATCH);
+  // clang-format on
+}
 
 /**
  * @brief Model interface
@@ -256,7 +276,7 @@ struct InferData {
    * @return std::add_lvalue_reference<typename std::add_const<T>::type>::type const lvalue reference to data
    */
   template <typename T>
-  typename std::add_lvalue_reference<typename std::add_const<T>::type>::type GetLref() const & {
+  typename std::add_lvalue_reference<typename std::add_const<T>::type>::type GetLref() const& {
     return any_cast<typename std::add_lvalue_reference<typename std::add_const<T>::type>::type>(data);
   }
 
@@ -291,6 +311,16 @@ struct Package {
   std::vector<std::shared_ptr<TaskDesc>> descs;
   /// private member
   int64_t priority;
+
+  static std::shared_ptr<Package> Create(uint32_t data_num, const std::string& tag = "") noexcept {
+    auto ret = std::make_shared<Package>();
+    ret->data.reserve(data_num);
+    for (uint32_t idx = 0; idx < data_num; ++idx) {
+      ret->data.emplace_back(new InferData);
+    }
+    ret->tag = tag;
+    return ret;
+  }
 };
 using PackagePtr = std::shared_ptr<Package>;
 
@@ -381,6 +411,15 @@ class ProcessorForkable : public Processor {
     if (p->Init() != Status::SUCCESS) return nullptr;
     return p;
   }
+
+  /**
+   * @brief Create a processor
+   *
+   * @return std::shared_ptr<T> A new processor
+   */
+  static std::shared_ptr<T> Create() noexcept(std::is_nothrow_default_constructible<T>::value) {
+    return std::make_shared<T>();
+  }
 };
 
 /**
@@ -395,7 +434,7 @@ class Observer {
    * @param data Response data
    * @param user_data User data
    */
-  virtual void Notify(Status status, PackagePtr data, any user_data) noexcept = 0;
+  virtual void Response(Status status, PackagePtr data, any user_data) noexcept = 0;
 
   /**
    * @brief Destroy the Observer object
@@ -446,9 +485,9 @@ struct SessionDesc {
 };
 
 /**
- * @brief Performance statistics
+ * @brief Latency statistics
  */
-struct PerfStatistic {
+struct LatencyStatistic {
   /// Total processed unit count
   uint32_t unit_cnt{0};
   /// Total recorded value
@@ -457,6 +496,24 @@ struct PerfStatistic {
   float max{0};
   /// Minimum value of one unit
   float min{std::numeric_limits<float>::max()};
+};
+
+/**
+ * @brief Throughout statistics
+ */
+struct ThroughoutStatistic {
+  /// total request count
+  uint32_t request_cnt{0};
+  /// total unit cnt
+  uint32_t unit_cnt{0};
+  /// request per second
+  float rps{0};
+  /// unit per second
+  float ups{0};
+  /// real time rps
+  float rps_rt{0};
+  /// real time ups
+  float ups_rt{0};
 };
 
 /// A structure describes linked session of server
@@ -494,9 +551,7 @@ class InferServer {
    * @param desc Session description
    * @return Session_t a Session
    */
-  Session_t CreateSyncSession(SessionDesc desc) noexcept {
-    return CreateSession(desc, nullptr);
-  }
+  Session_t CreateSyncSession(SessionDesc desc) noexcept { return CreateSession(desc, nullptr); }
 
   /**
    * @brief Destroy session
@@ -527,10 +582,10 @@ class InferServer {
    * @param session session
    * @param input input package
    * @param status execute status
-   * @param output output result
+   * @param response output result
    * @param timeout timeout threshold (milliseconds), -1 for endless
    */
-  bool RequestSync(Session_t session, PackagePtr input, Status* status, PackagePtr output, int timeout = -1) noexcept;
+  bool RequestSync(Session_t session, PackagePtr input, Status* status, PackagePtr response, int timeout = -1) noexcept;
 
   /**
    * @brief Wait task with specified tag done, @see Package::tag
@@ -597,12 +652,29 @@ class InferServer {
 
   /* ----------------------- Perf API ---------------------------- */
   /**
+   * @brief Get the latency statistics
+   *
+   * @param session a session
+   * @return std::map<std::string, PerfStatistic> latency statistics
+   */
+  std::map<std::string, LatencyStatistic> GetLatency(Session_t session) const noexcept;
+
+  /**
    * @brief Get the performance statistics
    *
    * @param session a session
-   * @return std::map<std::string, PerfStatistic> performance statistics
+   * @return ThroughoutStatistic throughout statistic
    */
-  std::map<std::string, PerfStatistic> GetPerformance(Session_t session) const noexcept;
+  ThroughoutStatistic GetThroughout(Session_t session) const noexcept;
+
+  /**
+   * @brief Get the throughout statistics of specified tag
+   *
+   * @param session a session
+   * @param tag tag
+   * @return ThroughoutStatistic throughout statistic
+   */
+  ThroughoutStatistic GetThroughout(Session_t session, const std::string& tag) const noexcept;
 
  private:
   InferServer() = delete;

@@ -20,6 +20,8 @@
 
 #include <gtest/gtest.h>
 
+#include <string>
+
 #include "infer_server.h"
 #include "processor.h"
 
@@ -100,6 +102,26 @@ TEST(InferServer, PlaneSize) {
 }  // namespace infer_server
 #endif  // CNIS_WITH_CONTRIB
 
+#ifndef CNIS_VERSION_MAJOR
+#error CNIS_VERSION_MAJOR is not defined
+#endif
+
+#ifndef CNIS_VERSION_MINOR
+#error CNIS_VERSION_MINOR is not defined
+#endif
+
+#ifndef CNIS_VERSION_PATCH
+#error CNIS_VERSION_PATCH is not defined
+#endif
+
+#ifndef CNIS_GET_VERSION
+#error CNIS_GET_VERSION is not defined
+#endif
+
+#ifndef CNIS_VERSION
+#error CNIS_VERSION is not defined
+#endif
+
 namespace infer_server {
 
 TEST(InferServer, DataTypeSize) {
@@ -108,6 +130,15 @@ TEST(InferServer, DataTypeSize) {
   EXPECT_EQ(GetTypeSize(DataType::FLOAT32), 4u);
   EXPECT_EQ(GetTypeSize(DataType::INT32), 4u);
   EXPECT_EQ(GetTypeSize(DataType::INT16), 2u);
+}
+
+TEST(InferServer, Version) {
+  ASSERT_EQ(CNIS_VERSION, CNIS_GET_VERSION(CNIS_VERSION_MAJOR, CNIS_VERSION_MINOR, CNIS_VERSION_PATCH));
+  ASSERT_EQ(CNIS_VERSION, (CNIS_VERSION_MAJOR << 20) | (CNIS_VERSION_MINOR << 10) | CNIS_VERSION_PATCH);
+
+  std::string version = std::to_string(CNIS_VERSION_MAJOR) + "." + std::to_string(CNIS_VERSION_MINOR) + "." +
+                        std::to_string(CNIS_VERSION_PATCH);
+  EXPECT_EQ(version, infer_server::Version());
 }
 
 }  // namespace infer_server

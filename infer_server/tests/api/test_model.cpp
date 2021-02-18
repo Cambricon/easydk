@@ -35,26 +35,32 @@
 #include "model/model.h"
 
 namespace infer_server {
+namespace {
+
+constexpr const char* g_model_path1 =
+    "http://video.cambricon.com/models/MLU270/Primary_Detector/ssd/resnet34_ssd.cambricon";
+
+constexpr const char* g_model_path2 =
+    "http://video.cambricon.com/models/MLU270/Classification/resnet50/resnet50_offline.cambricon";
 
 TEST_F(InferServerTestAPI, ModelManager) {
   char env[] = "CNIS_MODEL_CACHE_LIMIT=3";
   putenv(env);
   InferServer::ClearModelCache();
-  std::string model_file = GetExePath() + "../../../samples/data/models/MLU270/resnet50_offline.cambricon";
+  std::string model_file = g_model_path1;
   auto m = server_->LoadModel(model_file, "subnet0");
-  EXPECT_TRUE(m);
+  ASSERT_TRUE(m);
   EXPECT_EQ(ModelManager::Instance()->CacheSize(), 1);
   auto n = server_->LoadModel(model_file, "subnet0");
-  EXPECT_TRUE(n);
+  ASSERT_TRUE(n);
   EXPECT_EQ(ModelManager::Instance()->CacheSize(), 1);
-  auto l = server_->LoadModel("http://video.cambricon.com/models/MLU270/Primary_Detector/ssd/resnet34_ssd.cambricon",
-                              "subnet0");
-  EXPECT_TRUE(l);
+  auto l = server_->LoadModel(g_model_path2, "subnet0");
+  ASSERT_TRUE(l);
   EXPECT_EQ(ModelManager::Instance()->CacheSize(), 2);
-  server_->LoadModel(GetExePath() + "../../../samples/data/models/MLU270/resnet34_ssd.cambricon", "subnet0");
-  EXPECT_EQ(ModelManager::Instance()->CacheSize(), 3);
+  server_->LoadModel("./resnet34_ssd.cambricon", "subnet0");
+  EXPECT_EQ(ModelManager::Instance()->CacheSize(), 2);
   /************************************************************************************/
-  std::ifstream infile(model_file, std::ios::binary);
+  std::ifstream infile("./resnet34_ssd.cambricon", std::ios::binary);
   if (!infile.is_open()) {
     LOG(ERROR) << "file open failed";
   }
@@ -66,13 +72,14 @@ TEST_F(InferServerTestAPI, ModelManager) {
   infile.close();
   server_->LoadModel(modelptr, "subnet0");
   EXPECT_EQ(ModelManager::Instance()->CacheSize(), 3);
-  EXPECT_TRUE(server_->UnloadModel(m));
+  ASSERT_TRUE(server_->UnloadModel(m));
   EXPECT_EQ(ModelManager::Instance()->CacheSize(), 2);
-  EXPECT_FALSE(server_->UnloadModel(n));
+  ASSERT_FALSE(server_->UnloadModel(n));
   EXPECT_EQ(ModelManager::Instance()->CacheSize(), 2);
-  EXPECT_TRUE(server_->UnloadModel(l));
+  ASSERT_TRUE(server_->UnloadModel(l));
   EXPECT_EQ(ModelManager::Instance()->CacheSize(), 1);
   delete[] modelptr;
 }
 
+}  // namespace
 }  // namespace infer_server

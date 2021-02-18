@@ -21,7 +21,6 @@
 #ifndef EDK_SAMPLES_STREAM_APP_DETECTION_RUNNER_H_
 #define EDK_SAMPLES_STREAM_APP_DETECTION_RUNNER_H_
 
-#include <glog/logging.h>
 #include <memory>
 #include <string>
 

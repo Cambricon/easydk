@@ -22,8 +22,11 @@
 #define INFER_SERVER_UTIL_THREADSAFE_QUEUE_H_
 
 #include <condition_variable>
+#include <functional>
 #include <mutex>
 #include <queue>
+#include <utility>
+#include <vector>
 
 namespace infer_server {
 
@@ -155,7 +158,8 @@ inline void GetFrontAndPop(std::queue<T>* q_, T* value) {
 
 template <typename T, typename Container = std::vector<T>, typename Compare = std::less<T>>
 inline void GetFrontAndPop(std::priority_queue<T, Container, Compare>* q_, T* value) {
-  *value = std::move(q_->top());
+  // cut off const to enable move
+  *value = std::move(const_cast<T&>(q_->top()));
   q_->pop();
 }
 }  // namespace detail

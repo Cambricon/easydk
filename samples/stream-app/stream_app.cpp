@@ -19,7 +19,6 @@
  *************************************************************************/
 
 #include <gflags/gflags.h>
-#include <glog/logging.h>
 #include <unistd.h>
 
 #include <csignal>
@@ -28,6 +27,7 @@
 #include <memory>
 #include <utility>
 
+#include "cxxutil/log.h"
 #include "detection_runner.h"
 #include "device/mlu_context.h"
 
@@ -49,27 +49,28 @@ bool g_exit = false;
 void HandleSignal(int sig) {
   g_runner->Stop();
   g_exit = true;
-  LOG(INFO) << "Got INT signal, ready to exit!";
+  LOGI(SAMPLES) << "Got INT signal, ready to exit!";
 }
 
 int main(int argc, char** argv) {
   gflags::ParseCommandLineFlags(&argc, &argv, true);
+  edk::log::InitLogging(true, true);
 
   // check params
-  CHECK_NE(FLAGS_data_path.size(), 0u);
-  CHECK_NE(FLAGS_model_path.size(), 0u);
-  CHECK_NE(FLAGS_func_name.size(), 0u);
-  CHECK_NE(FLAGS_label_path.size(), 0u);
-  CHECK_NE(FLAGS_net_type.size(), 0u);
-  CHECK_GE(FLAGS_wait_time, 0);
-  CHECK_GE(FLAGS_repeat_time, 0);
+  CHECK(SAMPLES, FLAGS_data_path. size() != 0u);
+  CHECK(SAMPLES, FLAGS_model_path.size() != 0u);
+  CHECK(SAMPLES, FLAGS_func_name. size() != 0u);
+  CHECK(SAMPLES, FLAGS_label_path.size() != 0u);
+  CHECK(SAMPLES, FLAGS_net_type.  size() != 0u);
+  CHECK(SAMPLES, FLAGS_wait_time >= 0);
+  CHECK(SAMPLES, FLAGS_repeat_time >= 0);
 
   try {
     g_runner = std::make_shared<DetectionRunner>(FLAGS_model_path, FLAGS_func_name, FLAGS_label_path,
                                               FLAGS_track_model_path, FLAGS_track_func_name,
                                               FLAGS_data_path, FLAGS_net_type, FLAGS_show, FLAGS_save_video);
   } catch (edk::Exception& e) {
-    LOG(ERROR) << "Create stream runner failed" << e.what();
+    LOGE(SAMPLES) << "Create stream runner failed" << e.what();
     return -1;
   }
 
@@ -94,6 +95,7 @@ int main(int argc, char** argv) {
     return 1;
   }
 
-  std::cout << "run stream app SUCCEED!!!" << std::endl;
+  LOGI(SAMPLES) << "run stream app SUCCEED!!!" << std::endl;
+  edk::log::ShutdownLogging();
   return 0;
 }

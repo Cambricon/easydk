@@ -40,30 +40,29 @@ class SpinLock {
    * @brief Lock the spinlock, blocks if the atomic_flag is not available
    */
   void Lock() {
-    while (lock_.test_and_set(std::memory_order_acquire)) {
+    while (true) {
+      if (!lock_.exchange(true, std::memory_order_acquire)) {
+        return;
+      }
+
+      while (lock_.load(std::memory_order_relaxed)) {
+      }
     }
-    is_locked.store(true);
   }
 
   /**
    * @brief Unlock the spinlock
    */
-  void Unlock() {
-    lock_.clear(std::memory_order_release);
-    is_locked.store(false);
-  }
+  void Unlock() { lock_.store(false, std::memory_order_release); }
 
   /**
    * @brief Query lock status
    * @return ture if is locked
    */
-  bool IsLocked() {
-    return is_locked.load();
-  }
+  bool IsLocked() { return lock_.load(); }
 
  private:
-  std::atomic_flag lock_ = ATOMIC_FLAG_INIT;
-  std::atomic_bool is_locked{false};
+  std::atomic_bool lock_{false};
 };
 
 /**
@@ -77,16 +76,16 @@ class SpinLockGuard {
    */
   explicit SpinLockGuard(SpinLock &lock) : lock_(lock) {  // NOLINT
     lock_.Lock();
-    is_locked.store(true);
+    is_locked_.store(true);
   }
 
   /**
    * @brief Lock the spinlock if have not been locked by this guard
    */
   void Lock() {
-    if (!is_locked.load()) {
+    if (!is_locked_.load()) {
       lock_.Lock();
-      is_locked.store(true);
+      is_locked_.store(true);
     }
   }
 
@@ -94,9 +93,9 @@ class SpinLockGuard {
    * @brief Unlock the spinlock if have been locked by this guard
    */
   void Unlock() {
-    if (is_locked.load()) {
+    if (is_locked_.load()) {
       lock_.Unlock();
-      is_locked.store(false);
+      is_locked_.store(false);
     }
   }
 
@@ -104,15 +103,15 @@ class SpinLockGuard {
    * Destructor, unlock the spinlock in destruction
    */
   ~SpinLockGuard() {
-    if (is_locked.load()) {
+    if (is_locked_.load()) {
       lock_.Unlock();
     }
-    is_locked.store(false);
+    is_locked_.store(false);
   }
 
  private:
   SpinLock &lock_;
-  std::atomic_bool is_locked{false};
+  std::atomic_bool is_locked_{false};
 };
 
 }  // namespace infer_server

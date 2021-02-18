@@ -20,7 +20,6 @@
 
 #include "classification_runner.h"
 
-#include <glog/logging.h>
 #include <opencv2/opencv.hpp>
 
 #include <chrono>
@@ -29,6 +28,8 @@
 #include <thread>
 #include <utility>
 #include <vector>
+
+#include "cxxutil/log.h"
 
 #if CV_VERSION_EPOCH == 2
 #define OPENCV_MAJOR_VERSION 2
@@ -66,7 +67,7 @@ ClassificationRunner::ClassificationRunner(const std::string& model_path, const 
   // init postproc
   postproc_.reset(new edk::ClassificationPostproc);
   postproc_->set_threshold(0.2);
-  CHECK(postproc_);
+  CHECK(SAMPLES, postproc_);
 
   // init osd
   osd_.LoadLabels(label_path);

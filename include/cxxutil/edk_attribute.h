@@ -36,4 +36,12 @@
 #define attribute_deprecated
 #endif
 
+#ifdef __GNUC__
+#define EDK_LIKELY(x) (__builtin_expect(!!(x), 1))
+#define EDK_UNLIKELY(x) (__builtin_expect(!!(x), 0))
+#else
+#define EDK_UNLIKELY(x) x
+#define EDK_LIKELY(x) x
 #endif
+
+#endif  // EDK_CXXUTIL_ATTRIBUTE_H_

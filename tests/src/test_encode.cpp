@@ -1,10 +1,12 @@
 #include <gtest/gtest.h>
 #include <opencv2/opencv.hpp>
+
 #include <condition_variable>
 #include <iostream>
 #include <memory>
 #include <mutex>
 #include <string>
+
 #include "../../src/easycodec/format_info.h"
 #include "device/mlu_context.h"
 #include "easycodec/easy_encode.h"
@@ -19,7 +21,7 @@ static std::mutex enc_mutex;
 static std::condition_variable enc_cond;
 static bool is_eos = false;
 
-static edk::EasyEncode* g_encoder = nullptr;
+static edk::EasyEncode *g_encoder = nullptr;
 static edk::PixelFmt input_pixel_format = PixelFmt::NV12;
 static FILE *p_output_file;
 static uint32_t frame_count = 0;
@@ -278,7 +280,6 @@ bool test_EasyEncode(const char *input_file, uint32_t w, uint32_t h, PixelFmt pi
   attr.rate_control.max_bit_rate = 2048;
   attr.silent = false;
   attr.jpeg_qfactor = 50;
-  attr.max_mb_per_slice = max_mb_per_slice;
   // attr.ir_count = 5;
   switch (codec_type) {
     case CodecType::H264:
@@ -347,13 +348,6 @@ bool test_PixelFmt(PixelFmt pixel_format, cncodecPixelFormat res) {
     return false;
 }
 
-bool test_ColorStd(edk::ColorStd color_std, cncodecColorSpace res) {
-  if (res == ColorStdCast(color_std))
-    return true;
-  else
-    return false;
-}
-
 bool test_CodecType(CodecType codec_type, cncodecType res) {
   if (res == CodecTypeCast(codec_type))
     return true;
@@ -382,12 +376,6 @@ TEST(Codec, EncodeVideo) {
   ret = test_EasyEncode(TEST_500x500_JPG, 500, 500, PixelFmt::NV21, CodecType::H264, false);
   EXPECT_TRUE(ret);
 
-  // test max mb slice mode
-  ret = test_EasyEncode(TEST_1080P_JPG, 1920, 1080, PixelFmt::NV21, CodecType::H264, true, false, 10);
-  EXPECT_TRUE(ret);
-  ret = test_EasyEncode(TEST_1080P_JPG, 1920, 1080, PixelFmt::NV12, CodecType::H265, false, false, 10);
-  EXPECT_TRUE(ret);
-
   // test mismatch profile and level
   ret = test_EasyEncode(TEST_1080P_JPG, 1920, 1080, PixelFmt::NV21, CodecType::H264, true, true);
   EXPECT_TRUE(ret);
@@ -395,7 +383,7 @@ TEST(Codec, EncodeVideo) {
   EXPECT_TRUE(ret);
 
   // test abort encoder
-  ret = test_EasyEncode(TEST_500x500_JPG, 500, 500, PixelFmt::NV12, CodecType::H264, false, false, 0, true);
+  ret = test_EasyEncode(TEST_500x500_JPG, 500, 500, PixelFmt::NV12, CodecType::H264, false, false, true);
   EXPECT_TRUE(ret);
 }
 
@@ -411,7 +399,7 @@ TEST(Codec, EncodeJpeg) {
   EXPECT_TRUE(ret);
 
   // test abort encoder
-  ret = test_EasyEncode(TEST_500x500_JPG, 500, 500, PixelFmt::NV12, CodecType::JPEG, false, false, 0, true);
+  ret = test_EasyEncode(TEST_500x500_JPG, 500, 500, PixelFmt::NV12, CodecType::JPEG, false, false, true);
   EXPECT_TRUE(ret);
 }
 
@@ -462,7 +450,4 @@ TEST(Codec, InfoFormat) {
   EXPECT_TRUE(test_PixelFmt(PixelFmt::RGBA, CNCODEC_PIX_FMT_RGBA));
   EXPECT_TRUE(test_PixelFmt(PixelFmt::AYUV, CNCODEC_PIX_FMT_AYUV));
   EXPECT_TRUE(test_PixelFmt(PixelFmt::RGB565, CNCODEC_PIX_FMT_RGB565));
-  EXPECT_TRUE(test_ColorStd(edk::ColorStd::ITU_BT_601, CNCODEC_COLOR_SPACE_BT_601));
-  EXPECT_TRUE(test_ColorStd(edk::ColorStd::ITU_BT_601_ER, CNCODEC_COLOR_SPACE_BT_601_ER));
-  EXPECT_TRUE(test_ColorStd(edk::ColorStd::ITU_BT_709_ER, CNCODEC_COLOR_SPACE_BT_709_ER));
 }

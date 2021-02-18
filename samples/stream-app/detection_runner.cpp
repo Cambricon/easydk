@@ -20,7 +20,6 @@
 
 #include "detection_runner.h"
 
-#include <glog/logging.h>
 #include <opencv2/opencv.hpp>
 
 #include <chrono>
@@ -29,6 +28,8 @@
 #include <thread>
 #include <utility>
 #include <vector>
+
+#include "cxxutil/log.h"
 
 #if CV_VERSION_EPOCH == 2
 #define OPENCV_MAJOR_VERSION 2
@@ -77,7 +78,7 @@ DetectionRunner::DetectionRunner(const std::string& model_path, const std::strin
     THROW_EXCEPTION(edk::Exception::INVALID_ARG, "unsupported net type: " + net_type);
   }
   postproc_->set_threshold(0.6);
-  CHECK(postproc_);
+  CHECK(SAMPLES, postproc_);
 
   // init tracker
   tracker_.reset(new edk::FeatureMatchTrack);

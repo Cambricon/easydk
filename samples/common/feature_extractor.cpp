@@ -20,7 +20,6 @@
 
 #include "feature_extractor.h"
 
-#include <glog/logging.h>
 #include <opencv2/core/core.hpp>
 #include <opencv2/features2d/features2d.hpp>
 #include <opencv2/highgui/highgui.hpp>
@@ -35,13 +34,14 @@
 #include <utility>
 #include <vector>
 
+#include "cxxutil/log.h"
 #include "device/mlu_context.h"
 #include "easyinfer/easy_infer.h"
 
 bool FeatureExtractor::Init(const std::string &model_path, const std::string &func_name, int dev_id) {
   if (model_path.empty() || func_name.empty()) {
-    LOG(WARNING) << "[FeatureExtractor] Do not need to init if extract feature on CPU";
-    LOG(INFO) << "[FeatureExtractor] Model not set, using opencv to extract feature on CPU";
+    LOGW(SAMPLES) << "[FeatureExtractor] Do not need to init if extract feature on CPU";
+    LOGI(SAMPLES) << "[FeatureExtractor] Model not set, using opencv to extract feature on CPU";
     extract_feature_mlu_ = false;
     return true;
   }
@@ -55,15 +55,15 @@ bool FeatureExtractor::Init(const std::string &model_path, const std::string &fu
 
   // Check model I/O
   if (model_->InputNum() != 1) {
-    LOG(ERROR) << "[FeatureExtractor] model should have exactly one input";
+    LOGE(SAMPLES) << "[FeatureExtractor] model should have exactly one input";
     return false;
   }
   if (model_->OutputNum() != 2) {
-    LOG(ERROR) << "[FeatureExtractor] model should have exactly two output";
+    LOGE(SAMPLES) << "[FeatureExtractor] model should have exactly two output";
     return false;
   }
   if (model_->InputShape(0).C() != 3) {
-    LOG(ERROR) << "[FeatureExtractor] feature extractor model wrong input shape!";
+    LOGE(SAMPLES) << "[FeatureExtractor] feature extractor model wrong input shape!";
     return false;
   }
 
@@ -76,7 +76,7 @@ bool FeatureExtractor::Init(const std::string &model_path, const std::string &fu
 
   // init Easyinfer
   infer_.Init(model_, device_id_);
-  LOG(INFO) << "[FeatureExtractor] to extract feature on MLU";
+  LOGI(SAMPLES) << "[FeatureExtractor] to extract feature on MLU";
   extract_feature_mlu_ = true;
   return true;
 }
@@ -85,7 +85,7 @@ FeatureExtractor::~FeatureExtractor() { Destroy(); }
 
 void FeatureExtractor::Destroy() {
   if (extract_feature_mlu_) {
-    LOG(INFO) << "[FeatureExtractor] release resources";
+    LOGI(SAMPLES) << "[FeatureExtractor] release resources";
     if (input_mlu_ptr_) mem_op_.FreeMluInput(input_mlu_ptr_);
     if (output_mlu_ptr_) mem_op_.FreeMluOutput(output_mlu_ptr_);
     if (input_cpu_ptr_) mem_op_.FreeCpuInput(input_cpu_ptr_);
@@ -105,7 +105,7 @@ static float CalcFeatureOfRow(cv::Mat img, int n) {
 
 std::vector<float> FeatureExtractor::ExtractFeature(const edk::TrackFrame &frame, const edk::DetectObject &obj) {
   if (frame.format != edk::TrackFrame::ColorSpace::RGB24) {
-    LOG(ERROR) << "[FeatureExtractor] input image has non-support pixel format";
+    LOGE(SAMPLES) << "[FeatureExtractor] input image has non-support pixel format";
     return {};
   }
 

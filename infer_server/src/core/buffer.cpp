@@ -350,7 +350,7 @@ Buffer MluMemoryPool::Request(int timeout_ms) {
   if (cache_.empty()) {
     LOG_EVERY_N(INFO, 100) << "RequestMemory timeout, to reduce timeout:\n"
                               "     1. enlarge max_buffer_num of pool;\n"
-                              "     2. release MluMemory as soon as possible;\n"
+                              "     2. release Buffer as soon as possible;\n"
                               "     3. increase timeout threshold.";
     THROW_EXCEPTION(Exception::TIMEOUT, "request memory timeout");
   }

@@ -73,7 +73,7 @@ struct PostprocSSD {
 };
 
 class PrintResult : public infer_server::Observer {
-  void Notify(infer_server::Status status, infer_server::PackagePtr out, infer_server::any user_data) noexcept {
+  void Response(infer_server::Status status, infer_server::PackagePtr out, infer_server::any user_data) noexcept {
     int frame_index = infer_server::any_cast<int>(user_data);
     if (status != infer_server::Status::SUCCESS) {
       std::cerr << "Infer SSD failed for frame index " << frame_index << std::endl;

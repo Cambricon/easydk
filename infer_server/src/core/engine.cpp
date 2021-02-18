@@ -21,10 +21,12 @@
 #include "engine.h"
 
 #include <glog/logging.h>
+
 #include <map>
 #include <utility>
 #include <vector>
 
+#include "profile.h"
 #include "request_ctrl.h"
 #include "session.h"
 
@@ -33,21 +35,19 @@ namespace infer_server {
 void TaskNode::operator()(PackagePtr pack) noexcept {
   Status s;
 #ifdef CNIS_RECORD_PERF
-  auto lock = std::chrono::steady_clock::now();
+  auto before_lock = Clock::Now();
 #endif
   std::unique_lock<std::mutex> lk = processor_->Lock();
 #ifdef CNIS_RECORD_PERF
-  auto start = std::chrono::steady_clock::now();
+  auto start = Clock::Now();
 #endif
   s = processor_->Process(pack);
   lk.unlock();
   const std::string& type_name = processor_->TypeName();
 #ifdef CNIS_RECORD_PERF
-  auto end = std::chrono::steady_clock::now();
-  std::chrono::duration<double, std::milli> dura = end - start;
-  pack->perf[type_name] = dura.count();
-  dura = start - lock;
-  pack->perf["-WaitLock-" + type_name] = dura.count();
+  auto end = Clock::Now();
+  pack->perf[type_name] = Clock::Duration(start, end);
+  pack->perf["-WaitLock-" + type_name] = Clock::Duration(before_lock, start);
 #endif
   if (s != Status::SUCCESS) {
     LOG(ERROR) << "[" << type_name << "] processor execute failed";
@@ -56,17 +56,16 @@ void TaskNode::operator()(PackagePtr pack) noexcept {
     }
   } else {
     VLOG(6) << "Transmit data for " << type_name;
-    Transmit(pack);
+    Transmit(std::move(pack));
   }
 }
 
-void TaskNode::Transmit(PackagePtr pack) noexcept {
+void TaskNode::Transmit(PackagePtr&& pack) noexcept {
   if (downnode_) {
     // start next processor
-    /* VLOG(6) << processor->TypeName() << " Submit one task to threadpool, priority: " << priority_ +
-     * GetPackagePriority(package.get()); */
     pack->priority = Priority::Next(pack->priority);
-    tp_->VoidPush(pack->priority, *downnode_, pack);
+    // FIXME(dmh): copy TaskNode for each task transmit?
+    tp_->VoidPush(pack->priority, *downnode_, std::forward<PackagePtr>(pack));
   } else {
     std::map<std::string, float> perf{};
 #ifdef CNIS_RECORD_PERF
@@ -83,15 +82,18 @@ void TaskNode::Transmit(PackagePtr pack) noexcept {
   }
 }
 
-Engine::Engine(std::vector<std::shared_ptr<Processor>> processors,
-               const NotifyDoneFunc& done_func, PriorityThreadPool* tp)
+Engine::Engine(std::vector<std::shared_ptr<Processor>> processors, const NotifyDoneFunc& done_func,
+               PriorityThreadPool* tp)
     : done_notifier_(std::move(done_func)), tp_(tp) {
   nodes_.reserve(processors.size());
   for (size_t idx = 0; idx < processors.size(); ++idx) {
-    nodes_.emplace_back(processors[idx], [this]() {
-      --task_num_;
-      done_notifier_(this);
-    }, tp_);
+    nodes_.emplace_back(
+        processors[idx],
+        [this]() {
+          --task_num_;
+          done_notifier_(this);
+        },
+        tp_);
   }
   for (size_t idx = 0; idx < nodes_.size() - 1; ++idx) {
     nodes_[idx].Link(&nodes_[idx + 1]);

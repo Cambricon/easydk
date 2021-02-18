@@ -234,7 +234,7 @@ TEST(InferServerCore, DynamicCache_ConcurrentAndDiscard) {
     auto ctrl = new RequestControl(empty_response_func, empty_notifier_func, std::to_string(push_idx), push_idx,
                                    d_batch_size * capacity);
     ctrls.emplace_back(ctrl);
-    rets.emplace_back(std::async(std::launch::async, [cache, push_idx, ctrl]() {
+    rets.emplace_back(std::async(std::launch::async, [cache, ctrl]() {
       std::uniform_int_distribution<uint32_t> data_num_dis(1, d_batch_size);
       std::random_device rd;
       std::mt19937 gen(rd());

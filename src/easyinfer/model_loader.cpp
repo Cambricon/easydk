@@ -17,14 +17,15 @@
  * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
  * THE SOFTWARE.
  *************************************************************************/
-#include <glog/logging.h>
+
+#include "easyinfer/model_loader.h"
 
 #include <cstring>
 #include <iostream>
 #include <string>
 #include <vector>
 
-#include "easyinfer/model_loader.h"
+#include "cxxutil/log.h"
 #include "model_loader_internal.h"
 
 #define ONLY_SUPPORT_FLOAT32(layout)                                                  \
@@ -160,7 +161,7 @@ ModelLoader::ModelLoader(const char* model_path, const char* function_name) : d_
     THROW_EXCEPTION(Exception::UNAVAILABLE, "Model file not exist. Please check model path");
   }
 
-  VLOG(3) << "Load model from file: " << model_path;
+  LOGD(INFER) << "Load model from file: " << model_path;
   // 1. get cnrtModel and cnrtFunction
   cnrtRet_t error_code = cnrtLoadModel(&d_ptr_->model_, model_path);
   CHECK_CNRT_RET(error_code, "Load model failed, cnrt error code : " + std::to_string(error_code));
@@ -170,7 +171,7 @@ ModelLoader::ModelLoader(const char* model_path, const char* function_name) : d_
 
 ModelLoader::ModelLoader(void* mem_ptr, const char* function_name) : d_ptr_(new ModelLoaderPrivate(this)) {
   // 1. get cnrtModel and cnrtFunction
-  LOG(INFO) << "Load model from memory, " << mem_ptr;
+  LOGI(INFER) << "Load model from memory, " << mem_ptr;
   cnrtRet_t error_code = cnrtLoadModelFromMem(&d_ptr_->model_, reinterpret_cast<char*>(mem_ptr));
   CHECK_CNRT_RET(error_code, "Load model from memory failed, cnrt error code : " + std::to_string(error_code));
 
@@ -187,7 +188,7 @@ void ModelLoaderPrivate::LoadFunction(const char* function_name) {
   error_code = cnrtQueryModelParallelism(model_, &model_parallelism_);
   CHECK_CNRT_RET(error_code, "Query Model Parallelism failed, cnrt error code : " + std::to_string(error_code));
 
-  LOG(INFO) << "Load function from offline model succeeded";
+  LOGI(INFER) << "Load function from offline model succeeded";
 
   // 2. get IO messages
   // 2.1 get io number and data size
@@ -218,7 +219,7 @@ void ModelLoaderPrivate::LoadFunction(const char* function_name) {
     // nhwc shape
     input_shapexs_.emplace_back(std::vector<ShapeEx::value_type>(input_dim_values, input_dim_values + dim_num));
 
-    if (dim_num != 4) LOG(INFO) << "input dimension is not 4, dims in `Shape` is incorrect, use ShapeEx instead";
+    if (dim_num != 4) LOGI(INFER) << "input dimension is not 4, dims in `Shape` is incorrect, use ShapeEx instead";
     std::vector<uint32_t> dim_value(4, 1);
     for (int i = 0; i < dim_num; ++i) {
       dim_value[i] = input_dim_values[i];
@@ -238,7 +239,7 @@ void ModelLoaderPrivate::LoadFunction(const char* function_name) {
     // nhwc shape
     output_shapexs_.emplace_back(std::vector<ShapeEx::value_type>(output_dim_values, output_dim_values + dim_num));
 
-    if (dim_num != 4) LOG(INFO) << "output dimension is not 4, dims in `Shape` is incorrect, use ShapeEx instead";
+    if (dim_num != 4) LOGI(INFER) << "output dimension is not 4, dims in `Shape` is incorrect, use ShapeEx instead";
     std::vector<uint32_t> dim_value(4, 1);
     for (int i = 0; i < dim_num; ++i) {
       dim_value[i] = output_dim_values[i];
@@ -347,8 +348,8 @@ void ModelLoader::SetCpuInputLayout(DataLayout layout, int data_index) {
 
   d_ptr_->i_cpu_layouts_[data_index] = layout;
 
-  VLOG(4) << "Set CPU input data layout";
-  VLOG(4) << DataTypeStr(layout.dtype) << "\t" << DimOrderStr(layout.order);
+  LOGD(INFER) << "Set CPU input data layout";
+  LOGD(INFER) << DataTypeStr(layout.dtype) << "\t" << DimOrderStr(layout.order);
 }
 
 void ModelLoader::SetCpuOutputLayout(DataLayout layout, int data_index) {
@@ -359,8 +360,8 @@ void ModelLoader::SetCpuOutputLayout(DataLayout layout, int data_index) {
 
   d_ptr_->o_cpu_layouts_[data_index] = layout;
 
-  VLOG(4) << "Set CPU output data layout";
-  VLOG(4) << DataTypeStr(layout.dtype) << "\t" << DimOrderStr(layout.order);
+  LOGD(INFER) << "Set CPU output data layout";
+  LOGD(INFER) << DataTypeStr(layout.dtype) << "\t" << DimOrderStr(layout.order);
 }
 
 DataLayout ModelLoader::GetCpuInputLayout(int data_index) const {
@@ -379,16 +380,16 @@ bool ModelLoader::AdjustStackMemory() {
 
   cnrtRet_t error_code = cnrtQueryModelStackSize(d_ptr_->model_, &stack_size);
   CHECK_CNRT_RET(error_code, "Query model stack size failed. cnrt error_code : " + std::to_string(error_code));
-  VLOG(3) << "Model stack size is " << stack_size << " MB";
+  LOGD(INFER) << "Model stack size is " << stack_size << " MB";
 
   error_code = cnrtGetStackMem(&current_device_size);
   CHECK_CNRT_RET(error_code, "Get current device stack size failed. cnrt error_code : " + std::to_string(error_code));
-  VLOG(3) << "Current MLU stack size is " << current_device_size << " MB";
+  LOGD(INFER) << "Current MLU stack size is " << current_device_size << " MB";
 
   if (stack_size > current_device_size) {
     error_code = cnrtSetStackMem(stack_size + 50);
     CHECK_CNRT_RET(error_code, "set stack size failed. cnrt error_code : " + std::to_string(error_code));
-    LOG(INFO) << "Adjust stack memory to " << stack_size + 50 << " MB";
+    LOGI(INFER) << "Adjust stack memory to " << stack_size + 50 << " MB";
     return true;
   }
   return false;
@@ -431,15 +432,15 @@ int64_t ModelLoader::GetOutputDataBatchAlignSize(int data_index) const {
 }
 
 ModelLoader::~ModelLoader() {
-  LOG(INFO) << "Destroy neural network function";
+  LOGI(INFER) << "Destroy neural network function";
   cnrtRet_t error_code = cnrtDestroyFunction(d_ptr_->function_);
   if (CNRT_RET_SUCCESS != error_code) {
-    LOG(WARNING) << "Destroy function failed. error_code : " << std::to_string(error_code).c_str();
+    LOGW(INFER) << "Destroy function failed. error_code : " << std::to_string(error_code).c_str();
   }
-  LOG(INFO) << "Unload offline model";
+  LOGI(INFER) << "Unload offline model";
   error_code = cnrtUnloadModel(d_ptr_->model_);
   if (CNRT_RET_SUCCESS != error_code) {
-    LOG(ERROR) << "Unload model failed. error_code : " << std::to_string(error_code).c_str();
+    LOGE(INFER) << "Unload model failed. error_code : " << std::to_string(error_code).c_str();
   }
 }
 

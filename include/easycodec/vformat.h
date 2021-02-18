@@ -91,8 +91,6 @@ enum class ColorStd {
   COLOR_STANDARD_INVALID,
 };
 
-enum class BufferStrategy { CNCODEC, EDK };
-
 /**
  * @brief Structure contains raw data and informations
  * @note Used as output in decode and input in encode

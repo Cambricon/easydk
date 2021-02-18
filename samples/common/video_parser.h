@@ -22,6 +22,7 @@
 #define EDK_SAMPLES_VIDEO_PARSER_H_
 
 #include <atomic>
+#include <chrono>
 #include <fstream>
 #include <memory>
 #include <string>
@@ -53,7 +54,7 @@ struct BeginWith {
 
 class FileSaver {
  public:
-  explicit FileSaver(const char *file_name) {
+  explicit FileSaver(const char* file_name) {
     of_.open(file_name);
     if (!of_.is_open()) {
       throw std::runtime_error("open file failed");
@@ -62,16 +63,14 @@ class FileSaver {
 
   ~FileSaver() { of_.close(); }
 
-  void Write(char *buf, size_t len) { of_.write(buf, len); }
+  void Write(char* buf, size_t len) { of_.write(buf, len); }
 
  private:
   std::ofstream of_;
 };
 }  // namespace detail
 
-inline bool IsRtsp(const std::string& url) {
-  return detail::BeginWith(url)("rtsp://");
-}
+inline bool IsRtsp(const std::string& url) { return detail::BeginWith(url)("rtsp://"); }
 
 struct VideoInfo {
   edk::CodecType codec_type;
@@ -91,7 +90,7 @@ class VideoParser {
  public:
   explicit VideoParser(IDemuxEventHandle* handle) : handler_(handle) {}
   ~VideoParser() { Close(); }
-  bool Open(const char *url, bool save_file = false);
+  bool Open(const char* url, bool save_file = false);
   // -1 for error, 1 for eos
   int ParseLoop(uint32_t frame_interval);
   void Close();
@@ -103,10 +102,10 @@ class VideoParser {
  private:
   static constexpr uint32_t max_receive_timeout_{3000};
 
-  AVFormatContext *p_format_ctx_;
-  AVBitStreamFilterContext *p_bsfc_;
+  AVFormatContext* p_format_ctx_;
+  AVBitStreamFilterContext* p_bsfc_;
   AVPacket packet_;
-  AVDictionary *options_{nullptr};
+  AVDictionary* options_{nullptr};
 
   VideoInfo info_;
   IDemuxEventHandle* handler_;
@@ -121,4 +120,3 @@ class VideoParser {
 };
 
 #endif  // EDK_SAMPLES_VIDEO_PARSER_H_
-

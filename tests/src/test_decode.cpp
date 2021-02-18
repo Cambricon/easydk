@@ -182,7 +182,6 @@ bool test_decode(edk::CodecType ctype, edk::PixelFmt pf, uint32_t frame_w, uint3
   attr.frame_geometry.w = 1920;
   attr.frame_geometry.h = 1080;
   attr.codec_type = ctype;
-  attr.buf_strategy = edk::BufferStrategy::CNCODEC;
   attr.pixel_format = pf;
   attr.frame_callback = frame_cb;
   if (frame_cb) {
@@ -195,7 +194,6 @@ bool test_decode(edk::CodecType ctype, edk::PixelFmt pf, uint32_t frame_w, uint3
     decode = edk::EasyDecode::New(attr);
     auto _attr = decode->GetAttr();
     EXPECT_EQ(_attr.codec_type, ctype);
-    EXPECT_EQ(_attr.buf_strategy, attr.buf_strategy);
     EXPECT_EQ(_attr.pixel_format, pf);
     EXPECT_EQ(_attr.frame_geometry.w, attr.frame_geometry.w);
     EXPECT_EQ(_attr.frame_geometry.h, attr.frame_geometry.h);
@@ -290,7 +288,6 @@ TEST(Codec, DecodeNoFrame) {
     attr.frame_geometry.w = 1920;
     attr.frame_geometry.h = 1080;
     attr.codec_type = edk::CodecType::H264;
-    attr.buf_strategy = edk::BufferStrategy::CNCODEC;
     attr.pixel_format = edk::PixelFmt::NV21;
     attr.frame_callback = nullptr;
     attr.eos_callback = nullptr;
@@ -303,7 +300,6 @@ TEST(Codec, DecodeNoFrame) {
     attr.frame_geometry.w = 1920;
     attr.frame_geometry.h = 1080;
     attr.codec_type = edk::CodecType::JPEG;
-    attr.buf_strategy = edk::BufferStrategy::CNCODEC;
     attr.pixel_format = edk::PixelFmt::NV21;
     attr.frame_callback = nullptr;
     attr.eos_callback = nullptr;

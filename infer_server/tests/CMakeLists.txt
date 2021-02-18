@@ -18,9 +18,7 @@ list(APPEND LINK_LIBS dl pthread gtest gtest_main ${OpenCV_LIBS} easydk cnis)
 file(GLOB apitest_srcs ${CMAKE_CURRENT_SOURCE_DIR}/api/*.cpp)
 add_executable(apitest_cnis ${apitest_srcs})
 
-if (SANITIZE_MEMORY OR SANITIZE_ADDRESS OR SANITIZE_THREAD OR SANITIZE_UNDEFINED)
-  add_sanitizers(apitest_cnis)
-endif()
+add_sanitizers(apitest_cnis)
 
 if (CNIS_WITH_CONTRIB)
   target_compile_definitions(apitest_cnis PRIVATE CNIS_WITH_CONTRIB)
@@ -42,9 +40,7 @@ target_compile_options(apitest_cnis PRIVATE "-Wno-deprecated-declarations")
 file(GLOB unittest_srcs ${CMAKE_CURRENT_SOURCE_DIR}/unit/*.cpp)
 add_executable(unittest_cnis ${unittest_srcs})
 
-if (SANITIZE_MEMORY OR SANITIZE_ADDRESS OR SANITIZE_THREAD OR SANITIZE_UNDEFINED)
-  add_sanitizers(unittest_cnis)
-endif()
+add_sanitizers(unittest_cnis)
 
 if (CNIS_RECORD_PERF)
   target_compile_definitions(unittest_cnis PRIVATE CNIS_RECORD_PERF)

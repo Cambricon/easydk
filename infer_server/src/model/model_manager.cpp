@@ -76,7 +76,6 @@ static inline const std::string GetModelKey(const void* mem_ptr, const std::stri
 };
 
 void ModelManager::CheckAndCleanCache() noexcept {
-  std::unique_lock<std::mutex> lk(model_cache_mutex_);
   if (model_cache_.size() >= GetUlongFromEnv("CNIS_MODEL_CACHE_LIMIT", 10)) {
     for (auto& p : model_cache_) {
       if (p.second.use_count() == 1) {
@@ -111,9 +110,7 @@ ModelPtr ModelManager::Load(const std::string& url, const std::string& func_name
     if (!model->Init(model_path, func_name)) {
       return nullptr;
     }
-    lk.unlock();
     CheckAndCleanCache();
-    lk.lock();
     model_cache_[model_key] = model;
     return model;
   } else {
@@ -137,9 +134,7 @@ ModelPtr ModelManager::Load(void* mem_ptr, const std::string& func_name) noexcep
     if (!model->Init(mem_ptr, func_name)) {
       return nullptr;
     }
-    lk.unlock();
     CheckAndCleanCache();
-    lk.lock();
     model_cache_[model_key] = model;
     return model;
   } else {

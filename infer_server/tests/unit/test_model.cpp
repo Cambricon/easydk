@@ -20,6 +20,7 @@
 
 #include <gtest/gtest.h>
 
+#include <memory>
 #include <string>
 
 #include "cnrt.h"
@@ -34,9 +35,9 @@
 namespace infer_server {
 
 TEST_F(InferServerTest, Model) {
-  std::string model_path = GetExePath() + "../../../samples/data/models/MLU270/resnet34_ssd.cambricon";
+  std::string model_path = GetExePath() + "../../../tests/data/resnet50_270.cambricon";
   auto m = std::make_shared<Model>();
-  m->Init(model_path, "subnet0");
+  ASSERT_TRUE(m->Init(model_path, "subnet0"));
   cnrtRet_t error_code;
   auto function = m->GetFunction();
   auto model = m->GetModel();

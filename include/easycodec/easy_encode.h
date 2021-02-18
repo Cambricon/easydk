@@ -29,6 +29,7 @@
 
 #include <functional>
 #include <memory>
+
 #include "cxxutil/edk_attribute.h"
 #include "cxxutil/exception.h"
 #include "easycodec/vformat.h"
@@ -129,18 +130,6 @@ enum class VideoLevel {
 enum class GopType { BIDIRECTIONAL, LOW_DELAY, PYRAMID };
 
 /**
- * @brief Crop config parameters to control image crop attribute
- * @attention Not support on MLU270 and MLU220
- */
-struct CropConfig {
-  bool enable{false};
-  uint32_t x{0};
-  uint32_t y{0};
-  uint32_t w{0};
-  uint32_t h{0};
-};
-
-/**
  * @brief Encode packet callback function type
  * @param CnPacket Packet containing encoded frame information
  */
@@ -177,8 +166,8 @@ class EasyEncode {
      */
     CodecType codec_type = CodecType::H264;
 
-    /// Color standard
-    ColorStd color_std = ColorStd::ITU_BT_2020;
+    /// Color space standard
+    ColorStd color_std = ColorStd::ITU_BT_709;
 
     /// Qulity factor for jpeg encoder.
     uint32_t jpeg_qfactor = 50;
@@ -192,9 +181,6 @@ class EasyEncode {
     /// Video rate control parameters.
     RateControl rate_control;
 
-    /// Crop parameters
-    CropConfig crop_config;
-
     /// Input buffer number
     uint32_t input_buffer_num = 3;
 
@@ -207,20 +193,11 @@ class EasyEncode {
     /// B frame number in gop when profile is above main, default 0
     uint32_t b_frame_num = 0;
 
-    /// MB count of intra refresh, default 0 for not enable intra refresh
-    uint32_t ir_count = 0;
-
-    /// Slice max MB count, default 0
-    uint32_t max_mb_per_slice = 0;
-
     /// GOP type, @see edk::GopType
     GopType gop_type = GopType::BIDIRECTIONAL;
 
-    /// Init table for CABAC, 0,1,2 for H264 and 0,1 for HEVC, default 0
-    uint32_t cabac_init_idc = 0;
-
     /// insert SPS/PPS before IDR,1, insert, 0 not
-    uint32_t insertSpsPpsWhenIDR = 1;
+    bool insert_spspps_when_idr = true;
 
     /// Whether to print encoder attribute
     bool silent = false;

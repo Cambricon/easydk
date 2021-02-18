@@ -108,8 +108,9 @@ class VideoInferServer : public InferServer {
    * @warning synchronous api, can be invoked with synchronous Session only.
    * @note redefine to unhide method with same name of base class
    */
-  bool RequestSync(Session_t session, PackagePtr input, Status* status, PackagePtr output, int timeout = -1) noexcept {
-    return InferServer::RequestSync(session, std::move(input), status, std::move(output), timeout);
+  bool RequestSync(Session_t session, PackagePtr input, Status* status, PackagePtr response,
+                   int timeout = -1) noexcept {
+    return InferServer::RequestSync(session, std::move(input), status, std::move(response), timeout);
   }
 
   /**
@@ -126,8 +127,7 @@ class VideoInferServer : public InferServer {
    */
   bool Request(Session_t session, const VideoFrame& vframe,
            const std::string& tag, any user_data, int timeout = -1) noexcept {
-    PackagePtr in = std::make_shared<Package>();
-    in->data.emplace_back(new InferData);
+    PackagePtr in = Package::Create(1, tag);
     in->data[0]->Set(vframe);
     in->tag = tag;
     return Request(session, std::move(in), std::move(user_data), timeout);
@@ -148,20 +148,12 @@ class VideoInferServer : public InferServer {
    */
   bool Request(Session_t session, const VideoFrame& vframe, const std::vector<BoundingBox>& objs,
            const std::string& tag, any user_data, int timeout = -1) noexcept {
-    if (objs.empty()) {
-      std::cerr << "no objects" << std::endl;
-      return false;
-    }
-
-    PackagePtr in = std::make_shared<Package>();
-    in->data.reserve(objs.size());
+    PackagePtr in = Package::Create(objs.size(), tag);
     for (unsigned int i = 0; i < objs.size(); i++) {
-      in->data.emplace_back(new InferData);
       VideoFrame vf = vframe;
       vf.roi = objs[i];
       in->data[i]->Set(std::move(vf));
     }
-    in->tag = tag;
     return Request(session, std::move(in), std::move(user_data), timeout);
   }
 
@@ -177,13 +169,11 @@ class VideoInferServer : public InferServer {
    * @param output[out] output result
    * @param timeout timeout threshold (milliseconds), -1 for endless
    */
-  bool RequestSync(Session_t session, const VideoFrame& vframe,
-                   const std::string& tag, Status* status, PackagePtr output, int timeout = -1) noexcept {
-    PackagePtr in = std::make_shared<Package>();
-    in->data.emplace_back(new InferData);
+  bool RequestSync(Session_t session, const VideoFrame& vframe, const std::string& tag, Status* status,
+                   PackagePtr response, int timeout = -1) noexcept {
+    PackagePtr in = Package::Create(1, tag);
     in->data[0]->Set(vframe);
-    in->tag = tag;
-    return RequestSync(session, std::move(in), status, std::move(output), timeout);
+    return RequestSync(session, std::move(in), status, std::move(response), timeout);
   }
 
   /**
@@ -200,22 +190,14 @@ class VideoInferServer : public InferServer {
    * @param timeout timeout threshold (milliseconds), -1 for endless
    */
   bool RequestSync(Session_t session, const VideoFrame& vframe, const std::vector<BoundingBox>& objs,
-                   const std::string& tag, Status* status, PackagePtr output, int timeout = -1) noexcept {
-    PackagePtr in = std::make_shared<Package>();
-    if (objs.empty()) {
-      std::cerr << "no objects" << std::endl;
-      return false;
-    }
-
-    in->data.reserve(objs.size());
-    for (unsigned int i = 0; i < objs.size(); i++) {
-      in->data.emplace_back(new InferData);
+                   const std::string& tag, Status* status, PackagePtr response, int timeout = -1) noexcept {
+    PackagePtr in = Package::Create(objs.size(), tag);
+    for (unsigned int i = 0; i < objs.size(); ++i) {
       VideoFrame vf = vframe;
       vf.roi = objs[i];
       in->data[i]->Set(std::move(vf));
     }
-    in->tag = tag;
-    return RequestSync(session, std::move(in), status, std::move(output), timeout);
+    return RequestSync(session, std::move(in), status, std::move(response), timeout);
   }
 };
 

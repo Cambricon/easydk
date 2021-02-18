@@ -96,7 +96,7 @@ class Timer {
   }
 
  private:
-  bool Start(uint32_t t_ms, Notifier notifier, bool loop = false);
+  bool Start(uint32_t t_ms, Notifier&& notifier, bool loop = false);
   std::atomic<int64_t> timer_id_{0};
 };  // class Timer
 
