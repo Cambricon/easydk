@@ -21,6 +21,7 @@
 #include "infer_server.h"
 
 #include <glog/logging.h>
+
 #include <algorithm>
 #include <map>
 #include <memory>
@@ -70,14 +71,16 @@ class InferServerPrivate {
     std::unique_lock<std::mutex> lk(executor_map_mutex_);
     if (executor_map_.count(executor_name)) {
       VLOG(3) << "executor already exist: " << executor_name;
-      return executor_map_.at(executor_name);
+      return executor_map_[executor_name].get();
     }
     VLOG(3) << "create executor: " << executor_name;
     try {
       SessionDesc executor_desc = desc;
       executor_desc.name = executor_name;
-      Executor_t executor = new Executor(std::move(executor_desc), tp_.get(), device_id_);
-      executor_map_[executor_name] = executor;
+      std::unique_ptr<Executor> executor_up{new Executor(std::move(executor_desc), tp_.get(), device_id_)};
+      Executor_t executor = executor_up.get();
+      /* executor_map_.insert({executor_name, std::move(executor_up)}); */
+      executor_map_[executor_name].swap(executor_up);
       lk.unlock();
       std::unique_lock<std::mutex> tp_lk(tp_mutex_);
       size_t thread_num = tp_->Size();
@@ -100,17 +103,18 @@ class InferServerPrivate {
     executor->Unlink(session);
     delete session;
 
+    // delete executor while there's no session linked to it
     if (!executor->GetSessionNum()) {
       auto name = executor->GetName();
       if (executor_map_.count(name)) {
+        auto th_num = 3 * executor->GetEngineNum();
         VLOG(3) << "destroy executor: " << name;
         executor_map_.erase(name);
         lk.unlock();
-        auto th_num = 2 * executor->GetEngineNum();
-        delete executor;
-        // shrint to fit task load
+        // shrink to fit task load
         std::unique_lock<std::mutex> tp_lk(tp_mutex_);
-        if (static_cast<uint32_t>(tp_->IdleNumber()) > th_num) {
+        if (tp_->IdleNumber() > th_num) {
+          VLOG(3) << "Reduce thread in pool after destroy executor";
           tp_->Resize(tp_->Size() - th_num);
         }
         tp_lk.unlock();
@@ -140,7 +144,7 @@ class InferServerPrivate {
   InferServerPrivate(const InferServerPrivate&) = delete;
   const InferServerPrivate& operator=(const InferServerPrivate&) = delete;
 
-  std::map<std::string, Executor_t> executor_map_;
+  std::map<std::string, std::unique_ptr<Executor>> executor_map_;
   std::mutex executor_map_mutex_;
   std::mutex tp_mutex_;
   std::unique_ptr<PriorityThreadPool> tp_{nullptr};
@@ -205,13 +209,13 @@ bool InferServer::Request(Session_t session, PackagePtr input, any user_data, in
     LOG(ERROR) << "sync LinkHandle cannot be invoked with async api";
     return false;
   }
-  if (!session->GetExecutor()->WaitIfCacheFull(timeout)) {
+  if (!input->data.empty() && !session->GetExecutor()->WaitIfCacheFull(timeout)) {
     LOG(WARNING) << session->GetName() << "] Session is busy, request timeout";
     return false;
   }
 
-  return session->Send(std::move(input), std::bind(&Observer::Notify, session->GetRawObserver(), std::placeholders::_1,
-                                                   std::placeholders::_2, std::move(user_data)));
+  return session->Send(std::move(input), std::bind(&Observer::Response, session->GetRawObserver(),
+                                                   std::placeholders::_1, std::placeholders::_2, std::move(user_data)));
 }
 
 bool InferServer::RequestSync(Session_t session, PackagePtr input, Status* status, PackagePtr output,
@@ -222,6 +226,11 @@ bool InferServer::RequestSync(Session_t session, PackagePtr input, Status* statu
   CHECK(status) << "status is null!";
   if (!session->IsSyncLink()) {
     LOG(ERROR) << "async Session cannot be invoked with sync api";
+    return false;
+  }
+  if (input->data.empty()) {
+    LOG(ERROR) << "Sync request do not support empty package";
+    *status = Status::INVALID_PARAM;
     return false;
   }
 
@@ -286,12 +295,20 @@ bool InferServer::UnloadModel(ModelPtr model) noexcept { return ModelManager::In
 
 void InferServer::ClearModelCache() noexcept { ModelManager::Instance()->ClearCache(); }
 
-std::map<std::string, PerfStatistic> InferServer::GetPerformance(Session_t session) const noexcept {
 #ifdef CNIS_RECORD_PERF
+std::map<std::string, LatencyStatistic> InferServer::GetLatency(Session_t session) const noexcept {
   return session->GetPerformance();
-#else
-  return {};
-#endif
 }
+
+ThroughoutStatistic InferServer::GetThroughout(Session_t session) const noexcept { return session->GetThroughout(); }
+
+ThroughoutStatistic InferServer::GetThroughout(Session_t session, const std::string& tag) const noexcept {
+  return session->GetThroughout(tag);
+}
+#else
+std::map<std::string, LatencyStatistic> InferServer::GetLatency(Session_t session) const noexcept { return {}; }
+ThroughoutStatistic InferServer::GetThroughout(Session_t session) const noexcept { return {}; }
+ThroughoutStatistic InferServer::GetThroughout(Session_t session, const std::string& tag) const noexcept { return {}; }
+#endif
 
 }  // namespace infer_server

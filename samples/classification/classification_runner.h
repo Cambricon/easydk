@@ -21,8 +21,6 @@
 #ifndef EDK_SAMPLES_CLASSIFICATION_RUNNER_H_
 #define EDK_SAMPLES_CLASSIFICATION_RUNNER_H_
 
-#include <glog/logging.h>
-
 #include <memory>
 #include <string>
 

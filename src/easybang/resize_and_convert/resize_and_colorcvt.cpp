@@ -17,7 +17,8 @@
  * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
  * THE SOFTWARE.
  *************************************************************************/
-#include <glog/logging.h>
+
+#include "easybang/resize_and_colorcvt.h"
 
 #include <algorithm>
 #include <deque>
@@ -27,39 +28,32 @@
 #include <utility>
 #include <vector>
 
+#include "cxxutil/log.h"
 #include "device/mlu_context.h"
-#include "easybang/resize_and_colorcvt.h"
 #include "internal/mlu_task_queue.h"
 
 using std::string;
-extern
-bool PrepareKernelParam(int d_row, int d_col, int color_mode, int data_type,
-                        int batchsize, bool keep_aspect_ratio, KernelParam** param,
-                        int dev_type, int padMethod,
-                        string* estr);
+extern bool PrepareKernelParam(int d_row, int d_col, int color_mode, int data_type, int batchsize,
+                               bool keep_aspect_ratio, KernelParam** param, int dev_type, int padMethod, string* estr);
 
-extern
-void FreeKernelParam(KernelParam* param);
+extern void FreeKernelParam(KernelParam* param);
 
-extern
-float ResizeAndConvert(void* dst, void** y_plane_addrs, void** uv_plane_addrs,
-                       int **src_whs, int** src_rois_mlu, int* src_rois_cpu,
-                       KernelParam* kparam, cnrtFunctionType_t func_type,
-                       cnrtDim3_t dim, cnrtQueue_t queue, int dev_type,
-                       string* estr);
+extern float ResizeAndConvert(void* dst, void** y_plane_addrs, void** uv_plane_addrs, int** src_whs, int** src_rois_mlu,
+                              int* src_rois_cpu, KernelParam* kparam, cnrtFunctionType_t func_type, cnrtDim3_t dim,
+                              cnrtQueue_t queue, int dev_type, string* estr);
 
 namespace edk {
 
 std::ostream& operator<<(std::ostream& os, const MluResizeConvertOp::InputData& data) {
-  os << "y plane attr: " << data.planes[0] << "\n"
-     << "uv plane attr: " << data.planes[1] << "\n"
-     << "src w: " << data.src_w << "\n"
-     << "src h: " << data.src_h << "\n"
-     << "src stride: " << data.src_stride << "\n"
-     << "crop x: " << data.crop_x << "\n"
-     << "crop y: " << data.crop_y << "\n"
-     << "crop w: " << data.crop_w << "\n"
-     << "crop h: " << data.crop_h;
+  os << "\n\t y plane attr: " << data.planes[0] << "\n"
+     << "\t uv plane attr: " << data.planes[1] << "\n"
+     << "\t src w: " << data.src_w << "\n"
+     << "\t src h: " << data.src_h << "\n"
+     << "\t src stride: " << data.src_stride << "\n"
+     << "\t crop x: " << data.crop_x << "\n"
+     << "\t crop y: " << data.crop_y << "\n"
+     << "\t crop w: " << data.crop_w << "\n"
+     << "\t crop h: " << data.crop_h;
   return os;
 }
 
@@ -72,12 +66,12 @@ class MluResizeConvertPrivate {
   std::deque<MluResizeConvertOp::InputData> input_datas_cache_;
   void **y_ptrs_cpu_ = nullptr, **uv_ptrs_cpu_ = nullptr;
   void **y_ptrs_mlu_ = nullptr, **uv_ptrs_mlu_ = nullptr;
-  int **src_whs_mlu_ = nullptr;
-  int *src_whs_mlu_tmp_ = nullptr;
-  int *src_whs_cpu_ = nullptr;
-  int **src_rois_mlu_ = nullptr;
-  int *src_rois_mlu_tmp_ = nullptr;
-  int *src_rois_cpu_ = nullptr;
+  int** src_whs_mlu_ = nullptr;
+  int* src_whs_mlu_tmp_ = nullptr;
+  int* src_whs_cpu_ = nullptr;
+  int** src_rois_mlu_ = nullptr;
+  int* src_rois_mlu_tmp_ = nullptr;
+  int* src_rois_cpu_ = nullptr;
   std::string estr_;
   bool shared_queue_ = false;
 
@@ -101,7 +95,7 @@ void MluResizeConvertOp::SetMluQueue(MluTaskQueue_t queue) {
     d_ptr_->queue_ = queue;
     d_ptr_->shared_queue_ = true;
   } else {
-    LOG(WARNING) << "SetMluQueue(): param queue is nullptr";
+    LOGW(RESIZE_CONVERT) << "SetMluQueue(): param queue is nullptr";
   }
 }
 
@@ -140,17 +134,17 @@ bool MluResizeConvertOp::Init(const MluResizeConvertOp::Attr& attr) {
   CHECK_CNRT_RET(cnret, d_ptr_->estr_, "Malloc mlu buffer failed. cnrt error code:" + std::to_string(cnret), {}, false);
   cnret = cnrtMalloc(reinterpret_cast<void**>(&d_ptr_->src_rois_mlu_), sizeof(int*) * batchsize);
   CHECK_CNRT_RET(cnret, d_ptr_->estr_, "Malloc mlu buffer failed. cnrt error code:" + std::to_string(cnret), {}, false);
-  int **wh_mlu_ptrs_tmp = new int*[batchsize];
-  int **roi_mlu_ptrs_tmp = new int*[batchsize];
+  int** wh_mlu_ptrs_tmp = new int*[batchsize];
+  int** roi_mlu_ptrs_tmp = new int*[batchsize];
   for (int i = 0; i < batchsize; ++i) {
     wh_mlu_ptrs_tmp[i] = d_ptr_->src_whs_mlu_tmp_ + 2 * i;
     roi_mlu_ptrs_tmp[i] = d_ptr_->src_rois_mlu_tmp_ + 4 * i;
   }
   cnret = cnrtMemcpy(reinterpret_cast<void*>(d_ptr_->src_whs_mlu_), reinterpret_cast<void*>(wh_mlu_ptrs_tmp),
-      sizeof(int*) * batchsize, CNRT_MEM_TRANS_DIR_HOST2DEV);
+                     sizeof(int*) * batchsize, CNRT_MEM_TRANS_DIR_HOST2DEV);
   CHECK_CNRT_RET(cnret, d_ptr_->estr_, "Memcpy h2d failed. cnrt error code:" + std::to_string(cnret), {}, false);
   cnret = cnrtMemcpy(reinterpret_cast<void*>(d_ptr_->src_rois_mlu_), reinterpret_cast<void*>(roi_mlu_ptrs_tmp),
-      sizeof(int*) * batchsize, CNRT_MEM_TRANS_DIR_HOST2DEV);
+                     sizeof(int*) * batchsize, CNRT_MEM_TRANS_DIR_HOST2DEV);
   CHECK_CNRT_RET(cnret, d_ptr_->estr_, "Memcpy h2d failed. cnrt error code:" + std::to_string(cnret), {}, false);
   delete[] wh_mlu_ptrs_tmp;
   delete[] roi_mlu_ptrs_tmp;
@@ -170,15 +164,24 @@ bool MluResizeConvertOp::Init(const MluResizeConvertOp::Attr& attr) {
 
   d_ptr_->attr_.core_number = core_number;
 
-  LOG(INFO) << "Init ResizeAndConvert Operator, [batchsize: " + std::to_string(d_ptr_->attr_.batch_size) +
-               "], [core_number: " + std::to_string(d_ptr_->attr_.core_number) + "].";
+  // clang-format off
+  LOGD(RESIZE_CONVERT) << "Init ResizeAndConvert Operator:\n"
+                       << "\t [batchsize " + std::to_string(d_ptr_->attr_.batch_size) + "], "
+                       << "[core_number: " + std::to_string(d_ptr_->attr_.core_number) + "],\n"
+                       << "\t [keep_aspect_ratio " << d_ptr_->attr_.keep_aspect_ratio << "],\n"
+                       << "\t [core_version " << static_cast<int>(d_ptr_->attr_.core_version) << "],\n"
+                       << "\t [color_mode " << static_cast<int>(d_ptr_->attr_.color_mode) << "], "
+                       << "[data_mode " << static_cast<int>(d_ptr_->attr_.data_mode) << "]\n"
+                       << "\t [pad_method " << d_ptr_->attr_.padMethod << "]\n";
 
   return ::PrepareKernelParam(d_ptr_->attr_.dst_h, d_ptr_->attr_.dst_w,
                               static_cast<int>(d_ptr_->attr_.color_mode),
                               static_cast<int>(d_ptr_->attr_.data_mode),
                               d_ptr_->attr_.batch_size,
                               d_ptr_->attr_.keep_aspect_ratio, &d_ptr_->kparam_,
-                              static_cast<int>(d_ptr_->attr_.core_version), d_ptr_->attr_.padMethod, &d_ptr_->estr_);
+                              static_cast<int>(d_ptr_->attr_.core_version),
+                              d_ptr_->attr_.padMethod, &d_ptr_->estr_);
+  // clang-format on
 }
 
 bool MluResizeConvertPrivate::PrepareTaskQueue() {
@@ -188,8 +191,6 @@ bool MluResizeConvertPrivate::PrepareTaskQueue() {
 }
 
 void MluResizeConvertOp::BatchingUp(const InputData& input_data) {
-  VLOG(5) << "Store resize and convert operator input for batching, "
-             << input_data.planes[0] << ", " << input_data.planes[1];
   InputData t;
   t.src_w = input_data.src_w;
   t.src_h = input_data.src_h;
@@ -204,18 +205,19 @@ void MluResizeConvertOp::BatchingUp(const InputData& input_data) {
   t.planes[0] = input_data.planes[0];
   t.planes[1] = input_data.planes[1];
 
-  d_ptr_->input_datas_cache_.push_back(std::move(t));
+  LOGT(RESIZE_CONVERT) << "Store resize and convert operator input for batching," << t;
+  d_ptr_->input_datas_cache_.emplace_back(std::move(t));
 }
 
 bool MluResizeConvertOp::SyncOneOutput(void* dst) {
   if (nullptr == d_ptr_->queue_) {
-    LOG(INFO) << "MluTaskQueue has not been set, MluResizeConvertOp will create a new one";
+    LOGI(RESIZE_CONVERT) << "MluTaskQueue has not been set, MluResizeConvertOp will create a new one";
     if (!d_ptr_->PrepareTaskQueue()) {
       return false;
     }
   }
   if (d_ptr_->input_datas_cache_.size() == 0) {
-    LOG(WARNING) << "No data batched , do nothing.";
+    LOGW(RESIZE_CONVERT) << "No data batched , do nothing.";
     return false;
   }
   // while cache count less than batch size, fill with copy to batch size
@@ -234,6 +236,7 @@ bool MluResizeConvertOp::SyncOneOutput(void* dst) {
     d_ptr_->src_rois_cpu_[bi * 4 + 3] = input_data.crop_h;
     d_ptr_->input_datas_cache_.pop_front();
   }
+  // clang-format off
   cnrtRet_t cnret = cnrtMemcpy(reinterpret_cast<void*>(d_ptr_->y_ptrs_mlu_),
                                reinterpret_cast<void*>(d_ptr_->y_ptrs_cpu_),
                                sizeof(void*) * d_ptr_->attr_.batch_size,
@@ -257,28 +260,31 @@ bool MluResizeConvertOp::SyncOneOutput(void* dst) {
                      sizeof(int) * d_ptr_->attr_.batch_size * 4,
                      CNRT_MEM_TRANS_DIR_HOST2DEV);
   CHECK_CNRT_RET(cnret, d_ptr_->estr_, "Memcpy rois failed. cnrt error code:" + std::to_string(cnret), {}, false);
+  // clang-format on
+
   cnrtDim3_t dim;
   dim.x = 4;
   dim.y = d_ptr_->attr_.core_number >= 4 ? d_ptr_->attr_.core_number / 4 : 1;
   dim.z = 1;
 
-  VLOG(5) << "Do resize and convert process, dst: " << dst;
-  bool ret =
-      -1 != ::ResizeAndConvert(dst, d_ptr_->y_ptrs_mlu_, d_ptr_->uv_ptrs_mlu_,
-                               d_ptr_->src_whs_mlu_, d_ptr_->src_rois_mlu_,
-                               d_ptr_->src_rois_cpu_,
-                               d_ptr_->kparam_, CNRT_FUNC_TYPE_UNION1, dim,
-                               MluTaskQueueProxy::GetCnrtQueue(d_ptr_->queue_),
-                               static_cast<int>(d_ptr_->attr_.core_version),
-                               &d_ptr_->estr_);
+  LOGT(RESIZE_CONVERT) << "(SyncOneOutput) Do resize and convert process, dst: " << dst;
+  // clang-format off
+  bool ret = -1 != ::ResizeAndConvert(dst, d_ptr_->y_ptrs_mlu_, d_ptr_->uv_ptrs_mlu_,
+                                      d_ptr_->src_whs_mlu_, d_ptr_->src_rois_mlu_,
+                                      d_ptr_->src_rois_cpu_,
+                                      d_ptr_->kparam_, CNRT_FUNC_TYPE_UNION1, dim,
+                                      MluTaskQueueProxy::GetCnrtQueue(d_ptr_->queue_),
+                                      static_cast<int>(d_ptr_->attr_.core_version),
+                                      &d_ptr_->estr_);
+  // clang-format on
 
   if (!ret) {
-    LOG(ERROR) << "Resize convert failed. Info: ";
-    LOG(ERROR) << "dst w, dst h: " << d_ptr_->attr_.dst_w << " " << d_ptr_->attr_.dst_h;
-    LOG(ERROR) << "keep aspect ratio: " << d_ptr_->attr_.keep_aspect_ratio;
-    LOG(ERROR) << "batchsize: " << d_ptr_->attr_.batch_size;
+    LOGE(RESIZE_CONVERT) << "Resize convert failed. Info: ";
+    LOGE(RESIZE_CONVERT) << "dst w, dst h: " << d_ptr_->attr_.dst_w << " " << d_ptr_->attr_.dst_h;
+    LOGE(RESIZE_CONVERT) << "keep aspect ratio: " << d_ptr_->attr_.keep_aspect_ratio;
+    LOGE(RESIZE_CONVERT) << "batchsize: " << d_ptr_->attr_.batch_size;
     auto inputs = GetLastBatchInput();
-    for (const auto & it : inputs) LOG(ERROR) << it;
+    for (const auto& it : inputs) LOGE(RESIZE_CONVERT) << it;
     cnrtMemset(dst, 0, size_t(1) * d_ptr_->attr_.batch_size * d_ptr_->attr_.dst_w * d_ptr_->attr_.dst_h * 4);
     if (!IsSharedQueue()) {
       // queue becomes invalid when an error occurs.
@@ -301,7 +307,7 @@ std::vector<MluResizeConvertOp::InputData> MluResizeConvertOp::GetLastBatchInput
     t.crop_y = d_ptr_->src_rois_cpu_[bi * 4 + 1];
     t.crop_w = d_ptr_->src_rois_cpu_[bi * 4 + 2];
     t.crop_h = d_ptr_->src_rois_cpu_[bi * 4 + 3];
-    datas.push_back(std::move(t));
+    datas.emplace_back(std::move(t));
   }
   return datas;
 }

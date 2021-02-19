@@ -16,7 +16,7 @@ model_file="${CURRENT_DIR}/cache/resnet50_offline.cambricon"
 label_path="${CURRENT_DIR}/cache/synset_words.txt"
 data_path="${CURRENT_DIR}/../data/videos/cars.mp4"
 
-GLOG_v=3 ../bin/classification  \
+../bin/classification  \
      --model_path $model_file \
      --label_path $label_path \
      --data_path $data_path \

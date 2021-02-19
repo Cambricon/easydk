@@ -52,7 +52,7 @@ void ThreadPool<Q, T>::Resize(size_t n_threads) noexcept {
       }
     } else {
       // the number of threads is decreased
-      VLOG(3) << "stop " << old_n_threads - n_threads << " threads in threadpool";
+      VLOG(3) << "stop " << old_n_threads - n_threads << " threads in threadpool, remain " << n_threads << " threads";
       for (size_t i = old_n_threads - 1; i >= n_threads; --i) {
         // this thread will finish
         flags_[i]->store(true);

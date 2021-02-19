@@ -28,7 +28,7 @@
 namespace infer_server {
 
 void RequestControl::ProcessDone(Status status, InferDataPtr output, uint32_t index,
-                          std::map<std::string, float> perf) noexcept {
+                                 std::map<std::string, float> perf) noexcept {
   if (output) {
     CHECK_LT(index, data_num_);
     output_->data[index] = output;

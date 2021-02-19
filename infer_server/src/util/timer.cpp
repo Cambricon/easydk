@@ -21,6 +21,7 @@
 #include "util/timer.h"
 
 #include <glog/logging.h>
+
 #include <algorithm>
 #include <condition_variable>
 #include <memory>
@@ -73,8 +74,13 @@ class TimeCounter {
 
       events_.erase(events_.begin());
       if (e->loop) {
-        e->alarm_time = Clock::now() + e->d;
+        // add loop timer event back
+        e->alarm_time += e->d;
         events_.insert(e);
+        // use notifying flag to avoid lock on notifier
+        // lock on notifier may cause dead-lock under the following circumstances:
+        //   { user lock -> add / remove -> timer lock }
+        //   { timer lock -> notifier -> user lock }
         e->notifying.store(true);
         lk.unlock();
         e->notifier();
@@ -92,11 +98,10 @@ class TimeCounter {
   int64_t Add(uint32_t t_ms, Timer::Notifier&& notifier, bool loop) {
     VLOG(6) << "Add time event, timeout: " << t_ms;
     Duration d(t_ms);
-    TimePoint t = Clock::now() + d;
     std::unique_lock<std::mutex> lk(mutex_);
     auto te = new TimeEvent;
-    te->alarm_time = std::move(t);
-    te->notifier = std::move(notifier);
+    te->alarm_time = Clock::now() + d;
+    te->notifier = std::forward<Timer::Notifier>(notifier);
     te->d = std::move(d);
     te->loop = loop;
     te->notifying.store(false);
@@ -112,7 +117,9 @@ class TimeCounter {
                           [handle](const TimeEvent* t) { return reinterpret_cast<int64_t>(t) == handle; });
     if (e != events_.end()) {
       VLOG(6) << "Remove time event";
-      while ((*e)->notifying.load());
+      // wait until event is not in notifying
+      while ((*e)->notifying.load()) {
+      }
       delete *e;
       events_.erase(e);
     }
@@ -136,10 +143,7 @@ class TimeCounter {
     th_ = std::thread(&TimeCounter::Loop, this);
   }
   std::multiset<TimeEvent*, EventCompare> events_;
-  // use recursive_mutex to avoid deadlock
-  // user defined notifier may add new time event
   std::mutex mutex_;
-  // condition_variable only works with `std::unique_lock<std::mutex>`
   std::condition_variable cond_;
   std::thread th_;
   std::atomic<bool> running_{false};
@@ -147,13 +151,13 @@ class TimeCounter {
 
 }  // namespace detail
 
-bool Timer::Start(uint32_t t_ms, Notifier notifier, bool loop) {
+bool Timer::Start(uint32_t t_ms, Notifier&& notifier, bool loop) {
   if (Idle()) {
     auto task = [this, notifier, loop]() {
       notifier();
       if (!loop) timer_id_.store(0);
     };
-    timer_id_.store(detail::TimeCounter::Instance()->Add(t_ms, task, loop));
+    timer_id_.store(detail::TimeCounter::Instance()->Add(t_ms, std::move(task), loop));
     return true;
   }
   return false;

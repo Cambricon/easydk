@@ -221,9 +221,8 @@ class Buffer {
 };
 
 /**
- * @brief MluMemoryPool is a MLU memory helper class. deprecated, use Buffer instead.
+ * @brief MluMemoryPool is a MLU memory helper class.
  *
- * @deprecated
  * @note It provides a easy way to manage memory on MLU.
  */
 class MluMemoryPool {

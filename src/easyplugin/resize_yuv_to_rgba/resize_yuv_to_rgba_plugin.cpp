@@ -19,15 +19,17 @@
  *************************************************************************/
 
 #include <sys/time.h>
+
 #include <chrono>
 #include <ctime>
 #include <iostream>
 #include <string>
+
 #include "cnml.h"
 #include "cnplugin.h"
 #include "cnrt.h"
+#include "cxxutil/log.h"
 #include "easyplugin/resize_yuv_to_rgba.h"
-#include "glog/logging.h"
 
 #define PRINT_TIME 0
 
@@ -64,14 +66,14 @@ bool CreateParam(const edk::MluResizeAttr& attr, ResizeYuv2Rgba* yuv2rgba, strin
   switch (attr.core_version) {
     case edk::CoreVersion::MLU220:
       yuv2rgba->version = CNML_MLU220;
-      LOG(INFO) << "core version MLU220";
+      LOGI(RESIZE_PLUGIN) << "core version MLU220";
       break;
     case edk::CoreVersion::MLU270:
       yuv2rgba->version = CNML_MLU270;
-      LOG(INFO) << "core version MLU270";
+      LOGI(RESIZE_PLUGIN) << "core version MLU270";
       break;
     default:
-      LOG(ERROR) << "unsurpported core version" << std::endl;
+      LOGE(RESIZE_PLUGIN) << "unsurpported core version" << std::endl;
       *estr = "unsurpported core version";
       return false;
   }

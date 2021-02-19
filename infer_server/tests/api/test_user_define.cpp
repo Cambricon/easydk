@@ -106,7 +106,7 @@ TEST_F(InferServerTestAPI, UserDefine) {
     std::cerr << "load model failed";
     std::terminate();
   }
-  auto preproc = std::make_shared<MyProcessor>();
+  auto preproc = MyProcessor::Create();
   SessionDesc desc;
   desc.name = "test user define";
   desc.model = model;
@@ -132,6 +132,7 @@ TEST_F(InferServerTestAPI, UserDefine) {
   ASSERT_EQ(status, Status::SUCCESS);
   EXPECT_EQ(output->data.size(), 32u);
   EXPECT_NO_THROW(output->data[0]->Get<ModelIO>());
+  server_->DestroySession(session);
 }
 
 }  // namespace infer_server

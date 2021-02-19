@@ -27,7 +27,6 @@
 #ifndef EASYCODEC_EASY_DECODE_H_
 #define EASYCODEC_EASY_DECODE_H_
 
-#include <chrono>
 #include <functional>
 #include <memory>
 
@@ -68,9 +67,6 @@ class EasyDecode {
 
     /// Color space standard
     ColorStd color_std = ColorStd::ITU_BT_709;
-
-    /// Specify library in which manage input and output buffer, unsupported
-    BufferStrategy buf_strategy = BufferStrategy::CNCODEC;
 
     /// The input buffer count
     uint32_t input_buffer_num = 2;

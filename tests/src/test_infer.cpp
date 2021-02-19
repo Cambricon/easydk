@@ -13,9 +13,8 @@
 #include "internal/mlu_task_queue.h"
 #include "test_base.h"
 
-constexpr const char *gmodel_path_220 =
-    "../../samples/data/models/MLU220/inceptionv3/inception-v3_int8_scale_dense_4batch_4core.cambricon";
-constexpr const char *gmodel_path_270 = "../../samples/data/models/MLU270/resnet50_offline.cambricon";
+constexpr const char *gmodel_path_220 = "../../tests/data/resnet18_220.cambricon";
+constexpr const char *gmodel_path_270 = "../../tests/data/resnet50_270.cambricon";
 using MluTaskQueue_t = std::shared_ptr<edk::MluTaskQueue>;
 
 TEST(Easyinfer, Shape) {

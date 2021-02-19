@@ -50,10 +50,13 @@ struct PreprocessorHostPrivate {
   std::vector<Shape> shapes;
   std::vector<DataLayout> layouts;
   DataLayout host_layout;
+  uint32_t increased_tp{0};
 };
 
-// init thread pool
-std::unique_ptr<EqualityThreadPool> PreprocessorHostPrivate::tp{new EqualityThreadPool(nullptr)};
+// all the preprocessor_host instance share one thread pool, to reduce total thread number
+// add threads into pool in each `Init()`, until reach max_thread_num (1 * CPU core number)
+// check idle thread number and remove threads in each destruct
+std::unique_ptr<EqualityThreadPool> PreprocessorHostPrivate::tp{nullptr};
 std::mutex PreprocessorHostPrivate::tp_mutex;
 
 PreprocessorHost::PreprocessorHost() noexcept
@@ -69,11 +72,24 @@ PreprocessorHost::~PreprocessorHost() {
   }
   priv_->pools.clear();
 
-  std::unique_lock<std::mutex> lk(priv_->tp_mutex);
-  int idle_num = priv_->tp->IdleNumber();
-  // TODO(dmh): 2?
-  if (idle_num > 2) priv_->tp->Resize(priv_->tp->Size() - 2);
-  lk.unlock();
+  if (priv_->increased_tp) {
+    std::unique_lock<std::mutex> lk(priv_->tp_mutex);
+    uint32_t idle_num = priv_->tp->IdleNumber();
+    if (idle_num > priv_->increased_tp) {
+      if (priv_->increased_tp == priv_->tp->Size()) {
+        // if we resize to 0 threads here, segment fault will occur occasionally!
+        // but it won't happen under debug mode, so the bug cannot be located.
+        // simply avoid resize to 0 thread, as workaround.
+        VLOG(3) << "Destroy preproc_host worker thread pool";
+        // no any other preproc instance, ensure no task in pool
+        priv_->tp->Stop(true);
+        priv_->tp.reset();
+      } else {
+        VLOG(3) << "Reduce " << priv_->increased_tp << " thread in preprocessor pool after destruct PreprocessorHost";
+        priv_->tp->Resize(priv_->tp->Size() - priv_->increased_tp);
+      }
+    }
+  }
   delete priv_;
   priv_ = nullptr;
 }
@@ -87,12 +103,14 @@ Status PreprocessorHost::Init() noexcept {
     }
   }
 
+  int parallel = 0;
   int device_id = 0;
   try {
     priv_->model = GetParam<ModelPtr>("model_info");
     priv_->host_layout = GetParam<DataLayout>("host_input_layout");
     device_id = GetParam<int>("device_id");
-    if (HaveParam("process_function")) priv_->process_func = GetParam<ProcessFunction>("process_function");
+    priv_->process_func = HaveParam("process_function") ? GetParam<ProcessFunction>("process_function") : nullptr;
+    parallel = HaveParam("parallel") ? GetParam<int>("parallel") : 0;
   } catch (bad_any_cast&) {
     LOG(ERROR) << "wrong param type";
     return Status::WRONG_TYPE;
@@ -100,12 +118,19 @@ Status PreprocessorHost::Init() noexcept {
 
   // no process function will just pass through
   if (priv_->process_func) {
+    // increased number of threads limited in [1, 8]
+    priv_->increased_tp = parallel > 0 ? (parallel < 8 ? parallel : 8) : 2;
     std::unique_lock<std::mutex> lk(priv_->tp_mutex);
+    if (!priv_->tp) {
+      VLOG(3) << "Create preproc_host worker thread pool";
+      priv_->tp.reset(new EqualityThreadPool(nullptr));
+    }
     int th_num = priv_->tp->Size();
     static const int max_th_num = GetCpuCoreNumber();
     if (th_num < max_th_num) {
-      // TODO(dmh): add 2 thread for each instance?
-      priv_->tp->Resize(th_num + 2);
+      // TODO(dmh): user define?
+      VLOG(3) << "Increase " << priv_->increased_tp << " thread in postprocessor pool when init postprocessor";
+      priv_->tp->Resize(th_num + priv_->increased_tp);
     }
     lk.unlock();
 

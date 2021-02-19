@@ -18,15 +18,16 @@
  * THE SOFTWARE.
  *************************************************************************/
 
+#include "format_info.h"
+
 #include <cn_codec_common.h>
-#include <glog/logging.h>
 
 #include <map>
 #include <string>
 
+#include "cxxutil/log.h"
 #include "easycodec/easy_decode.h"
 #include "easycodec/vformat.h"
-#include "format_info.h"
 
 namespace edk {
 
@@ -49,7 +50,7 @@ static const std::map<PixelFmt, FormatInfo> kFrameFormatMap = {
 const FormatInfo* FormatInfo::GetFormatInfo(PixelFmt fmt) {
   auto fmt_pair = kFrameFormatMap.find(fmt);
   if (fmt_pair == kFrameFormatMap.end()) {
-    LOG(ERROR) << "Unsupport pixel format";
+    LOGE(CODEC) << "Unsupport pixel format";
     THROW_EXCEPTION(Exception::UNSUPPORTED, "Unsupport pixel format");
   }
   return &(fmt_pair->second);
@@ -58,7 +59,7 @@ const FormatInfo* FormatInfo::GetFormatInfo(PixelFmt fmt) {
 unsigned int FormatInfo::GetPlaneSize(unsigned int pitch, unsigned int height, unsigned int plane) const {
   unsigned int plane_size;
   if (plane >= plane_num) {
-    LOG(ERROR) << "Plane index out of range, " << plane << " vs " << plane_num;
+    LOGE(CODEC) << "Plane index out of range, " << plane << " vs " << plane_num;
     return 0;
   }
   const cncodecPixelFormat& fmt = cncodec_fmt;

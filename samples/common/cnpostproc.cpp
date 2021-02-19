@@ -17,7 +17,8 @@
  * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
  * THE SOFTWARE.
  *************************************************************************/
-#include <glog/logging.h>
+#include "cnpostproc.h"
+
 #include <algorithm>  // sort
 #include <cstring>    // memset
 #include <list>
@@ -25,7 +26,7 @@
 #include <utility>
 #include <vector>
 
-#include "cnpostproc.h"
+#include "cxxutil/log.h"
 
 using std::pair;
 using std::vector;
@@ -43,8 +44,7 @@ vector<DetectObject> CnPostproc::Execute(const vector<pair<float*, uint64_t>>& n
 
 vector<DetectObject> ClassificationPostproc::Postproc(const vector<pair<float*, uint64_t>>& net_outputs) {
   if (net_outputs.size() != 1) {
-    LOG(WARNING) << "Classification neuron network only has one output but get "
-                    + to_string(net_outputs.size());
+    LOGW(SAMPLES) << "Classification neuron network only has one output but get " + to_string(net_outputs.size());
   }
 
   float* data = net_outputs[0].first;
@@ -67,8 +67,7 @@ vector<DetectObject> ClassificationPostproc::Postproc(const vector<pair<float*, 
 
 vector<DetectObject> SsdPostproc::Postproc(const vector<pair<float*, uint64_t>>& net_outputs) {
   if (net_outputs.size() != 1) {
-    LOG(WARNING) << "Ssd neuron network only has one output, but get "
-                                        + to_string(net_outputs.size());
+    LOGW(SAMPLES) << "Ssd neuron network only has one output, but get " + to_string(net_outputs.size());
   }
   vector<DetectObject> objs;
   float* data = net_outputs[0].first;
@@ -113,7 +112,7 @@ vector<DetectObject> Yolov3Postproc::Postproc(const vector<pair<float*, uint64_t
   uint64_t len = net_outputs[0].second;
   constexpr int box_step = 7;
   const int box_num = static_cast<int>(data[0]);
-  CHECK_LE(static_cast<uint64_t>(64 + box_num * box_step), len);
+  CHECK(SAMPLES, static_cast<uint64_t>(64 + box_num * box_step) <= len);
 
   for (int bi = 0; bi < box_num; ++bi) {
     DetectObject obj;

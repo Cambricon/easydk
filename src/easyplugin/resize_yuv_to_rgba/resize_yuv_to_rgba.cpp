@@ -25,7 +25,7 @@
 #include <string>
 #include <utility>
 
-#include "glog/logging.h"
+#include "cxxutil/log.h"
 
 using std::string;
 extern bool CreateResizeYuv2Rgba(const edk::MluResizeAttr& attr, ResizeYuv2Rgba** yuv2rgba_ptr, string* estr);
@@ -140,13 +140,13 @@ bool MluResizeYuv2Rgba::Init(const MluResizeAttr& attr) {
     return false;
   }
 
-  VLOG(4) <<  "Init ResizeYuv2Rgba Operator";
+  LOGI(RESIZE_PLUGIN) << "Init ResizeYuv2Rgba Operator";
 
   bool success = ::CreateResizeYuv2Rgba(d_ptr_->attr_, &d_ptr_->yuv2rgba_, &d_ptr_->estr_);
   if (!success) {
     if (d_ptr_->yuv2rgba_) {
       if (!::DestroyResizeYuv2Rgba(d_ptr_->yuv2rgba_, &d_ptr_->estr_)) {
-        LOG(ERROR) << "DestroyResizeYuv2Rgba Error: " << d_ptr_->estr_;
+        LOGE(RESIZE_PLUGIN) << "DestroyResizeYuv2Rgba Error: " << d_ptr_->estr_;
       }
       d_ptr_->yuv2rgba_ = nullptr;
     }
@@ -154,14 +154,14 @@ bool MluResizeYuv2Rgba::Init(const MluResizeAttr& attr) {
   if (d_ptr_->queue_ == nullptr) {
     auto cnret = cnrtCreateQueue(&d_ptr_->queue_);
     if (cnret != CNRT_RET_SUCCESS) {
-      LOG(WARNING) << "Create queue failed. Please SetMluQueue after.";
+      LOGW(RESIZE_PLUGIN) << "Create queue failed. Please SetMluQueue after.";
     }
   }
   return success;
 }
 
 void MluResizeYuv2Rgba::BatchingUp(void* src_y, void* src_uv) {
-  VLOG(5) << "Store resize and convert operator input for batching, " << src_y << " , " << src_uv;
+  LOGT(RESIZE_PLUGIN) << "Store resize and convert operator input for batching, " << src_y << " , " << src_uv;
   d_ptr_->yuv_ptrs_cache_.push_back(std::make_pair(src_y, src_uv));
 }
 
@@ -191,7 +191,7 @@ bool MluResizeYuv2Rgba::SyncOneOutput(void* dst) {
     d_ptr_->estr_ = "Memcpy host to device failed. Error code: " + std::to_string(cnret);
     return false;
   }
-  VLOG(5) << "Do resize and convert process, dst: " << dst;
+  LOGT(RESIZE_PLUGIN) << "Do resize and convert process, dst: " << dst;
 
   return ::ComputeResizeYuv2Rgba(dst, d_ptr_->y_ptrs_mlu_, d_ptr_->uv_ptrs_mlu_, d_ptr_->yuv2rgba_,
                                  d_ptr_->queue_, &d_ptr_->estr_);
@@ -201,7 +201,7 @@ void MluResizeYuv2Rgba::Destroy() {
   if (d_ptr_) {
     if (d_ptr_->yuv2rgba_) {
       if (!::DestroyResizeYuv2Rgba(d_ptr_->yuv2rgba_, &d_ptr_->estr_)) {
-        LOG(ERROR) << "DestroyResizeYuv2Rgba Error: " << d_ptr_->estr_;
+        LOGE(RESIZE_PLUGIN) << "DestroyResizeYuv2Rgba Error: " << d_ptr_->estr_;
       }
       d_ptr_->yuv2rgba_ = nullptr;
     }

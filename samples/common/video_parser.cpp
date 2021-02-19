@@ -20,12 +20,11 @@
 
 #include "video_parser.h"
 
-#include <glog/logging.h>
-
 #include <atomic>
 #include <chrono>
 #include <thread>
 
+#include "cxxutil/log.h"
 #include "easycodec/easy_decode.h"
 
 #ifdef __cplusplus
@@ -49,7 +48,7 @@ namespace detail {
 static int InterruptCallBack(void* ctx) {
   VideoParser* parser = reinterpret_cast<VideoParser*>(ctx);
   if (parser->CheckTimeout()) {
-    VLOG(3) << "[RTSP] Get interrupt and timeout";
+    LOGD(SAMPLES) << "[RTSP] Get interrupt and timeout";
     return 1;
   }
   return 0;
@@ -95,13 +94,13 @@ bool VideoParser::Open(const char *url, bool save_file) {
   // open input
   int ret_code = avformat_open_input(&p_format_ctx_, url, NULL, &options_);
   if (0 != ret_code) {
-    LOG(ERROR) << "couldn't open input stream: " << url;
+    LOGE(SAMPLES) << "couldn't open input stream: " << url;
     return false;
   }
   // find video stream information
   ret_code = avformat_find_stream_info(p_format_ctx_, NULL);
   if (ret_code < 0) {
-    LOG(ERROR) << "couldn't find stream information.";
+    LOGE(SAMPLES) << "couldn't find stream information.";
     return false;
   }
   video_index_ = -1;
@@ -118,7 +117,7 @@ bool VideoParser::Open(const char *url, bool save_file) {
     }
   }
   if (video_index_ == -1) {
-    LOG(ERROR) << "didn't find a video stream.";
+    LOGE(SAMPLES) << "didn't find a video stream.";
     return false;
   }
 
@@ -162,7 +161,7 @@ bool VideoParser::Open(const char *url, bool save_file) {
 
   // bitstream filter
   p_bsfc_ = nullptr;
-  LOG(INFO) << p_format_ctx_->iformat->name;
+  LOGI(SAMPLES) << p_format_ctx_->iformat->name;
   if (strstr(p_format_ctx_->iformat->name, "mp4") || strstr(p_format_ctx_->iformat->name, "flv") ||
       strstr(p_format_ctx_->iformat->name, "matroska") || strstr(p_format_ctx_->iformat->name, "h264") ||
       strstr(p_format_ctx_->iformat->name, "rtsp")) {
@@ -175,7 +174,7 @@ bool VideoParser::Open(const char *url, bool save_file) {
       info_.codec_type = edk::CodecType::H265;
       if (save_file) saver_.reset(new detail::FileSaver("out.h265"));
     } else {
-      LOG(ERROR) << "nonsupport codec id.";
+      LOGE(SAMPLES) << "nonsupport codec id.";
       return false;
     }
   }
@@ -187,7 +186,7 @@ bool VideoParser::Open(const char *url, bool save_file) {
 
 void VideoParser::Close() {
   if (!have_video_source_.load()) return;
-  LOG(INFO) << "Close ffmpeg resources";
+  LOGI(SAMPLES) << "Close ffmpeg resources";
   if (p_format_ctx_) {
     avformat_close_input(&p_format_ctx_);
     avformat_free_context(p_format_ctx_);
@@ -206,13 +205,12 @@ void VideoParser::Close() {
 
 int VideoParser::ParseLoop(uint32_t frame_interval) {
   if (!info_.extra_data.empty()) {
-    LOG(INFO) << "Send stream head";
     edk::CnPacket pkt;
     pkt.data = const_cast<void*>(reinterpret_cast<const void*>(info_.extra_data.data()));
     pkt.length = info_.extra_data.size();
     pkt.pts = 0;
     if (!handler_->OnPacket(pkt)) {
-      THROW_EXCEPTION(edk::Exception::INTERNAL, "send stream head failed");
+      THROW_EXCEPTION(edk::Exception::INTERNAL, "send stream extra data failed");
     }
   }
 
@@ -222,7 +220,7 @@ int VideoParser::ParseLoop(uint32_t frame_interval) {
 
   while (handler_->Running()) {
     if (!have_video_source_.load()) {
-      LOG(ERROR) << "video source have not been init";
+      LOGE(SAMPLES) << "video source have not been init";
       return -1;
     }
 
@@ -243,11 +241,11 @@ int VideoParser::ParseLoop(uint32_t frame_interval) {
 
     // filter non-key-frame in head
     if (first_frame_) {
-      LOG(INFO) << "check first frame";
+      LOGI(SAMPLES) << "check first frame";
       if (packet_.flags & AV_PKT_FLAG_KEY) {
         first_frame_ = false;
       } else {
-        LOG(WARNING) << "skip first not-key-frame";
+        LOGW(SAMPLES) << "skip first not-key-frame";
         av_packet_unref(&packet_);
         continue;
       }
@@ -266,7 +264,7 @@ int VideoParser::ParseLoop(uint32_t frame_interval) {
 
     // find pts information
     if (AV_NOPTS_VALUE == packet_.pts) {
-      LOG(INFO) << "Didn't find pts informations, use ordered numbers instead. ";
+      LOGI(SAMPLES) << "Didn't find pts informations, use ordered numbers instead. ";
       pkt.pts = frame_index_++;
     } else if (AV_NOPTS_VALUE != packet_.pts) {
       packet_.pts = av_rescale_q(packet_.pts, vstream->time_base, {1, 90000});

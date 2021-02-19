@@ -16,7 +16,7 @@ label_path="${CURRENT_DIR}/cache/label_map_coco.txt"
 data_path="${CURRENT_DIR}/../data/videos/cars.mp4"
 track_model_path="cpu"
 
-GLOG_v=3 ../bin/stream-app  \
+../bin/stream-app  \
      --model_path $model_file \
      --track_model_path $track_model_path \
      --label_path $label_path \

@@ -9,7 +9,7 @@ endif()
 # ---[ easydk project
 project(easydk C CXX)
 
-set(EDK_VERSION 2.4.1)
+set(EDK_VERSION 2.5.0)
 set(EDK_VERSION_MAJOR 2)
 
 #######################################################################
@@ -62,10 +62,8 @@ message(STATUS "CMAKE_INSTALL_PREFIX = ${CMAKE_INSTALL_PREFIX}")
 
 message(STATUS "!!!!! BUILD ${CMAKE_BUILD_TYPE} !!!!!")
 
-if (SANITIZE_MEMORY OR SANITIZE_ADDRESS OR SANITIZE_THREAD OR SANITIZE_UNDEFINED) 
-  set(CMAKE_MODULE_PATH "${PROJECT_SOURCE_DIR}/cmake")
-  find_package(Sanitizers)
-endif()
+set(CMAKE_MODULE_PATH "${PROJECT_SOURCE_DIR}/cmake")
+find_package(Sanitizers)
 
 #######################################################################
 
@@ -105,17 +103,6 @@ if (MLU_PLATFORM STREQUAL MLU200EDGE)
     message(WARNING "disable cnplugin since it's not supported on MLU220EDGE for now")
     set(WITH_CNPLUGIN OFF)
   endif()
-
-  # ---[ Google-glog
-  find_path(GLOG_HEADER NAMES logging.h
-            PATHS ${PROJECT_SOURCE_DIR}/dist/include/glog
-            REQUIRED NO_CMAKE_FIND_ROOT_PATH)
-  find_library(GLOG_LIBRARIES NAMES glog
-               PATHS ${PROJECT_SOURCE_DIR}/dist/lib
-               REQUIRED NO_CMAKE_FIND_ROOT_PATH)
-  message(STATUS "Found Glog library: ${GLOG_LIBRARIES}")
-  message(STATUS "Found Glog headers: ${GLOG_HEADER}")
-  set(GLOG_INCLUDE_DIRS ${PROJECT_SOURCE_DIR}/dist/include)
 else()
   # ---------------------- MLU200 CLOUD --------------------------
   # neuware include/libs
@@ -133,9 +120,6 @@ else()
     # ---[ cnplugin
     set(CNPLUGIN_LIBS ${NEUWARE_HOME}/lib64/libcnplugin.so)
   endif()
-
-  # ---[ Google-glog
-  include("${PROJECT_SOURCE_DIR}/cmake/FindGlog.cmake")
 endif()
 
 # set runtime path
@@ -168,6 +152,8 @@ if(WITH_TURBOJPEG)
   message("------------------- Turbo-JPEG and libyuv END -----------------------")
 endif()
 
+# find backward
+include(${PROJECT_SOURCE_DIR}/3rdparty/backward/BackwardConfig.cmake)
 
 # ------------------- Sources -----------------------
 
@@ -230,8 +216,8 @@ add_library(easydk SHARED
 target_include_directories(easydk PRIVATE
                            ${NEUWARE_HOME}/include
                            ${CMAKE_CURRENT_SOURCE_DIR}/include
-                           ${GLOG_INCLUDE_DIRS}
-                           ${TURBOJPEG_INCLUDE_DIRS})
+                           ${TURBOJPEG_INCLUDE_DIRS}
+                           ${BACKWARD_INCLUDE_DIRS})
 
 target_link_libraries(easydk PUBLIC
                       ${CNRT_LIBS}
@@ -239,13 +225,13 @@ target_link_libraries(easydk PUBLIC
                       ${CNML_LIBS}
                       ${CNPLUGIN_LIBS}
                       ${KCF_LIBS}
-                      ${GLOG_LIBRARIES})
+                      ${BACKWARD_LIBRARIES})
 
 if(WITH_TURBOJPEG)
   target_link_libraries(easydk PRIVATE ${TURBOJPEG_LIBRARIES})
 endif()
 
-target_compile_definitions(easydk PRIVATE ${CODE_DEFINITIONS})
+target_compile_definitions(easydk PRIVATE ${CODE_DEFINITIONS} ${BACKWARD_DEFINITIONS})
 
 set_target_properties(easydk PROPERTIES VERSION ${EDK_VERSION})
 set_target_properties(easydk PROPERTIES SOVERSION ${EDK_VERSION_MAJOR})

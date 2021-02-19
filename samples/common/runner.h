@@ -21,7 +21,6 @@
 #ifndef EDK_SAMPLES_RUNNER_H_
 #define EDK_SAMPLES_RUNNER_H_
 
-#include <glog/logging.h>
 #include <atomic>
 #include <condition_variable>
 #include <memory>
@@ -29,6 +28,7 @@
 #include <queue>
 #include <string>
 
+#include "cxxutil/log.h"
 #include "device/mlu_context.h"
 #include "easycodec/easy_decode.h"
 #include "video_parser.h"
@@ -69,9 +69,7 @@ class StreamRunner {
    public:
     explicit DemuxEventHandle(StreamRunner* runner): runner_(runner) {}
     bool OnPacket(const edk::CnPacket& packet) override { return runner_->decode_->FeedData(packet, true); }
-    void OnEos() override {
-      LOG(INFO) << "capture EOS";
-    }
+    void OnEos() override { LOGI(SAMPLES) << "capture EOS"; }
     void SendEos() {
       if (!send_eos_) {
         runner_->decode_->FeedEos();

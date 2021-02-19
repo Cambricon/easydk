@@ -71,7 +71,7 @@ struct Task {
    * @param f Function to be invoked
    * @param p Task priority
    */
-  Task(std::function<void()> f, int64_t p) : func(f), priority(p) {}
+  Task(std::function<void()>&& f, int64_t p) : func(std::forward<std::function<void()>>(f)), priority(p) {}
 
   /**
    * @brief Function object for performing comparisons between tasks
@@ -131,7 +131,7 @@ class ThreadPool {
    *
    * @return int Number of idle threads
    */
-  int IdleNumber() const noexcept { return n_waiting_; }
+  uint32_t IdleNumber() const noexcept { return n_waiting_.load(); }
 
   /**
    * @brief Get the Thread at the specified index
@@ -234,8 +234,8 @@ class ThreadPool {
   queue_type task_q_;
   std::atomic<bool> is_done_{false};
   std::atomic<bool> is_stop_{false};
-  // how many threads are waiting
-  std::atomic<int> n_waiting_{0};
+  // how many threads are waiting (idle)
+  std::atomic<uint32_t> n_waiting_{0};
 
   std::mutex mutex_;
   std::condition_variable cv_;

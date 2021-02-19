@@ -26,6 +26,7 @@
 #include "engine.h"
 #include "infer_server.h"
 #include "processor.h"
+#include "profile.h"
 
 namespace infer_server {
 
@@ -33,7 +34,7 @@ Executor::Executor(SessionDesc desc, PriorityThreadPool* tp, int device_id)
     : desc_(desc), tp_(tp), device_id_(device_id) {
   CHECK(tp);
   CHECK_GE(device_id, 0);
-  CHECK_GT(desc.engine_num, static_cast<uint32_t>(0)) << "engine number cannot be 0";
+  CHECK_GT(desc.engine_num, 0u) << "engine number cannot be 0";
   CHECK(desc.preproc) << "preprocess cannot be null";
 
   // init processors
@@ -53,7 +54,10 @@ Executor::Executor(SessionDesc desc, PriorityThreadPool* tp, int device_id)
     throw std::runtime_error(desc.postproc->TypeName() + "] Init processors failed");
 
   // init engines
-  auto notify_done_func = [this](Engine* idle) { idle_.store(idle); dispatch_cond_.notify_one(); };
+  auto notify_done_func = [this](Engine* idle) {
+    idle_.store(idle);
+    dispatch_cond_.notify_one();
+  };
   engines_.reserve(desc.engine_num);
   engines_.emplace_back(new Engine({desc.preproc, predictor, desc.postproc}, std::move(notify_done_func), tp_));
   for (size_t e_idx = 1; e_idx < desc.engine_num; ++e_idx) {
@@ -78,11 +82,17 @@ Executor::Executor(SessionDesc desc, PriorityThreadPool* tp, int device_id)
 }
 
 Executor::~Executor() {
+  std::unique_lock<std::mutex> lk(link_mutex_);
+  for (auto& session : link_set_) {
+    delete session;
+  }
+  link_set_.clear();
+  lk.unlock();
   cache_->Stop();
   VLOG(3) << desc_.name << "] Processed Task:\n\t"
-          << " | total " << static_cast<uint32_t>(batch_record_.total)
-          << " | batch number " << batch_record_.unit_cnt
+          << " | total " << static_cast<uint32_t>(batch_record_.total) << " | batch number " << batch_record_.unit_cnt
           << " | average tasks per batch " << batch_record_.total / batch_record_.unit_cnt;
+  // dispatch thread won't quit until cache is empty
   dispatch_thread_.join();
   cache_.reset();
   CHECK(link_set_.empty()) << "Executor should not have any session in destructor";
@@ -105,13 +115,14 @@ void Executor::DispatchLoop() noexcept {
     batch_record_.total += batch_size;
 
     // dispatch to engine
-    dispatch_lk.lock();
     if (!idle_) {
       waited = true;
-      dispatch_cond_.wait(dispatch_lk, [this]() ->bool { return idle_; });
+      dispatch_lk.lock();
+      dispatch_cond_.wait(dispatch_lk, [this]() -> bool { return idle_; });
+      dispatch_lk.unlock();
     }
     VLOG(4) << desc_.name << "] dispatch to engine " << idle_;
-    idle_.load()->Run(pack);
+    idle_.load()->Run(std::move(pack));
     idle_.store(nullptr);
 
     // find idle engine
@@ -123,27 +134,31 @@ void Executor::DispatchLoop() noexcept {
         }
       }
     }
-    dispatch_lk.unlock();
   }
 }
 
+// constexpr is not inline in C++11
+constexpr uint32_t Profiler::period_interval_;
+
 RequestControl* Session::Send(PackagePtr&& pack, std::function<void(Status, PackagePtr)>&& response) noexcept {
-  // since cannot classify data size from continuous data,
-  // we use batch_size set in package instead of size of pack->data
-  size_t data_size = (pack->data.size() == 1 && executor_->GetDesc().strategy == BatchStrategy::STATIC)
-                         ? pack->data_num
-                         : pack->data.size();
-  if (data_size == 0) {
-    LOG(ERROR) << "No data in package";
-    return nullptr;
-  }
   if (!running_.load()) {
     LOG(ERROR) << "Session not running [" << name_;
     return nullptr;
   }
 
+  // since cannot classify data size from continuous data,
+  // we use batch_size set in package instead of size of pack->data
+  size_t data_size = (pack->data.size() == 1 && executor_->GetDesc().strategy == BatchStrategy::STATIC)
+                         ? pack->data_num
+                         : pack->data.size();
+
+#ifdef CNIS_RECORD_PERF
+  profiler_.RequestStart(pack->tag);
+#endif
   std::unique_lock<std::mutex> lk(request_mutex_);
-  RequestControl* ctrl = new RequestControl(std::move(response), std::bind(&Session::CheckAndResponse, this, std::placeholders::_1), pack->tag, request_id_++, data_size);
+  RequestControl* ctrl =
+      new RequestControl(std::move(response), std::bind(&Session::CheckAndResponse, this, std::placeholders::_1),
+                         pack->tag, request_id_++, data_size);
 #ifdef CNIS_RECORD_PERF
   ctrl->BeginRecord();
 #endif
@@ -155,7 +170,12 @@ RequestControl* Session::Send(PackagePtr&& pack, std::function<void(Status, Pack
   request_list_.push_back(ctrl);
   lk.unlock();
 
-  CHECK(executor_->Upload(std::move(pack))) << "Cache should be running";
+  if (data_size) {
+    CHECK(executor_->Upload(std::move(pack))) << "Cache should be running";
+  } else {
+    VLOG(3) << "session: " << name_ << " | No data in package with tag [" << pack->tag << "]";
+    CheckAndResponse(ctrl);
+  }
   return ctrl;
 }
 
@@ -174,24 +194,26 @@ void Session::CheckAndResponse(const RequestControl* caller) noexcept {
   if (caller != ctrl && !ctrl->IsProcessFinished()) {
     return;
   }
-  request_list_.pop_front();
 
   bool expected = false;
   if (!in_response_.compare_exchange_strong(expected, true, std::memory_order_release, std::memory_order_relaxed)) {
-    request_list_.push_front(ctrl);
     return;
   }
+  request_list_.pop_front();
   lk.unlock();
   int64_t priority = Priority::Offset(executor_->GetPriority().Get(-ctrl->RequestId()), 5);
   executor_->GetThreadPool()->VoidPush(priority, [ctrl, this] {
     auto next = ctrl;
     do {
+#ifdef CNIS_RECORD_PERF
+      profiler_.RequestEnd(next->Tag(), next->DataNum());
+#endif
       if (!next->IsDiscarded()) {
 #ifdef CNIS_RECORD_PERF
         for (auto& it : next->Performance()) {
-          RecordPerformance(it.first, next->DataNum(), it.second);
+          recorder_.RecordPerformance(it.first, next->DataNum(), it.second);
         }
-        RecordPerformance("RequestLatency", 1, next->EndRecord());
+        recorder_.RecordPerformance("RequestLatency", 1, next->EndRecord());
 #endif
         next->Response();
       }

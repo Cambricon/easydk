@@ -20,8 +20,6 @@
 
 #include "runner.h"
 
-#include <glog/logging.h>
-
 #include <chrono>
 #include <iostream>
 #include <memory>
@@ -29,6 +27,8 @@
 #include <thread>
 #include <utility>
 #include <vector>
+
+#include "cxxutil/log.h"
 
 StreamRunner::StreamRunner(const std::string& data_path) : demux_event_handle_(this), data_path_(data_path) {
   parser_.reset(new VideoParser(&demux_event_handle_));
@@ -91,7 +91,7 @@ void StreamRunner::DemuxLoop(const uint32_t repeat_time) {
       }
     }
   } catch (edk::Exception& e) {
-    LOG(ERROR) << e.what();
+    LOGE(SAMPLES) << e.what();
     Stop();
   }
   if (Running()) demux_event_handle_.SendEos();
@@ -126,7 +126,7 @@ bool StreamRunner::RunLoop() {
       lk.unlock();
     }
   } catch (edk::Exception& err) {
-    LOG(ERROR) << err.what();
+    LOGE(SAMPLES) << err.what();
     running_.store(false);
     in_loop_.store(false);
     return false;

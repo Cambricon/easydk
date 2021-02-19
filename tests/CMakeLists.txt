@@ -44,12 +44,11 @@ if (WITH_CNPLUGIN)
   list(APPEND test_srcs ${test_plugin_srcs})
 endif()
 
+set(EXECUTABLE_OUTPUT_PATH ${CMAKE_CURRENT_SOURCE_DIR}/bin/)
 message(STATUS "@@@@@@@@@@@ Target : test_edk")
 add_executable(tests_edk ${test_srcs})
 
-if (SANITIZE_MEMORY OR SANITIZE_ADDRESS OR SANITIZE_THREAD OR SANITIZE_UNDEFINED)
-    add_sanitizers(tests_edk)
-endif()
+add_sanitizers(tests_edk)
 
 target_include_directories(tests_edk PRIVATE
                            ${NEUWARE_HOME}/include

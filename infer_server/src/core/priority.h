@@ -34,9 +34,9 @@ class Priority {
   constexpr static int64_t Offset(int64_t priority, int offset) noexcept { return priority + ShiftMajor(offset); }
   constexpr static int64_t Next(int64_t priority) noexcept { return Offset(priority, 1); }
 
-  constexpr bool operator<(const Priority& other) { return major_ < other.major_; }
-  constexpr bool operator>(const Priority& other) { return major_ > other.major_; }
-  constexpr bool operator==(const Priority& other) { return major_ == other.major_; }
+  constexpr bool operator<(const Priority& other) const noexcept { return major_ < other.major_; }
+  constexpr bool operator>(const Priority& other) const noexcept { return major_ > other.major_; }
+  constexpr bool operator==(const Priority& other) const noexcept { return major_ == other.major_; }
 
  private:
   int64_t major_{0};

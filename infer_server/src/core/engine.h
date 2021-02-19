@@ -49,7 +49,7 @@ class TaskNode {
 
   void operator()(PackagePtr pack) noexcept;
 
-  void Transmit(PackagePtr data) noexcept;
+  void Transmit(PackagePtr&& data) noexcept;
 
   void Link(TaskNode* node) noexcept { downnode_ = node; }
 
@@ -66,15 +66,22 @@ class Engine {
   using NotifyDoneFunc = std::function<void(Engine*)>;
   Engine() = default;
   Engine(std::vector<std::shared_ptr<Processor>> processors, const NotifyDoneFunc& done_func, PriorityThreadPool* tp);
+  ~Engine() {
+    while (task_num_.load()) {
+      // wait for all task done
+    }
+  }
 
   std::unique_ptr<Engine> Fork();
 
-  void Run(PackagePtr package) noexcept {
+  void Run(PackagePtr&& package) noexcept {
     ++task_num_;
-    tp_->VoidPush(package->priority, nodes_[0], package);
+    tp_->VoidPush(package->priority, nodes_[0], std::forward<PackagePtr>(package));
   }
 
   bool IsIdle() noexcept { return task_num_.load() < nodes_.size(); }
+
+  size_t MaxLoad() noexcept { return nodes_.size(); }
 
  private:
   std::vector<TaskNode> nodes_;

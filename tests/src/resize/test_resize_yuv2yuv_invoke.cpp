@@ -14,7 +14,7 @@
 #define SAVE_RESULT 0
 
 static std::string exe_path = GetExePath();             // NOLINT
-static std::string dir = "../../samples/data/images/";  // NOLINT
+static std::string dir = "../../tests/data/";  // NOLINT
 static std::mutex print_mutex;
 
 struct TestResizeParam {

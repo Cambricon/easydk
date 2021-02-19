@@ -55,7 +55,7 @@ class TestObserver : public Observer {
  public:
   TestObserver(std::promise<Status>& get_response) : get_response_(get_response) {}  // NOLINT
 
-  void Notify(Status status, PackagePtr data, any user_data) noexcept override {
+  void Response(Status status, PackagePtr data, any user_data) noexcept override {
     std::lock_guard<std::mutex> lk(response_mut_);
     response_list_.emplace_back(std::move(data));
     udata_list_.emplace_back(std::move(user_data));
@@ -89,6 +89,11 @@ class TestObserver : public Observer {
     return std::make_pair(response, udata);
   }
 
+  uint32_t ResponseNum() {
+    std::lock_guard<std::mutex> lk(response_mut_);
+    return response_list_.size();
+  }
+
  private:
   std::promise<Status>& get_response_;
   std::list<PackagePtr> response_list_;
@@ -109,11 +114,11 @@ class InferServerRequestTest : public InferServerTestAPI {
       std::cerr << "load model failed";
       std::terminate();
     }
-    preproc_mlu_ = std::make_shared<PreprocessorMLU>();
-    preproc_host_ = std::make_shared<PreprocessorHost>();
+    preproc_mlu_ = PreprocessorMLU::Create();
+    preproc_host_ = PreprocessorHost::Create();
     preproc_host_->SetParams<PreprocessorHost::ProcessFunction>("process_function", g_empty_preproc_func);
-    empty_preproc_host_ = std::make_shared<PreprocessorHost>();
-    postproc_ = std::make_shared<Postprocessor>();
+    empty_preproc_host_ = PreprocessorHost::Create();
+    postproc_ = Postprocessor::Create();
     postproc_->SetParams<Postprocessor::ProcessFunction>("process_function", g_empty_postproc_func);
 
     observer_ = std::make_shared<TestObserver>(get_response_);
@@ -250,6 +255,28 @@ class MyPostprocessor : public ProcessorForkable<MyPostprocessor> {
   int dev_id_;
 };
 
+TEST_F(InferServerRequestTest, EmptyPackage) {
+  Session_t session =
+      PrepareSession("dynamic batch process", preproc_mlu_, postproc_, 5, BatchStrategy::DYNAMIC, observer_);
+  ASSERT_NE(session, nullptr);
+
+  constexpr const char* tag = "EmptyPackage";
+  auto in = PrepareInput(image_path, 10);
+  in->tag = tag;
+  ASSERT_TRUE(server_->Request(session, std::move(in), nullptr));
+
+  in = Package::Create(0, tag);
+  ASSERT_TRUE(server_->Request(session, std::move(in), nullptr));
+
+  video::VideoInferServer vs(device_id_);
+  ASSERT_TRUE(vs.Request(session, video::VideoFrame{}, {}, tag, nullptr));
+
+  server_->WaitTaskDone(session, tag);
+  WaitAsyncDone();
+  EXPECT_EQ(observer_->ResponseNum(), 3u);
+  server_->DestroySession(session);
+}
+
 TEST_F(InferServerRequestTest, DynamicBatch) {
   Session_t session =
       PrepareSession("dynamic batch process", preproc_mlu_, postproc_, 5, BatchStrategy::DYNAMIC, observer_);
@@ -329,8 +356,7 @@ TEST_F(InferServerRequestTest, InputContinuousData) {
   ASSERT_NE(session, nullptr);
 
   size_t data_size = 12;
-  auto in = std::make_shared<Package>();
-  in->data.emplace_back(new InferData);
+  auto in = Package::Create(1);
   ModelIO input;
   input.buffers = model_->AllocMluInput(0);
   in->data[0]->Set(input);
@@ -372,7 +398,7 @@ TEST_F(InferServerRequestTest, DynamicBatchSyncTimeout) {
 }
 
 TEST_F(InferServerRequestTest, OutputMluData) {
-  std::shared_ptr<Processor> postproc = std::make_shared<MyPostprocessor>();
+  std::shared_ptr<Processor> postproc = MyPostprocessor::Create();
   Session_t session = PrepareSession("dynamic batch sync", preproc_mlu_, postproc, 5, BatchStrategy::DYNAMIC, nullptr);
   ASSERT_NE(session, nullptr);
 
@@ -393,8 +419,8 @@ TEST_F(InferServerRequestTest, OutputMluData) {
 }
 
 TEST_F(InferServerRequestTest, ParallelInfer) {
-  auto my_postproc = std::make_shared<MyPostprocessor>();
-  auto another_empty_preproc_host = std::make_shared<PreprocessorHost>();
+  auto my_postproc = MyPostprocessor::Create();
+  auto another_empty_preproc_host = PreprocessorHost::Create();
   Session_t session1 =
       PrepareSession("continuous data input 1", empty_preproc_host_, postproc_, 5, BatchStrategy::STATIC, nullptr);
   ASSERT_NE(session1, nullptr);
@@ -406,15 +432,13 @@ TEST_F(InferServerRequestTest, ParallelInfer) {
   ModelIO input;
   input.buffers = model_->AllocMluInput(0);
 
-  auto in1 = std::make_shared<Package>();
-  in1->data.emplace_back(new InferData);
+  auto in1 = Package::Create(1);
   in1->data[0]->Set(input);
   in1->data_num = data_size;
   Status status1;
   PackagePtr output1 = std::make_shared<Package>();
 
-  auto in2 = std::make_shared<Package>();
-  in2->data.emplace_back(new InferData);
+  auto in2 = Package::Create(1);
   in2->data[0]->Set(input);
   in2->data_num = data_size;
   Status status2;
@@ -467,7 +491,7 @@ TEST_F(InferServerRequestTest, ResponseOrder) {
   server_->DestroySession(session);
 }
 
-TEST_F(InferServerRequestTest, MultiThreadEmptyProcessDynamic) {
+TEST_F(InferServerRequestTest, MultiSessionProcessDynamic) {
   InferServer s(device_id_);
 
   cv::Mat img = cv::imread(GetExePath() + image_path);
@@ -480,7 +504,7 @@ TEST_F(InferServerRequestTest, MultiThreadEmptyProcessDynamic) {
     auto postproc = std::make_shared<Postprocessor>();
     postproc->SetParams<Postprocessor::ProcessFunction>("process_function", g_empty_postproc_func);
     Session_t session =
-        PrepareSession("multithread dynamic batch [" + std::to_string(id), std::make_shared<PreprocessorMLU>(),
+        PrepareSession("multisession dynamic batch [" + std::to_string(id), std::make_shared<PreprocessorMLU>(),
                        postproc, 200, BatchStrategy::DYNAMIC, std::make_shared<TestObserver>(get_response));
     ASSERT_NE(session, nullptr);
 
@@ -506,6 +530,48 @@ TEST_F(InferServerRequestTest, MultiThreadEmptyProcessDynamic) {
       ts[i].join();
     }
   }
+  delete[] img_nv12;
+}
+
+TEST_F(InferServerRequestTest, MultiThreadProcessDynamic) {
+  InferServer s(device_id_);
+
+  cv::Mat img = cv::imread(GetExePath() + image_path);
+  uint8_t* img_nv12 = new uint8_t[img.cols * img.rows * 3 / 2];
+  cvt_bgr_to_yuv420sp(img, 1, PixelFmt::NV12, img_nv12);
+  std::vector<std::thread> ts;
+
+  auto postproc = std::make_shared<Postprocessor>();
+  postproc->SetParams<Postprocessor::ProcessFunction>("process_function", g_empty_postproc_func);
+  Session_t session = PrepareSession("multithread dynamic batch", std::make_shared<PreprocessorMLU>(), postproc, 200,
+                                     BatchStrategy::DYNAMIC, nullptr);
+  ASSERT_NE(session, nullptr);
+
+  auto proc_func = [this, img_nv12, &img, session](int id) {
+    PackagePtr in = std::make_shared<Package>();
+    for (int i = 0; i < 10; ++i) {
+      in->data.push_back(std::make_shared<InferData>());
+      in->data[i]->Set(std::move(ConvertToVideoFrame(img_nv12, img.cols, img.rows)));
+    }
+    in->tag = std::to_string(id);
+    Status status;
+    auto out = std::make_shared<Package>();
+    ASSERT_TRUE(server_->RequestSync(session, std::move(in), &status, out, 1000));
+
+    EXPECT_EQ(status, Status::SUCCESS);
+    EXPECT_EQ(out->data.size(), 10u);
+  };
+
+  for (int i = 0; i < 10; i++) {
+    ts.emplace_back(proc_func, i);
+  }
+
+  for (int i = 0; i < 10; ++i) {
+    if (ts[i].joinable()) {
+      ts[i].join();
+    }
+  }
+  server_->DestroySession(session);
   delete[] img_nv12;
 }
 

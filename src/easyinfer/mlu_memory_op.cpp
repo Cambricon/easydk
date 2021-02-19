@@ -17,13 +17,14 @@
  * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
  * THE SOFTWARE.
  *************************************************************************/
-#include <glog/logging.h>
+
+#include "easyinfer/mlu_memory_op.h"
 
 #include <cstring>
 #include <memory>
 #include <string>
 
-#include "easyinfer/mlu_memory_op.h"
+#include "cxxutil/log.h"
 #include "easyinfer/model_loader.h"
 #include "model_loader_internal.h"
 
@@ -137,13 +138,13 @@ void **MluMemoryOp::AllocCpuInput() const {
   ONLY_SUPPORT_FLOAT32_ON_CPU;
   uint32_t num = model_->InputNum();
 
-  VLOG(4) << "Alloc memory on CPU for model input";
+  LOGT(MEMORY) << "Alloc memory on CPU for model input";
 
   void **ret = new void *[num];
   for (uint32_t i = 0; i < num; ++i) {
     auto &shape = model_->InputShape(i);
     uint64_t data_size = shape.BatchDataCount();
-    VLOG(4) << "Alloc CPU input memory (" << i << ") on CPU in " << data_size << " bytes";
+    LOGT(MEMORY) << "Alloc CPU input memory (" << i << ") on CPU in " << data_size << " bytes";
     ret[i] = reinterpret_cast<void *>(new float[data_size]);
   }
   return ret;
@@ -154,13 +155,13 @@ void **MluMemoryOp::AllocCpuOutput() const {
   ONLY_SUPPORT_FLOAT32_ON_CPU;
   uint32_t num = model_->OutputNum();
 
-  VLOG(4) << "Alloc memory on CPU for model output";
+  LOGT(MEMORY) << "Alloc memory on CPU for model output";
 
   void **ret = new void *[num];
   for (uint32_t i = 0; i < num; ++i) {
     auto &shape = model_->OutputShape(i);
     uint64_t data_size = shape.BatchDataCount();
-    VLOG(4) << "Alloc output memory (" << i << ") on CPU in " << data_size << " bytes";
+    LOGT(MEMORY) << "Alloc output memory (" << i << ") on CPU in " << data_size << " bytes";
     ret[i] = reinterpret_cast<void *>(new float[data_size]);
   }
   return ret;
@@ -173,13 +174,13 @@ void **MluMemoryOp::AllocMluInput() const {
   uint32_t num = model_->InputNum();
   ModelLoaderInternalInterface interface(model_.get());
 
-  VLOG(4) << "Alloc memory on MLU for model input";
+  LOGT(MEMORY) << "Alloc memory on MLU for model input";
 
   ret = new void *[num];
   for (uint32_t i = 0; i < num; ++i) {
     void *t = nullptr;
     int64_t size = interface.InputDataSize(i);
-    VLOG(4) << "Alloc input memory (" << i << ") on MLU in " << size << " bytes";
+    LOGT(MEMORY) << "Alloc input memory (" << i << ") on MLU in " << size << " bytes";
     error_code = cnrtMalloc(&t, size);
     CHECK_CNRT_RET(error_code, "Mlu malloc failed.");
     ret[i] = t;
@@ -194,13 +195,13 @@ void **MluMemoryOp::AllocMluOutput() const {
   uint32_t num = model_->OutputNum();
   ModelLoaderInternalInterface interface(model_.get());
 
-  VLOG(4) << "Alloc memory on MLU for model output";
+  LOGT(MEMORY) << "Alloc memory on MLU for model output";
 
   ret = new void *[num];
   for (uint32_t i = 0; i < num; ++i) {
     void *t = nullptr;
     int64_t size = interface.OutputDataSize(i);
-    VLOG(4) << "Alloc output memory (" << i << ") on MLU in " << size << " bytes";
+    LOGT(MEMORY) << "Alloc output memory (" << i << ") on MLU in " << size << " bytes";
     error_code = cnrtMalloc(&t, size);
     CHECK_CNRT_RET(error_code, "Mlu malloc failed.");
     ret[i] = t;
@@ -211,7 +212,7 @@ void **MluMemoryOp::AllocMluOutput() const {
 void *MluMemoryOp::AllocMlu(size_t nBytes) const {
   void *ret = nullptr;
   cnrtRet_t error_code;
-  VLOG(4) << "Alloc memory on MLU in " << nBytes << " bytes";
+  LOGT(MEMORY) << "Alloc memory on MLU in " << nBytes << " bytes";
   error_code = cnrtMalloc(&ret, nBytes);
   CHECK_CNRT_RET(error_code, "Mlu malloc failed.");
   return ret;
@@ -219,7 +220,7 @@ void *MluMemoryOp::AllocMlu(size_t nBytes) const {
 
 void MluMemoryOp::FreeCpuInput(void **ptr) const {
   CHECK_MODEL_LOADER;
-  VLOG(4) << "Free input memory on CPU";
+  LOGT(MEMORY) << "Free input memory on CPU";
   uint32_t num = model_->InputNum();
   for (uint32_t i = 0; i < num; ++i) {
     delete[] reinterpret_cast<float *>(ptr[i]);
@@ -229,7 +230,7 @@ void MluMemoryOp::FreeCpuInput(void **ptr) const {
 
 void MluMemoryOp::FreeCpuOutput(void **ptr) const {
   CHECK_MODEL_LOADER;
-  VLOG(4) << "Free output memory on CPU";
+  LOGT(MEMORY) << "Free output memory on CPU";
   uint32_t num = model_->OutputNum();
   for (uint32_t i = 0; i < num; ++i) {
     delete[] reinterpret_cast<float *>(ptr[i]);
@@ -239,12 +240,12 @@ void MluMemoryOp::FreeCpuOutput(void **ptr) const {
 
 void MluMemoryOp::FreeMluInput(void **ptr) const {
   CHECK_MODEL_LOADER;
-  VLOG(4) << "Free input memory on MLU";
+  LOGT(MEMORY) << "Free input memory on MLU";
   uint32_t mem_num = model_->InputNum();
   for (uint32_t i = 0; i < mem_num; ++i) {
     cnrtRet_t ret = cnrtFree(ptr[i]);
     if (ret != CNRT_RET_SUCCESS) {
-      LOG(ERROR) << "free MLU input memory failed";
+      LOGE(MEMORY) << "free MLU input memory failed";
     }
   }
   delete[] ptr;
@@ -252,22 +253,22 @@ void MluMemoryOp::FreeMluInput(void **ptr) const {
 
 void MluMemoryOp::FreeMluOutput(void **ptr) const {
   CHECK_MODEL_LOADER;
-  VLOG(4) << "Free input memory on MLU";
+  LOGT(MEMORY) << "Free input memory on MLU";
   uint32_t mem_num = model_->OutputNum();
   for (uint32_t i = 0; i < mem_num; ++i) {
     cnrtRet_t ret = cnrtFree(ptr[i]);
     if (ret != CNRT_RET_SUCCESS) {
-      LOG(ERROR) << "free MLU output memory failed";
+      LOGE(MEMORY) << "free MLU output memory failed";
     }
   }
   delete[] ptr;
 }
 
 void MluMemoryOp::FreeMlu(void *ptr) const {
-  VLOG(4) << "Free memory on MLU";
+  LOGT(MEMORY) << "Free memory on MLU";
   cnrtRet_t ret = cnrtFree(ptr);
   if (ret != CNRT_RET_SUCCESS) {
-    LOG(ERROR) << "free MLU memory failed";
+    LOGE(MEMORY) << "free MLU memory failed";
   }
 }
 
@@ -276,7 +277,7 @@ void MluMemoryOp::MemcpyInputH2D(void **mlu_dst, void **cpu_src) const {
   ONLY_SUPPORT_FLOAT32_ON_CPU;
   ModelLoaderInternalInterface interface(model_.get());
   cnrtRet_t error_code;
-  VLOG(5) << "copy input memory from host to device";
+  LOGA(MEMORY) << "copy input memory from host to device";
 
   int64_t num = model_->InputNum();
   for (int i = 0; i < num; ++i) {
@@ -289,9 +290,9 @@ void MluMemoryOp::MemcpyInputH2D(void **mlu_dst, void **cpu_src) const {
     DataLayout mlu_layout = interface.GetMluInputLayout(i);
     const ShapeEx& sp = model_->InputShape(i);
     void *temp_data = malloc(size);
-    CHECK(temp_data) << "Malloc temp data on cpu failed.";
+    CHECK(MEMORY, temp_data) << "Malloc temp data on cpu failed.";
     TransLayout(cpu_layout, mlu_layout, src, temp_data, sp);
-    VLOG(5) << "MemcpyInputH2D in size " << size << ", dst: " << dst << ", src: " << src << ", tmp: " << temp_data;
+    LOGA(MEMORY) << "MemcpyInputH2D in size " << size << ", dst: " << dst << ", src: " << src << ", tmp: " << temp_data;
     error_code = cnrtMemcpy(dst, temp_data, size, CNRT_MEM_TRANS_DIR_HOST2DEV);
     CHECK_CNRT_RET(error_code, "Memcpy host to device failed.");
     free(temp_data);
@@ -302,7 +303,7 @@ void MluMemoryOp::MemcpyOutputD2H(void **cpu_dst, void **mlu_src) const {
   CHECK_MODEL_LOADER;
   ONLY_SUPPORT_FLOAT32_ON_CPU;
   ModelLoaderInternalInterface interface(model_.get());
-  VLOG(5) << "copy output memory from device to host";
+  LOGA(MEMORY) << "copy output memory from device to host";
 
   int64_t num = model_->OutputNum();
   for (int i = 0; i < num; ++i) {
@@ -310,8 +311,9 @@ void MluMemoryOp::MemcpyOutputD2H(void **cpu_dst, void **mlu_src) const {
     void *dst = cpu_dst[i];
     size_t size = interface.OutputDataSize(i);
     void *temp_data = malloc(size);
-    CHECK(temp_data) << "Malloc temp data on cpu failed.";
-    VLOG(5) << "MemcpyOutputD2H in size " << size << ", dst: " << dst << ", src: " << src << ", tmp: " << temp_data;
+    CHECK(MEMORY, temp_data) << "Malloc temp data on cpu failed.";
+    LOGA(MEMORY) << "MemcpyOutputD2H in size " << size << ", dst: " << dst << ", src: " << src
+                 << ", tmp: " << temp_data;
     auto error_code = cnrtMemcpy(temp_data, src, size, CNRT_MEM_TRANS_DIR_DEV2HOST);
     CHECK_CNRT_RET(error_code, "Memcpy device to host failed.");
     // format data
@@ -325,23 +327,22 @@ void MluMemoryOp::MemcpyOutputD2H(void **cpu_dst, void **mlu_src) const {
 
 void MluMemoryOp::MemcpyH2D(void *mlu_dst, void *cpu_src, size_t nBytes) const {
   cnrtRet_t error_code;
-  VLOG(5) << "copy memory from host to device in size " << nBytes << ", dst: " << mlu_dst
-          << ", src: " << cpu_src;
+  LOGA(MEMORY) << "copy memory from host to device in size " << nBytes << ", dst: " << mlu_dst << ", src: " << cpu_src;
   error_code = cnrtMemcpy(mlu_dst, cpu_src, nBytes, CNRT_MEM_TRANS_DIR_HOST2DEV);
   CHECK_CNRT_RET(error_code, "Memcpy host to device failed.");
 }
 
 void MluMemoryOp::MemcpyD2H(void *cpu_dst, void *mlu_src, size_t nBytes) const {
   cnrtRet_t error_code;
-  VLOG(5) << "copy memory from device to host in size " << nBytes << ", dst: " << cpu_dst
-          << ", src: " << mlu_src;
+  LOGA(MEMORY) << "copy memory from device to host in size " << nBytes << ", dst: " << cpu_dst << ", src: " << mlu_src;
   error_code = cnrtMemcpy(cpu_dst, mlu_src, nBytes, CNRT_MEM_TRANS_DIR_DEV2HOST);
   CHECK_CNRT_RET(error_code, "Memcpy host to device failed.");
 }
 
 void MluMemoryOp::MemcpyD2D(void *mlu_dst, void *mlu_src, size_t nBytes) const {
   cnrtRet_t error_code;
-  VLOG(5) << "copy memory from device to device in size " << nBytes << ", dst: " << mlu_dst << ", src: " << mlu_src;
+  LOGA(MEMORY) << "copy memory from device to device in size " << nBytes << ", dst: " << mlu_dst
+               << ", src: " << mlu_src;
   error_code = cnrtMemcpy(mlu_dst, mlu_src, nBytes, CNRT_MEM_TRANS_DIR_DEV2DEV);
   CHECK_CNRT_RET(error_code, "Memcpy device to device failed.");
 }

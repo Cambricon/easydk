@@ -27,6 +27,7 @@
 #include <list>
 #include <memory>
 #include <mutex>
+#include <utility>
 
 #include "infer_server.h"
 #include "priority.h"
@@ -96,9 +97,9 @@ class CacheBase {
         return cache_cond_.wait_for(lk, std::chrono::milliseconds(timeout),
                                     [this]() { return cache_.size() < cache_capacity_; });
       } else {
-        VLOG(3) << "Wait for cache not full";
+        VLOG(4) << "Wait for cache not full";
         cache_cond_.wait(lk, [this]() { return cache_.size() < cache_capacity_; });
-        VLOG(3) << "Wait for cache not full done";
+        VLOG(4) << "Wait for cache not full done";
       }
     }
     return true;
@@ -261,7 +262,7 @@ class CacheStatic : public CacheBase {
           CopyDescToPackage(pack.get());
         }
         std::unique_lock<std::mutex> lk(cache_mutex_);
-        cache_.push_back(pack);
+        cache_.emplace_back(std::move(pack));
         lk.unlock();
         cache_cond_.notify_one();
         batch_idx = 0;

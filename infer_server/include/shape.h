@@ -58,7 +58,7 @@ class Shape {
    * @param offset serial number of dimension
    * @return value_type shape value
    */
-  value_type operator[](int offset) const { return data_[offset]; }
+  value_type operator[](int offset) const noexcept { return data_[offset]; }
 
   /**
    * @brief Get value of nth dimension
@@ -66,7 +66,7 @@ class Shape {
    * @param offset serial number of dimension
    * @return value_type reference to shape value
    */
-  value_type& operator[](int offset) { return data_[offset]; }
+  value_type& operator[](int offset) noexcept { return data_[offset]; }
 
   /**
    * @brief Returns the dimension size of Shape
@@ -95,7 +95,7 @@ class Shape {
    *
    * @return value_type batch size
    */
-  value_type BatchSize() const { return data_[0]; }
+  value_type BatchSize() const noexcept { return data_[0]; }
 
   /**
    * @brief Get n value
@@ -195,15 +195,14 @@ class Shape {
   /**
    * @brief Judge whether two shapes are equal
    *
-   * @param lhs a Shape
-   * @param rhs a Shape
+   * @param other another Shape
    * @retval true if two shapes are equal
    * @retval false otherwise
    */
-  friend bool operator==(const Shape& lhs, const Shape& rhs) noexcept {
-    if (lhs.Size() != rhs.Size()) return false;
-    for (size_t i = 0; i < lhs.Size(); ++i) {
-      if (lhs[i] != rhs[i]) return false;
+  bool operator==(const Shape& other) const noexcept {
+    if (Size() != other.Size()) return false;
+    for (size_t i = 0; i < Size(); ++i) {
+      if (data_[i] != other[i]) return false;
     }
     return true;
   }
@@ -211,12 +210,11 @@ class Shape {
   /**
    * @brief Judge whether two shapes are not equal
    *
-   * @param lhs a Shape
-   * @param rhs a Shape
+   * @param other another Shape
    * @retval true if two shapes are not equal
    * @retval false otherwise
    */
-  friend bool operator!=(const Shape& lhs, const Shape& rhs) noexcept { return !(lhs == rhs); }
+  bool operator!=(const Shape& other) const noexcept { return !(*this == other); }
 
  private:
   std::vector<value_type> data_;

@@ -11,7 +11,7 @@ Version Record
   +-----------------+--------------------------------------------------------------+
   | file name       |          Cambricon EasyDevelopmentKit Developer Guide        |
   +-----------------+--------------------------------------------------------------+
-  | version         |                     V2.4.1                                   |
+  | version         |                     V2.5.0                                   |
   +-----------------+--------------------------------------------------------------+
   | author          |                   Cambricon                                  |
   +-----------------+--------------------------------------------------------------+
@@ -128,3 +128,22 @@ Update History
     5. Add async run to EasyInfer
 
     6. Fix error occured in MluResizeConvertOp while run on a partial batch. This bug is introduced in the version *v2.3.0*
+
+- v2.5.0
+
+  **update date**: 2021.02.18
+
+  **release notes**:
+
+    1. Using self implemented log system in place of glog
+
+    2. Add TimeMark to measure hardware time
+
+    3. Remove trivial params of EasyCodec: EasyDecode::Attr::bug_strategy, EasyEncode::Attr::{crop_config, ir_count, max_mb_per_slice, cabac_init_idc}
+
+    4. Rename infer_server::Observer::Notify to infer_server::Observer::Response
+
+    5. Add infer_server::Package::Create() and infer_server::ProcessorForkable::Create()
+
+    6. Support set process parallel of PreprocessorHost and Postprocessor
+

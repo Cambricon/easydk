@@ -22,6 +22,7 @@
 #define INFER_SERVER_CORE_REQUEST_CTRL_H_
 
 #include <glog/logging.h>
+
 #include <chrono>
 #include <functional>
 #include <future>
@@ -47,10 +48,9 @@ class RequestControl {
         tag_(tag),
         request_id_(request_id),
         data_num_(data_num),
-        wait_num_(data_num) {
+        wait_num_(data_num),
+        process_finished_(data_num ? false : true) {
     output_->data.resize(data_num);
-    CHECK_NE(data_num_, static_cast<uint32_t>(0)) << "number of data cannot be 0";
-    CHECK_NE(wait_num_, static_cast<uint32_t>(0)) << "number of data cannot be 0";
     CHECK(response_) << "response cannot be null";
     CHECK(done_notifier_) << "notifier cannot be null";
   }
@@ -71,9 +71,7 @@ class RequestControl {
   /* -------------------------- Observer END ------------------------------*/
 
 #ifdef CNIS_RECORD_PERF
-  void BeginRecord() noexcept {
-    start_time_ = std::chrono::steady_clock::now();
-  }
+  void BeginRecord() noexcept { start_time_ = std::chrono::steady_clock::now(); }
 
   float EndRecord() noexcept {
     // record request latency
