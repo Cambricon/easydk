@@ -254,6 +254,9 @@ bool InferServer::RequestSync(Session_t session, PackagePtr input, Status* statu
     }
   }
 
+  // FIXME(dmh): maybe data race here
+  // thread1: timeout ->          -> discard -> status and output deleted in user space
+  // thread2:         -> response                                                       -> *output = *data -> boom
   RequestControl* ctrl = session->Send(std::move(input), [&output, status, &done](Status s, PackagePtr data) {
     *status = s;
     *output = *data;
@@ -262,9 +265,9 @@ bool InferServer::RequestSync(Session_t session, PackagePtr input, Status* statu
   if (!ctrl) return false;
   if (timeout > 0) {
     if (flag.wait_for(std::chrono::milliseconds(timeout)) == std::future_status::timeout) {
-      LOG(WARNING) << "InferServer process timeout, discard this request";
       ctrl->Discard();
       *status = Status::TIMEOUT;
+      LOG(WARNING) << "InferServer process timeout, discard this request";
     }
   } else {
     flag.wait();
@@ -272,9 +275,20 @@ bool InferServer::RequestSync(Session_t session, PackagePtr input, Status* statu
   return true;
 }
 
-void InferServer::WaitTaskDone(Session_t session, const std::string& tag) noexcept { session->WaitTaskDone(tag); }
+ModelPtr InferServer::GetModel(Session_t session) noexcept {
+  CHECK(session) << "Session is null!";
+  return session->GetExecutor()->GetModel();
+}
 
-void InferServer::DiscardTask(Session_t session, const std::string& tag) noexcept { session->DiscardTask(tag); }
+void InferServer::WaitTaskDone(Session_t session, const std::string& tag) noexcept {
+  CHECK(session) << "Session is null!";
+  session->WaitTaskDone(tag);
+}
+
+void InferServer::DiscardTask(Session_t session, const std::string& tag) noexcept {
+  CHECK(session) << "Session is null!";
+  session->DiscardTask(tag);
+}
 
 bool InferServer::SetModelDir(const std::string& model_dir) noexcept {
   // check whether model dir exist

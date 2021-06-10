@@ -84,7 +84,6 @@ TEST(InferServerUtil, Batcher) {
 
     Batcher<int> b(notifier, timeout, batch_size);
     uint32_t index = 0;
-    std::mutex mut;
     for (auto& it : int_set) {
       b.AddItem(it);
       EXPECT_EQ(b.Size(), ++index);

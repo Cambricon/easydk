@@ -109,7 +109,7 @@ class InferServerRequestTest : public InferServerTestAPI {
  protected:
   void SetUp() override {
     SetMluContext();
-    model_ = server_->LoadModel(model_url, "subnet0");
+    model_ = server_->LoadModel(model_url);
     if (!model_) {
       std::cerr << "load model failed";
       std::terminate();
@@ -159,7 +159,11 @@ class InferServerRequestTest : public InferServerTestAPI {
 
   Session_t PrepareSession(const std::string& name, std::shared_ptr<Processor> preproc,
                            std::shared_ptr<Processor> postproc, size_t batch_timeout, BatchStrategy strategy,
-                           std::shared_ptr<Observer> observer) {
+                           std::shared_ptr<Observer> observer, bool cncv_used = false) {
+    if (version_ != edk::CoreVersion::MLU220 && version_ != edk::CoreVersion::MLU270) {
+      std::cerr << "Unsupport core version" << static_cast<int>(version_) << std::endl;
+      return nullptr;
+    }
     SessionDesc desc;
     desc.name = name;
     desc.model = model_;
@@ -171,16 +175,9 @@ class InferServerRequestTest : public InferServerTestAPI {
     desc.show_perf = true;
     desc.priority = 0;
     desc.host_output_layout = {infer_server::DataType::FLOAT32, infer_server::DimOrder::NCHW};
-    if (version_ == edk::CoreVersion::MLU220) {
-      desc.preproc->SetParams("src_format", PixelFmt::NV21, "dst_format", PixelFmt::ARGB, "preprocess_type",
-                              PreprocessType::SCALER);
-    } else if (version_ == edk::CoreVersion::MLU270) {
-      desc.preproc->SetParams("src_format", PixelFmt::NV21, "dst_format", PixelFmt::ARGB, "preprocess_type",
-                              PreprocessType::RESIZE_CONVERT);
-    } else {
-      std::cerr << "Unsupport core version" << static_cast<int>(version_) << std::endl;
-      return nullptr;
-    }
+    auto p_type = cncv_used ? PreprocessType::CNCV_RESIZE_CONVERT : PreprocessType::RESIZE_CONVERT;
+    if (version_ == edk::CoreVersion::MLU220) p_type = PreprocessType::SCALER;
+    desc.preproc->SetParams("dst_format", PixelFmt::ARGB, "preprocess_type", p_type);
     if (observer) {
       return server_->CreateSession(desc, observer);
     } else {
@@ -209,7 +206,7 @@ class MyPostprocessor : public ProcessorForkable<MyPostprocessor> {
   MyPostprocessor() : ProcessorForkable<MyPostprocessor>("MyPostprocessor") {}
   ~MyPostprocessor() {}
   Status Process(PackagePtr pack) noexcept override {
-    if (pack->data.size() != 1) return Status::ERROR_BACKEND;
+    if (!pack->predict_io || !pack->predict_io->HasValue()) return Status::ERROR_BACKEND;
     try {
       edk::MluContext ctx;
       ctx.SetDeviceId(dev_id_);
@@ -219,12 +216,9 @@ class MyPostprocessor : public ProcessorForkable<MyPostprocessor> {
       return Status::ERROR_BACKEND;
     }
 
-    auto output = pack->data[0]->Get<ModelIO>();
-    pack->data.clear();
-    pack->data.reserve(pack->descs.size());
+    auto output = pack->predict_io->Get<ModelIO>();
     auto& shape = output.shapes[0];
-    for (uint32_t idx = 0; idx < pack->descs.size(); ++idx) {
-      pack->data.emplace_back(new InferData);
+    for (uint32_t idx = 0; idx < pack->data.size(); ++idx) {
       auto buf_size = output.buffers[0].MemorySize() / shape[0];
       Buffer buf(buf_size, dev_id_);
       buf.CopyFrom(output.buffers[0](idx * shape.DataCount()), buf_size);
@@ -257,8 +251,10 @@ class MyPostprocessor : public ProcessorForkable<MyPostprocessor> {
 
 TEST_F(InferServerRequestTest, EmptyPackage) {
   Session_t session =
-      PrepareSession("dynamic batch process", preproc_mlu_, postproc_, 5, BatchStrategy::DYNAMIC, observer_);
+      PrepareSession("empty package process", preproc_mlu_, postproc_, 5, BatchStrategy::DYNAMIC, observer_);
   ASSERT_NE(session, nullptr);
+
+  EXPECT_EQ(model_, server_->GetModel(session));
 
   constexpr const char* tag = "EmptyPackage";
   auto in = PrepareInput(image_path, 10);
@@ -293,7 +289,7 @@ TEST_F(InferServerRequestTest, SkipPostproc) {
   // no process_function param
   postproc_->PopParam<Postprocessor::ProcessFunction>("process_function");
   Session_t session =
-      PrepareSession("dynamic batch process", preproc_mlu_, postproc_, 5, BatchStrategy::DYNAMIC, observer_);
+      PrepareSession("skip postproc process", preproc_mlu_, postproc_, 5, BatchStrategy::DYNAMIC, observer_);
   ASSERT_NE(session, nullptr);
 
   constexpr size_t data_number = 10;
@@ -307,7 +303,7 @@ TEST_F(InferServerRequestTest, SkipPostproc) {
   server_->DestroySession(session);
 
   // no postprocessor
-  session = PrepareSession("dynamic batch process", preproc_mlu_, nullptr, 5, BatchStrategy::DYNAMIC, nullptr);
+  session = PrepareSession("skip postproc process", preproc_mlu_, nullptr, 5, BatchStrategy::DYNAMIC, nullptr);
   ASSERT_NE(session, nullptr);
 
   in = PrepareInput(image_path, data_number);
@@ -335,6 +331,23 @@ TEST_F(InferServerRequestTest, StaticBatch) {
   server_->DestroySession(session);
 }
 
+TEST_F(InferServerRequestTest, ProcessFailed) {
+  std::string tag = "process failed";
+  Session_t session = PrepareSession(tag, preproc_mlu_, postproc_, 5, BatchStrategy::STATIC, nullptr);
+  ASSERT_NE(session, nullptr);
+
+  constexpr size_t data_number = 1;
+  auto in = Package::Create(data_number, "");
+  Status s;
+  PackagePtr out = Package::Create(0);
+  server_->RequestSync(session, std::move(in), &s, out);
+
+  server_->WaitTaskDone(session, tag);
+  EXPECT_NE(s, Status::SUCCESS);
+  auto fut = std::async(std::launch::async, [this, session]() { server_->DestroySession(session); });
+  EXPECT_NE(std::future_status::timeout, fut.wait_for(std::chrono::seconds(1)));
+}
+
 TEST_F(InferServerRequestTest, DynamicBatchPreprocessHost) {
   Session_t session = PrepareSession("dynamic batch process with preprocess host", preproc_host_, postproc_, 5,
                                      BatchStrategy::DYNAMIC, observer_);
@@ -356,11 +369,11 @@ TEST_F(InferServerRequestTest, InputContinuousData) {
   ASSERT_NE(session, nullptr);
 
   size_t data_size = 12;
-  auto in = Package::Create(1);
+  auto in = Package::Create(data_size);
   ModelIO input;
   input.buffers = model_->AllocMluInput(0);
-  in->data[0]->Set(input);
-  in->data_num = data_size;
+  in->predict_io.reset(new InferData);
+  in->predict_io->Set(input);
   Status status;
   PackagePtr output = std::make_shared<Package>();
   server_->RequestSync(session, std::move(in), &status, output);
@@ -399,7 +412,7 @@ TEST_F(InferServerRequestTest, DynamicBatchSyncTimeout) {
 
 TEST_F(InferServerRequestTest, OutputMluData) {
   std::shared_ptr<Processor> postproc = MyPostprocessor::Create();
-  Session_t session = PrepareSession("dynamic batch sync", preproc_mlu_, postproc, 5, BatchStrategy::DYNAMIC, nullptr);
+  Session_t session = PrepareSession("output mlu data", preproc_mlu_, postproc, 5, BatchStrategy::DYNAMIC, nullptr);
   ASSERT_NE(session, nullptr);
 
   auto in = PrepareInput(image_path, 10);
@@ -432,15 +445,15 @@ TEST_F(InferServerRequestTest, ParallelInfer) {
   ModelIO input;
   input.buffers = model_->AllocMluInput(0);
 
-  auto in1 = Package::Create(1);
-  in1->data[0]->Set(input);
-  in1->data_num = data_size;
+  auto in1 = Package::Create(data_size);
+  in1->predict_io.reset(new InferData);
+  in1->predict_io->Set(input);
   Status status1;
   PackagePtr output1 = std::make_shared<Package>();
 
-  auto in2 = Package::Create(1);
-  in2->data[0]->Set(input);
-  in2->data_num = data_size;
+  auto in2 = Package::Create(data_size);
+  in2->predict_io.reset(new InferData);
+  in2->predict_io->Set(input);
   Status status2;
   PackagePtr output2 = std::make_shared<Package>();
 
@@ -511,7 +524,7 @@ TEST_F(InferServerRequestTest, MultiSessionProcessDynamic) {
     PackagePtr in = std::make_shared<Package>();
     for (int i = 0; i < 10; ++i) {
       in->data.push_back(std::make_shared<InferData>());
-      in->data[i]->Set(std::move(ConvertToVideoFrame(img_nv12, img.cols, img.rows)));
+      in->data[i]->Set(ConvertToVideoFrame(img_nv12, img.cols, img.rows));
     }
     server_->Request(session, std::move(in), nullptr);
 
@@ -551,7 +564,7 @@ TEST_F(InferServerRequestTest, MultiThreadProcessDynamic) {
     PackagePtr in = std::make_shared<Package>();
     for (int i = 0; i < 10; ++i) {
       in->data.push_back(std::make_shared<InferData>());
-      in->data[i]->Set(std::move(ConvertToVideoFrame(img_nv12, img.cols, img.rows)));
+      in->data[i]->Set(ConvertToVideoFrame(img_nv12, img.cols, img.rows));
     }
     in->tag = std::to_string(id);
     Status status;
@@ -574,6 +587,66 @@ TEST_F(InferServerRequestTest, MultiThreadProcessDynamic) {
   server_->DestroySession(session);
   delete[] img_nv12;
 }
+
+#ifdef CNIS_HAVE_CNCV
+TEST_F(InferServerRequestTest, DynamicBatch_CNCV) {
+  Session_t session =
+      PrepareSession("dynamic batch process", preproc_mlu_, postproc_, 5, BatchStrategy::DYNAMIC, observer_, true);
+  ASSERT_NE(session, nullptr);
+
+  auto in = PrepareInput(image_path, 10);
+  server_->Request(session, std::move(in), nullptr);
+
+  WaitAsyncDone();
+  server_->DestroySession(session);
+}
+
+TEST_F(InferServerRequestTest, StaticBatch_CNCV) {
+  Session_t session =
+      PrepareSession("static batch process", preproc_mlu_, postproc_, 5, BatchStrategy::STATIC, observer_, true);
+  ASSERT_NE(session, nullptr);
+
+  constexpr size_t data_number = 10;
+  auto in = PrepareInput(image_path, data_number);
+  server_->Request(session, std::move(in), nullptr);
+
+  WaitAsyncDone();
+  auto response = observer_->GetPackage();
+  EXPECT_EQ(response->data.size(), data_number);
+  server_->DestroySession(session);
+}
+
+TEST_F(InferServerRequestTest, ProcessFailed_CNCV) {
+  std::string tag = "process failed";
+  Session_t session = PrepareSession(tag, preproc_mlu_, postproc_, 5, BatchStrategy::STATIC, nullptr, true);
+  ASSERT_NE(session, nullptr);
+
+  constexpr size_t data_number = 1;
+  auto in = Package::Create(data_number, "");
+  Status s;
+  PackagePtr out = Package::Create(0);
+  server_->RequestSync(session, std::move(in), &s, out);
+
+  server_->WaitTaskDone(session, tag);
+  EXPECT_NE(s, Status::SUCCESS);
+  auto fut = std::async(std::launch::async, [this, session]() { server_->DestroySession(session); });
+  EXPECT_NE(std::future_status::timeout, fut.wait_for(std::chrono::seconds(1)));
+}
+
+TEST_F(InferServerRequestTest, DynamicBatchSyncTimeout_CNCV) {
+  Session_t session =
+      PrepareSession("dynamic batch sync timeout", preproc_mlu_, postproc_, 5, BatchStrategy::DYNAMIC, nullptr, true);
+  ASSERT_NE(session, nullptr);
+
+  auto in = PrepareInput(image_path, 10);
+  Status status;
+  auto out = std::make_shared<Package>();
+  EXPECT_TRUE(server_->RequestSync(session, std::move(in), &status, out, 5));
+  EXPECT_EQ(out->data.size(), 0u);
+  EXPECT_EQ(status, Status::TIMEOUT);
+  server_->DestroySession(session);
+}
+#endif  // CNIS_HAVE_CNCV
 
 }  // namespace infer_server
 #endif  // CNIS_WITH_CONTRIB

@@ -14,7 +14,8 @@ project(cnis CXX)
 
 option(CNIS_RECORD_PERF "Enable record performance" ON)
 option(CNIS_WITH_CONTRIB "Build contrib content" ON)
-option(CNIS_WITH_CURL "Build infer server with curl" OFF)
+option(CNIS_WITH_CURL "Build infer server with curl" ON)
+option(CNIS_WITH_CNCV "Build infer server with cncv" OFF)
 
 #######################################################################
 
@@ -67,6 +68,13 @@ endif()
 
 if (CNIS_RECORD_PERF)
   target_compile_definitions(cnis PRIVATE CNIS_RECORD_PERF)
+endif()
+
+# ---[ cncv
+if (CNIS_WITH_CONTRIB AND CNIS_WITH_CNCV)
+  set(CNCV_LIBS "${NEUWARE_HOME}/lib64/libcncv.so")
+  target_compile_definitions(cnis PRIVATE CNIS_HAVE_CNCV)
+  target_link_libraries(cnis ${CNCV_LIBS})
 endif()
 
 target_include_directories(cnis PRIVATE

@@ -22,6 +22,9 @@ add_sanitizers(apitest_cnis)
 
 if (CNIS_WITH_CONTRIB)
   target_compile_definitions(apitest_cnis PRIVATE CNIS_WITH_CONTRIB)
+  if (CNIS_WITH_CNCV)
+    target_compile_definitions(apitest_cnis PRIVATE CNIS_HAVE_CNCV)
+  endif()
 endif()
 
 target_include_directories(apitest_cnis PRIVATE

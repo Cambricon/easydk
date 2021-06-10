@@ -48,16 +48,16 @@ TEST_F(InferServerTestAPI, ModelManager) {
   putenv(env);
   InferServer::ClearModelCache();
   std::string model_file = g_model_path1;
-  auto m = server_->LoadModel(model_file, "subnet0");
+  auto m = server_->LoadModel(model_file);
   ASSERT_TRUE(m);
   EXPECT_EQ(ModelManager::Instance()->CacheSize(), 1);
-  auto n = server_->LoadModel(model_file, "subnet0");
+  auto n = server_->LoadModel(model_file);
   ASSERT_TRUE(n);
   EXPECT_EQ(ModelManager::Instance()->CacheSize(), 1);
-  auto l = server_->LoadModel(g_model_path2, "subnet0");
+  auto l = server_->LoadModel(g_model_path2);
   ASSERT_TRUE(l);
   EXPECT_EQ(ModelManager::Instance()->CacheSize(), 2);
-  server_->LoadModel("./resnet34_ssd.cambricon", "subnet0");
+  server_->LoadModel("./resnet34_ssd.cambricon");
   EXPECT_EQ(ModelManager::Instance()->CacheSize(), 2);
   /************************************************************************************/
   std::ifstream infile("./resnet34_ssd.cambricon", std::ios::binary);
@@ -70,7 +70,7 @@ TEST_F(InferServerTestAPI, ModelManager) {
   char* modelptr = new char[filesize];
   pbuf->sgetn(modelptr, filesize);
   infile.close();
-  server_->LoadModel(modelptr, "subnet0");
+  server_->LoadModel(modelptr);
   EXPECT_EQ(ModelManager::Instance()->CacheSize(), 3);
   ASSERT_TRUE(server_->UnloadModel(m));
   EXPECT_EQ(ModelManager::Instance()->CacheSize(), 2);

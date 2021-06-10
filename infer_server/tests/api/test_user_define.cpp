@@ -54,13 +54,15 @@ class MyProcessor : public ProcessorForkable<MyProcessor> {
     }
 
     // discard all input and pass empty data to next processor
-    pack->data.clear();
+    for (auto& it : pack->data) {
+      it->data.reset();
+    }
     auto preproc_output = pool_->Request();
     ModelIO model_input;
     model_input.buffers.emplace_back(std::move(preproc_output));
     model_input.shapes.emplace_back(model_->InputShape(0));
-    pack->data.emplace_back(new InferData);
-    pack->data[0]->Set(std::move(model_input));
+    pack->predict_io.reset(new InferData);
+    pack->predict_io->Set(std::move(model_input));
     return Status::SUCCESS;
   }
 

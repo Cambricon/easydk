@@ -106,7 +106,7 @@ class Profiler : public Clock {
 
   void RequestStart() noexcept {
     SpinLockGuard lk(mutex_);
-    if (processing_cnt_ == 0) {
+    if (processing_cnt_ == 0u) {
       start_time_ = Now();
     }
 
@@ -119,24 +119,24 @@ class Profiler : public Clock {
   }
 
   void RequestEnd(uint32_t unit_cnt) noexcept {
-    CHECK_NE(processing_cnt_, 0);
+    CHECK_NE(processing_cnt_, 0u);
     SpinLockGuard lk(mutex_);
     ++request_cnt_, ++period_request_cnt_;
     unit_cnt_ += unit_cnt;
     period_unit_cnt_ += unit_cnt;
-    if (--processing_cnt_ == 0) {
+    if (--processing_cnt_ == 0u) {
       total_ += DurationSince<std::milli>(start_time_);
     }
   }
 
   float RequestPerSecond() const noexcept {
     // if some request in processing, total_time = total_time + (now - last_start)
-    return request_cnt_ * 1e3 / (total_ + (processing_cnt_ == 0 ? 0 : DurationSince(start_time_)));
+    return request_cnt_ * 1e3 / (total_ + (processing_cnt_ == 0u ? 0 : DurationSince(start_time_)));
   }
 
   float UnitPerSecond() const noexcept {
     // if some request in processing, total_time = total_time + (now - last_start)
-    return unit_cnt_ * 1e3 / (total_ + (processing_cnt_ == 0 ? 0 : DurationSince(start_time_)));
+    return unit_cnt_ * 1e3 / (total_ + (processing_cnt_ == 0u ? 0 : DurationSince(start_time_)));
   }
 
   float RequestThroughoutRealtime() const noexcept { return rps_rt_.latest; }
