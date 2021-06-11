@@ -66,7 +66,8 @@ struct OpencvResizeConvertBase<PixelFmt::RGBA> {
       img = frame.img;
     } else {
       detail::ClipBoundingBox(&roi);
-      img = frame.img(cv::Rect(roi.x, roi.y, roi.w, roi.h));
+      img = frame.img(cv::Rect(roi.x * frame.img.cols, roi.y * frame.img.rows,
+                               roi.w * frame.img.cols, roi.h * frame.img.rows));
     }
 
     cv::Mat tmp;

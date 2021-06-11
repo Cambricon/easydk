@@ -73,12 +73,12 @@ class Session {
       running_.store(false);
     }
     auto check = [this]() { return request_list_.empty() && !in_response_.load(); };
-    std::unique_lock<std::mutex> lk_tail(response_mutex_);
+    std::unique_lock<std::mutex> lk(request_mutex_);
     if (!check()) {
       VLOG(3) << "session " << name_ << " wait all task done in destructor";
-      sync_cond_.wait(lk_tail, check);
+      sync_cond_.wait(lk, check);
     }
-    lk_tail.unlock();
+    lk.unlock();
 
 #ifdef CNIS_RECORD_PERF
     // stop print perf
@@ -105,15 +105,12 @@ class Session {
   void WaitTaskDone(const std::string& tag) noexcept {
     VLOG(3) << "session " << name_ << " wait [" << tag << "] task done";
     std::vector<std::string> match = {tag};
-    std::lock(request_mutex_, response_mutex_);
-    std::unique_lock<std::mutex> lk_head(request_mutex_, std::adopt_lock);
-    std::unique_lock<std::mutex> lk_tail(response_mutex_, std::adopt_lock);
+    std::unique_lock<std::mutex> lk(request_mutex_);
     auto last = std::find_first_of(request_list_.rbegin(), request_list_.rend(), match.begin(), match.end(),
                                    [](RequestControl* c, const std::string& t) { return c->Tag() == t; });
     if (last == request_list_.rend()) return;
     std::future<void> flag = (*last)->ResponseDonePromise();
-    lk_head.unlock();
-    lk_tail.unlock();
+    lk.unlock();
     flag.get();
 #ifdef CNIS_RECORD_PERF
     profiler_.RemoveTag(tag);
@@ -121,9 +118,7 @@ class Session {
   }
 
   void DiscardTask(const std::string& tag) noexcept {
-    std::lock(request_mutex_, response_mutex_);
-    std::unique_lock<std::mutex> lk_head(request_mutex_, std::adopt_lock);
-    std::unique_lock<std::mutex> lk_tail(response_mutex_, std::adopt_lock);
+    std::unique_lock<std::mutex> lk(request_mutex_);
     std::for_each(request_list_.begin(), request_list_.end(), [&tag](RequestControl* it) {
       if (it->Tag() == tag) {
         it->Discard();
@@ -144,7 +139,6 @@ class Session {
   std::string name_;
   Executor_t executor_;
   std::mutex request_mutex_;
-  std::mutex response_mutex_;
   std::condition_variable sync_cond_;
   std::list<RequestControl*> request_list_;
   std::shared_ptr<Observer> observer_{nullptr};
@@ -185,13 +179,27 @@ class Executor {
     }
   }
 
-  bool WaitIfCacheFull(int timeout) noexcept { return cache_->WaitIfFull(timeout); }
+  bool WaitIfCacheFull(int timeout) noexcept {
+    if (processing_num_.load() >= max_processing_num_) {
+      std::unique_lock<std::mutex> lk(limit_mutex_);
+      if (timeout > 0) {
+        return limit_cond_.wait_for(lk, std::chrono::milliseconds(timeout),
+                                    [this]() { return processing_num_.load() < max_processing_num_; });
+      } else {
+        VLOG(4) << "Wait for cache not full";
+        limit_cond_.wait(lk, [this]() { return processing_num_.load() < max_processing_num_; });
+        VLOG(4) << "Wait for cache not full done";
+      }
+    }
+    return true;
+  }
 
   /* ------------------- Observer --------------------- */
   size_t GetSessionNum() noexcept {
     std::unique_lock<std::mutex> lk(link_mutex_);
     return link_set_.size();
   }
+  ModelPtr GetModel() noexcept { return desc_.model; };
   const SessionDesc& GetDesc() const noexcept { return desc_; }
   const Priority& GetPriority() const noexcept { return cache_->GetPriority(); }
   std::string GetName() const noexcept { return desc_.name; }
@@ -199,7 +207,15 @@ class Executor {
   PriorityThreadPool* GetThreadPool() const noexcept { return tp_; }
   /* ----------------- Observer END ------------------- */
 
-  bool Upload(PackagePtr&& pack) noexcept { return cache_->Push(std::move(pack)); }
+  bool Upload(PackagePtr&& pack) noexcept {
+    uint32_t data_num = pack->data.size();
+    processing_num_.fetch_add(data_num);
+    pack->data[0]->ctrl->SetResponseDoneCallback([this, data_num]() {
+      processing_num_.fetch_sub(data_num);
+      limit_cond_.notify_one();
+    });
+    return cache_->Push(std::forward<PackagePtr>(pack));
+  }
 
   void DispatchLoop() noexcept;
 
@@ -218,6 +234,12 @@ class Executor {
   std::thread dispatch_thread_;
   std::mutex dispatch_mutex_;
   std::condition_variable dispatch_cond_;
+
+  // processing number limit
+  std::mutex limit_mutex_;
+  std::condition_variable limit_cond_;
+  std::atomic<uint32_t> processing_num_{0};
+  uint32_t max_processing_num_;
 
   LatencyStatistic batch_record_;
   std::atomic_bool running_{false};

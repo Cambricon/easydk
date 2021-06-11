@@ -36,7 +36,7 @@
 #include "util/base_object.h"
 
 #define CNIS_VERSION_MAJOR 0
-#define CNIS_VERSION_MINOR 6
+#define CNIS_VERSION_MINOR 7
 #define CNIS_VERSION_PATCH 0
 
 #define CNIS_GET_VERSION(major, minor, patch) (((major) << 20) | ((minor) << 10) | (patch))
@@ -230,7 +230,7 @@ class ModelInfo {
 
 using ModelPtr = std::shared_ptr<ModelInfo>;
 
-struct TaskDesc;
+class RequestControl;
 
 /**
  * @brief Inference data unit
@@ -280,10 +280,48 @@ struct InferData {
     return any_cast<typename std::add_lvalue_reference<typename std::add_const<T>::type>::type>(data);
   }
 
+  /**
+   * @brief Check if InferData has value
+   *
+   * @retval true InferData has value
+   * @retval false InferData does not have value
+   */
+  bool HasValue() noexcept {
+    return data.has_value();
+  }
+
+  /**
+   * @brief Set user data for postprocess
+   *
+   * @tparam T data type
+   * @param v data value
+   */
+  template <typename T>
+  void SetUserData(T&& v) {
+    user_data = std::forward<T>(v);
+  }
+
+  /**
+   * @brief Get user data by value
+   *
+   * @note if T is lvalue reference, data is returned by lvalue reference.
+   *       if T is bare type, data is returned by value.
+   * @tparam T data type
+   * @return data
+   */
+  template <typename T>
+  T GetUserData() const {
+    return any_cast<T>(user_data);
+  }
+
   /// stored data
   any data;
+  /// user data passed to postprocessor
+  any user_data;
   /// private member
-  std::shared_ptr<TaskDesc> desc{nullptr};
+  RequestControl* ctrl{nullptr};
+  /// private member
+  uint32_t index{0};
 };
 
 using InferDataPtr = std::shared_ptr<InferData>;
@@ -296,19 +334,15 @@ struct Package {
   /// a batch of data
   BatchData data;
 
+  /// private member, intermediate storage
+  InferDataPtr predict_io{nullptr};
+
   /// tag of this package (such as stream_id, client ip, etc.)
   std::string tag;
-  /**
-   * @brief number of data stored as continuous data in `data[0]`
-   *
-   * @note works only if input is continuous data, modification in processor is undefined behavior
-   */
-  size_t data_num{1};
+
   /// perf statistics of one request
   std::map<std::string, float> perf;
 
-  /// private member
-  std::vector<std::shared_ptr<TaskDesc>> descs;
   /// private member
   int64_t priority;
 
@@ -606,6 +640,14 @@ class InferServer {
    */
   void DiscardTask(Session_t session, const std::string& tag) noexcept;
 
+  /**
+   * @brief Get model from session
+   *
+   * @param session a Session
+   * @return ModelPtr A model
+   */
+  ModelPtr GetModel(Session_t session) noexcept;
+
   /* --------------------- Model API ----------------------------- */
 
   /**
@@ -625,7 +667,7 @@ class InferServer {
    * @param func_name name of function to be extracted
    * @return ModelPtr A model
    */
-  static ModelPtr LoadModel(const std::string& uri, const std::string& func_name) noexcept;
+  static ModelPtr LoadModel(const std::string& uri, const std::string& func_name = "subnet0") noexcept;
 
   /**
    * @brief Load model from memory, model won't be loaded again if it is already in cache
@@ -634,7 +676,7 @@ class InferServer {
    * @param func_name name of function to be extracted
    * @return ModelPtr A model
    */
-  static ModelPtr LoadModel(void* mem_ptr, const std::string& func_name) noexcept;
+  static ModelPtr LoadModel(void* mem_ptr, const std::string& func_name = "subnet0") noexcept;
 
   /**
    * @brief Remove model from cache, model won't be destroyed if still in use

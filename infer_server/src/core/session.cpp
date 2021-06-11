@@ -65,14 +65,14 @@ Executor::Executor(SessionDesc desc, PriorityThreadPool* tp, int device_id)
   }
   idle_.store(engines_[0].get());
 
-  // init cache
   // TODO(dmh): 3 is number of processors, refactor to adjustable
-  size_t cache_capacity = engines_.size() * 3;
+  max_processing_num_ = 2 * desc.engine_num * 3 * desc.model->BatchSize();
+  // init cache
   if (desc.strategy == BatchStrategy::DYNAMIC) {
     cache_.reset(
-        new CacheDynamic(cache_capacity, desc_.model->BatchSize(), Priority(desc.priority), desc_.batch_timeout));
+        new CacheDynamic(desc_.model->BatchSize(), Priority(desc.priority), desc_.batch_timeout));
   } else if (desc.strategy == BatchStrategy::STATIC) {
-    cache_.reset(new CacheStatic(cache_capacity, desc_.model->BatchSize(), Priority(desc.priority)));
+    cache_.reset(new CacheStatic(desc_.model->BatchSize(), Priority(desc.priority)));
   } else {
     CHECK(false) << "Unsupport BatchStraregy";
   }
@@ -110,7 +110,7 @@ void Executor::DispatchLoop() noexcept {
       if (!cache_->Running()) break;
       continue;
     }
-    size_t batch_size = pack->descs.size();
+    size_t batch_size = pack->data.size();
     batch_record_.unit_cnt += 1;
     batch_record_.total += batch_size;
 
@@ -146,11 +146,19 @@ RequestControl* Session::Send(PackagePtr&& pack, std::function<void(Status, Pack
     return nullptr;
   }
 
+  if (pack->predict_io && pack->predict_io->HasValue()) {
+    if (executor_->GetDesc().strategy != BatchStrategy::STATIC) {
+      LOG(ERROR) << "Input continuous data to skip preprocess is only supported under BatchStrategy::STATIC";
+      return nullptr;
+    }
+    if (pack->data.size() > executor_->GetModel()->BatchSize()) {
+      LOG(ERROR) << "Input continuous data to skip preprocess is only supported when data number <= model batch size";
+      return nullptr;
+    }
+  }
   // since cannot classify data size from continuous data,
   // we use batch_size set in package instead of size of pack->data
-  size_t data_size = (pack->data.size() == 1 && executor_->GetDesc().strategy == BatchStrategy::STATIC)
-                         ? pack->data_num
-                         : pack->data.size();
+  size_t data_size = pack->data.size();
 
 #ifdef CNIS_RECORD_PERF
   profiler_.RequestStart(pack->tag);
@@ -163,9 +171,8 @@ RequestControl* Session::Send(PackagePtr&& pack, std::function<void(Status, Pack
   ctrl->BeginRecord();
 #endif
   for (size_t index = 0; index < pack->data.size(); ++index) {
-    pack->data[index]->desc.reset(new TaskDesc);
-    pack->data[index]->desc->ctrl = ctrl;
-    pack->data[index]->desc->index = index;
+    pack->data[index]->ctrl = ctrl;
+    pack->data[index]->index = index;
   }
   request_list_.push_back(ctrl);
   lk.unlock();
@@ -180,7 +187,7 @@ RequestControl* Session::Send(PackagePtr&& pack, std::function<void(Status, Pack
 }
 
 void Session::CheckAndResponse(const RequestControl* caller) noexcept {
-  std::unique_lock<std::mutex> lk(response_mutex_);
+  std::unique_lock<std::mutex> lk(request_mutex_);
   RequestControl* ctrl;
 
   // check request finished processing
@@ -220,7 +227,7 @@ void Session::CheckAndResponse(const RequestControl* caller) noexcept {
       delete next;
       next = nullptr;
 
-      std::unique_lock<std::mutex> lk(response_mutex_);
+      std::unique_lock<std::mutex> lk(request_mutex_);
       if (request_list_.empty()) {
         in_response_.store(false);
         sync_cond_.notify_one();

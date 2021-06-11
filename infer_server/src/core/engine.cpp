@@ -34,7 +34,7 @@ namespace infer_server {
 
 void TaskNode::operator()(PackagePtr pack) noexcept {
   Status s;
-#ifdef CNIS_RECORD_PERF
+#if defined(CNIS_RECORD_PERF) && (!defined(NDEBUG))
   auto before_lock = Clock::Now();
 #endif
   std::unique_lock<std::mutex> lk = processor_->Lock();
@@ -47,13 +47,16 @@ void TaskNode::operator()(PackagePtr pack) noexcept {
 #ifdef CNIS_RECORD_PERF
   auto end = Clock::Now();
   pack->perf[type_name] = Clock::Duration(start, end);
+#ifndef NDEBUG
   pack->perf["-WaitLock-" + type_name] = Clock::Duration(before_lock, start);
+#endif
 #endif
   if (s != Status::SUCCESS) {
     LOG(ERROR) << "[" << type_name << "] processor execute failed";
-    for (auto& it : pack->descs) {
+    for (auto& it : pack->data) {
       it->ctrl->ProcessFailed(s);
     }
+    done_notifier_();
   } else {
     VLOG(6) << "Transmit data for " << type_name;
     Transmit(std::move(pack));
@@ -64,19 +67,19 @@ void TaskNode::Transmit(PackagePtr&& pack) noexcept {
   if (downnode_) {
     // start next processor
     pack->priority = Priority::Next(pack->priority);
-    // FIXME(dmh): copy TaskNode for each task transmit?
+    // TODO(dmh): copy TaskNode for each task transmit?
     tp_->VoidPush(pack->priority, *downnode_, std::forward<PackagePtr>(pack));
   } else {
     std::map<std::string, float> perf{};
 #ifdef CNIS_RECORD_PERF
     for (auto& it : pack->perf) {
-      perf[it.first] = it.second / pack->descs.size();
+      perf[it.first] = it.second / pack->data.size();
     }
 #endif
     // tail of process, response to user
-    for (size_t idx = 0; idx < pack->descs.size(); ++idx) {
+    for (auto& it : pack->data) {
       // SUCCESS flag won't cover errors happended before
-      pack->descs[idx]->ctrl->ProcessDone(Status::SUCCESS, pack->data[idx], pack->descs[idx]->index, perf);
+      it->ctrl->ProcessDone(Status::SUCCESS, it, it->index, perf);
     }
     done_notifier_();
   }

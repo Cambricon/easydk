@@ -73,6 +73,7 @@ enum class PreprocessType {
   UNKNOWN = 0,
   RESIZE_CONVERT = 1,
   SCALER = 2,
+  CNCV_RESIZE_CONVERT = 3,
 };
 
 struct PreprocessorMLUPrivate;

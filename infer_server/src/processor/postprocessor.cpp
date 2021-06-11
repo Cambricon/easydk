@@ -150,13 +150,13 @@ Status Postprocessor::Init() noexcept {
 
 Status Postprocessor::Process(PackagePtr pack) noexcept {
   CHECK(pack);
-  if (pack->data.size() != 1) {
+  if (!pack->predict_io || !pack->predict_io->HasValue()) {
     LOG(ERROR) << "Postprocessor can process continuous data only";
     return Status::INVALID_PARAM;
   }
 
-  InferDataPtr cdata = pack->data[0];
-  pack->data.clear();
+  InferDataPtr cdata = nullptr;
+  cdata.swap(pack->predict_io);
 
   ModelIO& out_mlu = cdata->GetLref<ModelIO>();
   vector<Buffer> out_cpu;
@@ -176,12 +176,10 @@ Status Postprocessor::Process(PackagePtr pack) noexcept {
   }
 
   // use real number of data as batch size
-  const size_t batch_size = pack->descs.size();
-  pack->data.reserve(pack->descs.size());
+  const size_t batch_size = pack->data.size();
   std::vector<std::future<bool>> res;
   res.reserve(batch_size);
   for (size_t batch_idx = 0; batch_idx < batch_size; ++batch_idx) {
-    pack->data.emplace_back(new InferData);
     ModelIO outputs;
     for (size_t out_idx = 0; out_idx < out_cpu.size(); ++out_idx) {
       Shape s = out_mlu.shapes[out_idx];
@@ -208,7 +206,7 @@ Status Postprocessor::Process(PackagePtr pack) noexcept {
       }
     }
   } catch (std::exception& e) {
-    LOG(ERROR) << "Catch exception in preprocess: " << e.what();
+    LOG(ERROR) << "Catch exception in postprocess: " << e.what();
     return Status::ERROR_BACKEND;
   }
 

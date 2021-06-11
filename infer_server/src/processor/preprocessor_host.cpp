@@ -129,7 +129,7 @@ Status PreprocessorHost::Init() noexcept {
     static const int max_th_num = GetCpuCoreNumber();
     if (th_num < max_th_num) {
       // TODO(dmh): user define?
-      VLOG(3) << "Increase " << priv_->increased_tp << " thread in postprocessor pool when init postprocessor";
+      VLOG(3) << "Increase " << priv_->increased_tp << " thread in preprocessor pool when init preprocessor";
       priv_->tp->Resize(th_num + priv_->increased_tp);
     }
     lk.unlock();
@@ -180,8 +180,8 @@ Status PreprocessorHost::Process(PackagePtr pack) noexcept {
   std::vector<std::future<bool>> res;
   res.reserve(batch_size);
   for (size_t batch_idx = 0; batch_idx < pack->data.size(); ++batch_idx) {
-    res.emplace_back(priv_->tp->Push(0, priv_->process_func, &dst_tmp_batch[batch_idx], *(pack->data[batch_idx]),
-                                     std::ref(*(priv_->model))));
+    res.emplace_back(priv_->tp->Push(0, priv_->process_func, &dst_tmp_batch[batch_idx],
+                                     std::ref(*(pack->data[batch_idx])), std::ref(*(priv_->model))));
   }
 
   // wait for process finish
@@ -196,7 +196,9 @@ Status PreprocessorHost::Process(PackagePtr pack) noexcept {
     return Status::ERROR_BACKEND;
   }
   // release input data
-  pack->data.clear();
+  for (auto& it : pack->data) {
+    it->data.reset();
+  }
 
   dst_tmp_batch.clear();
   // transform layout and copy to MLU
@@ -213,8 +215,8 @@ Status PreprocessorHost::Process(PackagePtr pack) noexcept {
     input.buffers[i_idx].CopyFrom(priv_->dst[i_idx],
                                   priv_->shapes[i_idx].BatchDataCount() * GetTypeSize(priv_->layouts[i_idx].dtype));
   }
-  pack->data.emplace_back(new InferData);
-  pack->data[0]->Set(std::move(input));
+  pack->predict_io.reset(new InferData);
+  pack->predict_io->Set(std::move(input));
 
   return Status::SUCCESS;
 }

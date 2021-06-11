@@ -23,6 +23,7 @@
 #include <future>
 #include <memory>
 #include <random>
+#include <utility>
 
 #include "core/cache.h"
 #include "core/session.h"
@@ -31,7 +32,7 @@ namespace infer_server {
 namespace {
 
 TEST(InferServerCoreDeathTest, PushNullToCache) {
-  CacheDynamic cache_d(10, 16, Priority(0), 0);
+  CacheDynamic cache_d(16, Priority(0), 0);
   cache_d.Start();
   EXPECT_DEATH(cache_d.Push(nullptr), "");
   auto pack = std::make_shared<Package>();
@@ -39,7 +40,7 @@ TEST(InferServerCoreDeathTest, PushNullToCache) {
   EXPECT_DEATH(cache_d.Push(std::move(pack)), "");
   cache_d.Stop();
 
-  CacheStatic cache_s(10, 16, Priority(0));
+  CacheStatic cache_s(16, Priority(0));
   cache_s.Start();
   EXPECT_DEATH(cache_s.Push(nullptr), "");
   pack = std::make_shared<Package>();
@@ -58,7 +59,7 @@ constexpr uint32_t batch_timeout = 0;
 TEST(InferServerCore, DynamicCache_StartStop) {
   constexpr uint32_t capacity = 10;
 
-  std::shared_ptr<CacheBase> cache = std::make_shared<CacheDynamic>(capacity, d_batch_size, priority, batch_timeout);
+  std::shared_ptr<CacheBase> cache = std::make_shared<CacheDynamic>(d_batch_size, priority, batch_timeout);
   ASSERT_EQ(cache->BatchSize(), d_batch_size);
   ASSERT_EQ(cache->GetPriority(), priority);
 
@@ -74,32 +75,25 @@ TEST(InferServerCore, DynamicCache_StartStop) {
     auto pack = std::make_shared<Package>();
     for (size_t b_idx = 0; b_idx < d_batch_size; ++b_idx) {
       pack->data.emplace_back(new InferData);
-      pack->data[b_idx]->desc.reset(new TaskDesc);
-      pack->data[b_idx]->desc->ctrl = ctrl.get();
+      pack->data[b_idx]->ctrl = ctrl.get();
     }
-    ASSERT_TRUE(cache->WaitIfFull(-1));
     ASSERT_TRUE(cache->Push(std::move(pack)));
   }
 
-  ASSERT_FALSE(cache->WaitIfFull(10));
   auto out = cache->Pop();
   ASSERT_TRUE(out);
   ASSERT_EQ(out->data.size(), d_batch_size);
-  ASSERT_EQ(out->descs.size(), d_batch_size);
   for (auto& it : out->data) {
-    EXPECT_FALSE(it->desc);
+    EXPECT_TRUE(it->ctrl);
   }
-  ASSERT_TRUE(cache->WaitIfFull(10));
-  ASSERT_TRUE(cache->WaitIfFull(-1));
 
   // clear cache
   cache->Stop();
   uint32_t out_cnt = 0;
-  while (out = cache->Pop()) {
+  while ((out = cache->Pop())) {
     ASSERT_EQ(out->data.size(), d_batch_size);
-    ASSERT_EQ(out->descs.size(), d_batch_size);
     for (auto& it : out->data) {
-      EXPECT_FALSE(it->desc);
+      EXPECT_TRUE(it->ctrl);
     }
     ++out_cnt;
   }
@@ -108,7 +102,7 @@ TEST(InferServerCore, DynamicCache_StartStop) {
 
 TEST(InferServerCore, DynamicCache_OverBatchSize) {
   constexpr uint32_t capacity = 12;
-  std::shared_ptr<CacheBase> cache = std::make_shared<CacheDynamic>(capacity, d_batch_size, priority, batch_timeout);
+  std::shared_ptr<CacheBase> cache = std::make_shared<CacheDynamic>(d_batch_size, priority, batch_timeout);
   cache->Start();
   ASSERT_TRUE(cache->Running());
 
@@ -118,10 +112,8 @@ TEST(InferServerCore, DynamicCache_OverBatchSize) {
     auto pack = std::make_shared<Package>();
     for (size_t b_idx = 0; b_idx < capacity; ++b_idx) {
       pack->data.emplace_back(new InferData);
-      pack->data[b_idx]->desc.reset(new TaskDesc);
-      pack->data[b_idx]->desc->ctrl = ctrl.get();
+      pack->data[b_idx]->ctrl = ctrl.get();
     }
-    ASSERT_TRUE(cache->WaitIfFull(-1));
     ASSERT_TRUE(cache->Push(std::move(pack)));
   }
 
@@ -129,9 +121,8 @@ TEST(InferServerCore, DynamicCache_OverBatchSize) {
   uint32_t out_cnt = 0;
   while (auto out = cache->Pop()) {
     ASSERT_EQ(out->data.size(), d_batch_size);
-    ASSERT_EQ(out->descs.size(), d_batch_size);
     for (auto& it : out->data) {
-      EXPECT_FALSE(it->desc);
+      EXPECT_TRUE(it->ctrl);
     }
     ++out_cnt;
   }
@@ -142,7 +133,7 @@ TEST(InferServerCore, StaticCache_StartStop) {
   constexpr uint32_t capacity = 10;
   constexpr uint32_t data_num = 6;
 
-  std::shared_ptr<CacheBase> cache = std::make_shared<CacheStatic>(capacity, s_batch_size, priority);
+  std::shared_ptr<CacheBase> cache = std::make_shared<CacheStatic>(s_batch_size, priority);
   ASSERT_EQ(cache->BatchSize(), s_batch_size);
   ASSERT_EQ(cache->GetPriority(), priority);
 
@@ -158,27 +149,21 @@ TEST(InferServerCore, StaticCache_StartStop) {
     auto pack = std::make_shared<Package>();
     for (size_t b_idx = 0; b_idx < data_num; ++b_idx) {
       pack->data.emplace_back(new InferData);
-      pack->data[b_idx]->desc.reset(new TaskDesc);
-      pack->data[b_idx]->desc->ctrl = ctrl.get();
+      pack->data[b_idx]->ctrl = ctrl.get();
     }
-    ASSERT_TRUE(cache->WaitIfFull(-1));
     ASSERT_TRUE(cache->Push(std::move(pack)));
   }
 
-  ASSERT_FALSE(cache->WaitIfFull(10));
   auto out = cache->Pop();
   ASSERT_EQ(out->data.size(), data_num);
-  ASSERT_EQ(out->descs.size(), data_num);
   for (auto& it : out->data) {
-    EXPECT_FALSE(it->desc);
+    EXPECT_TRUE(it->ctrl);
   }
-  ASSERT_TRUE(cache->WaitIfFull(10));
-  ASSERT_TRUE(cache->WaitIfFull(-1));
 }
 
 TEST(InferServerCore, StaticCache_RandomDataNum) {
   constexpr uint32_t capacity = 50;
-  std::shared_ptr<CacheBase> cache = std::make_shared<CacheStatic>(capacity, s_batch_size, priority);
+  std::shared_ptr<CacheBase> cache = std::make_shared<CacheStatic>(s_batch_size, priority);
   cache->Start();
   ASSERT_TRUE(cache->Running());
 
@@ -193,10 +178,8 @@ TEST(InferServerCore, StaticCache_RandomDataNum) {
     int data_num = data_num_dis(gen);
     for (int b_idx = 0; b_idx < data_num; ++b_idx) {
       pack->data.emplace_back(new InferData);
-      pack->data[b_idx]->desc.reset(new TaskDesc);
-      pack->data[b_idx]->desc->ctrl = ctrl.get();
+      pack->data[b_idx]->ctrl = ctrl.get();
     }
-    ASSERT_TRUE(cache->WaitIfFull(-1));
     ASSERT_TRUE(cache->Push(std::move(pack)));
     while (data_num > 0) {
       data_num_record.push_back(static_cast<uint32_t>(data_num) < s_batch_size ? data_num : s_batch_size);
@@ -209,10 +192,9 @@ TEST(InferServerCore, StaticCache_RandomDataNum) {
   int index = 0;
   while (auto out = cache->Pop()) {
     ASSERT_EQ(out->data.size(), data_num_record[index]);
-    ASSERT_EQ(out->descs.size(), data_num_record[index]);
     ++index;
     for (auto& it : out->data) {
-      EXPECT_FALSE(it->desc);
+      EXPECT_TRUE(it->ctrl);
     }
   }
 }
@@ -222,7 +204,7 @@ TEST(InferServerCore, DynamicCache_ConcurrentAndDiscard) {
   constexpr uint32_t parallel = 3;
   constexpr uint32_t total_data_num = capacity * d_batch_size;
 
-  std::shared_ptr<CacheBase> cache = std::make_shared<CacheDynamic>(capacity, d_batch_size, priority, batch_timeout);
+  std::shared_ptr<CacheBase> cache = std::make_shared<CacheDynamic>(d_batch_size, priority, batch_timeout);
   cache->Start();
   ASSERT_TRUE(cache->Running());
 
@@ -244,10 +226,8 @@ TEST(InferServerCore, DynamicCache_ConcurrentAndDiscard) {
         idx += data_num;
         for (size_t b_idx = 0; b_idx < data_num; ++b_idx) {
           pack->data.emplace_back(new InferData);
-          pack->data[b_idx]->desc.reset(new TaskDesc);
-          pack->data[b_idx]->desc->ctrl = ctrl;
+          pack->data[b_idx]->ctrl = ctrl;
         }
-        ASSERT_TRUE(cache->WaitIfFull(-1));
         ASSERT_TRUE(cache->Push(std::move(pack)));
       }
     }));
@@ -265,7 +245,7 @@ TEST(InferServerCore, DynamicCache_ConcurrentAndDiscard) {
 
   cache->Stop();
   while (auto pack = cache->Pop()) {
-    for (auto& it : pack->descs) {
+    for (auto& it : pack->data) {
       EXPECT_FALSE(it->ctrl->IsDiscarded()) << "discarded data should not be popped out";
       EXPECT_NE(it->ctrl->Tag(), std::to_string(discard_idx));
     }
@@ -277,7 +257,7 @@ TEST(InferServerCore, StaticCache_ConcurrentAndDiscard) {
   constexpr uint32_t batch_size = 16;
   constexpr uint32_t parallel = 3;
 
-  std::shared_ptr<CacheBase> cache = std::make_shared<CacheStatic>(capacity, batch_size, priority);
+  std::shared_ptr<CacheBase> cache = std::make_shared<CacheStatic>(batch_size, priority);
   cache->Start();
   ASSERT_TRUE(cache->Running());
 
@@ -293,11 +273,9 @@ TEST(InferServerCore, StaticCache_ConcurrentAndDiscard) {
         auto pack = std::make_shared<Package>();
         for (size_t b_idx = 0; b_idx < batch_size; ++b_idx) {
           pack->data.emplace_back(new InferData);
-          pack->data[b_idx]->desc.reset(new TaskDesc);
-          pack->data[b_idx]->desc->ctrl = ctrls[push_idx].get();
+          pack->data[b_idx]->ctrl = ctrls[push_idx].get();
           pack->tag = ctrls[push_idx]->Tag();
         }
-        ASSERT_TRUE(cache->WaitIfFull(-1));
         ASSERT_TRUE(cache->Push(std::move(pack)));
       }
     }));
@@ -315,7 +293,7 @@ TEST(InferServerCore, StaticCache_ConcurrentAndDiscard) {
 
   cache->Stop();
   while (auto pack = cache->Pop()) {
-    for (auto& it : pack->descs) {
+    for (auto& it : pack->data) {
       EXPECT_FALSE(it->ctrl->IsDiscarded());
       EXPECT_NE(it->ctrl->Tag(), std::to_string(discard_idx));
     }

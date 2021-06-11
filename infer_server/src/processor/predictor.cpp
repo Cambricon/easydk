@@ -103,13 +103,13 @@ Status Predictor::Init() noexcept {
 
 Status Predictor::Process(PackagePtr pack) noexcept {
   CHECK(pack);
-  if (pack->data.size() != 1) {
+  if (!pack->predict_io || !pack->predict_io->HasValue()) {
     LOG(ERROR) << "Predictor can process continuous data only";
     return Status::INVALID_PARAM;
   }
 
   // previous processor must provide continuous_data to avoid copy
-  InferDataPtr cdata = pack->data[0];
+  InferDataPtr& cdata = pack->predict_io;
 
   ModelIO out_mlu;
   Status s = Status::SUCCESS;

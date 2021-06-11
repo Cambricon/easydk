@@ -30,6 +30,8 @@
 namespace infer_server {
 namespace video {
 
+std::map<int, std::unique_ptr<Buffer>> detail::Scaler::buffers_map_;
+
 struct PreprocessorMLUPrivate {
   std::unique_ptr<detail::PreprocessBase> executor{nullptr};
   std::unique_ptr<MluMemoryPool> pool{nullptr};
@@ -43,7 +45,7 @@ PreprocessorMLU::~PreprocessorMLU() {
 }
 
 Status PreprocessorMLU::Init() noexcept {
-  constexpr const char* params[] = {"model_info", "device_id", "preprocess_type", "src_format", "dst_format"};
+  constexpr const char* params[] = {"model_info", "device_id", "preprocess_type", "dst_format"};
   for (auto p : params) {
     if (!HaveParam(p)) {
       LOG(ERROR) << p << " has not been set!";
@@ -55,7 +57,6 @@ Status PreprocessorMLU::Init() noexcept {
     auto type = GetParam<PreprocessType>("preprocess_type");
     auto model = GetParam<ModelPtr>("model_info");
     auto dev_id = GetParam<int>("device_id");
-    auto src_fmt = GetParam<PixelFmt>("src_format");
     auto dst_fmt = GetParam<PixelFmt>("dst_format");
 
     int core_number = model->BatchSize();
@@ -73,11 +74,13 @@ Status PreprocessorMLU::Init() noexcept {
 
     if (type == PreprocessType::RESIZE_CONVERT) {
       priv_->executor.reset(
-          new detail::ResizeConvert(model, dev_id, ctx.GetCoreVersion(), core_number, keep_aspect_ratio));
-      priv_->executor->Init(src_fmt, dst_fmt);
+          new detail::ResizeConvert(model, dev_id, dst_fmt, ctx.GetCoreVersion(), core_number, keep_aspect_ratio));
     } else if (type == PreprocessType::SCALER) {
-      priv_->executor.reset(new detail::Scaler(model->InputShape(0), dev_id));
-      priv_->executor->Init(src_fmt, dst_fmt);
+      priv_->executor.reset(new detail::Scaler(model->InputShape(0), dev_id, dst_fmt, keep_aspect_ratio));
+#ifdef CNIS_HAVE_CNCV
+    } else if (type == PreprocessType::CNCV_RESIZE_CONVERT) {
+      priv_->executor.reset(new detail::CncvResizeConvert(model, dev_id, dst_fmt, keep_aspect_ratio));
+#endif
     } else {
       LOG(ERROR) << "not support!";
       return Status::INVALID_PARAM;
@@ -113,7 +116,10 @@ Status PreprocessorMLU::Process(PackagePtr pack) noexcept {
     return Status::WRONG_TYPE;
   }
 
-  pack->data.clear();
+  // release input data
+  for (auto& it : pack->data) {
+    it->data.reset();
+  }
   if (!ret) {
     LOG(ERROR) << "preprocess failed";
     return Status::ERROR_BACKEND;
@@ -121,8 +127,8 @@ Status PreprocessorMLU::Process(PackagePtr pack) noexcept {
   ModelIO model_input;
   model_input.buffers.emplace_back(std::move(preproc_output));
   model_input.shapes.emplace_back(priv_->shape);
-  pack->data.emplace_back(new InferData);
-  pack->data[0]->Set(std::move(model_input));
+  pack->predict_io.reset(new InferData);
+  pack->predict_io->Set(std::move(model_input));
   return Status::SUCCESS;
 }
 

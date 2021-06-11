@@ -92,12 +92,14 @@ size_t VideoFrame::GetTotalSize() const noexcept {
 
 namespace detail {
 void ClipBoundingBox(BoundingBox* box) noexcept {
+  // roi out of frame
   if (box->x >= 1 || box->y >= 1 ||
       box->w <= 0 || box->h <= 0 ||
       box->w > 1 || box->h > 1) {
     box->x = 0, box->y = 0, box->w = 0, box->h = 0;
     return;
   }
+  // make roi totally inside of frame
   box->w = std::max(std::min(box->x + box->w, box->w), 0.f);
   box->h = std::max(std::min(box->y + box->h, box->h), 0.f);
   box->x = std::max(0.f, box->x);
