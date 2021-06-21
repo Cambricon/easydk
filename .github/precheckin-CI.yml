@@ -1,0 +1,30 @@
+# This is a basic workflow to help you get started with Actions
+
+name: Precheckin
+
+on:
+  pull_request:
+    branches: [ master ]
+    
+jobs:
+  build_and_test:
+    runs-on: self-hosted
+
+    steps:
+      - uses: actions/checkout@v2
+      - name: Lintgit Check
+        run: ./tools/lintgit master $PWD
+        
+      - uses: actions/checkout@v2
+      - name: Run Test
+        run: |
+          mkdir build
+          pushd build
+          cmake -DBUILD_TESTS=ON -DBUILD_SAMPLES=ON -DCODE_COVERAGE_TEST=ON -DENABLE_KCF=OFF ..
+          make -j8
+          pushd tests
+          export LD_LIBRARY_PATH=$LD_LIBRARY_PATH:../../mlu/MLU270/libs/x86_64  
+          GLOG_v=6 ./tests_edk --alsologtostderr
+          popd
+          popd
+
