@@ -3,7 +3,7 @@ name: Precheckin
 
 on:
   pull_request:
-    branches: [ master ]
+    branches: [ Lefttyre-path-1 ]
     
 jobs:
   build_and_test:
