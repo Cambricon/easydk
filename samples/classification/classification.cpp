@@ -54,12 +54,12 @@ int main(int argc, char** argv) {
   edk::log::InitLogging(true, true);
 
   // check params
-  CHECK(SAMPLES, FLAGS_data_path.size() != 0u);
-  CHECK(SAMPLES, FLAGS_model_path.size() != 0u);
-  CHECK(SAMPLES, FLAGS_func_name.size() != 0u);
-  CHECK(SAMPLES, FLAGS_label_path.size() != 0u);
-  CHECK(SAMPLES, FLAGS_wait_time >= 0);
-  CHECK(SAMPLES, FLAGS_repeat_time >= 0);
+  CHECK(SAMPLES, FLAGS_data_path.size() != 0u);  // NOLINT
+  CHECK(SAMPLES, FLAGS_model_path.size() != 0u);  // NOLINT
+  CHECK(SAMPLES, FLAGS_func_name.size() != 0u);  // NOLINT
+  CHECK(SAMPLES, FLAGS_label_path.size() != 0u);  // NOLINT
+  CHECK(SAMPLES, FLAGS_wait_time >= 0);  // NOLINT
+  CHECK(SAMPLES, FLAGS_repeat_time >= 0);  // NOLINT
 
   try {
     g_runner = std::make_shared<ClassificationRunner>(FLAGS_model_path, FLAGS_func_name, FLAGS_label_path,

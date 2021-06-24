@@ -269,18 +269,22 @@ TEST(Codec, DecodeJpeg) {
                     std::bind(frame_callback, &rec, &cond, std::placeholders::_1));
   EXPECT_TRUE(ret);
 
-#ifdef ENABLE_TURBOJPEG
-  // test progressive jpeg
-  ret = test_decode(edk::CodecType::JPEG, edk::PixelFmt::NV12, 1920, 1080,
-                    std::bind(frame_callback, &rec, &cond, std::placeholders::_1), false, true);
-  EXPECT_TRUE(ret);
-#endif
-
   // test abort decode
   ret = test_decode(edk::CodecType::JPEG, edk::PixelFmt::NV21, 1920, 1080, nullptr, true);
   EXPECT_TRUE(ret);
   delete[] g_data_buffer;
 }
+
+#ifdef ENABLE_TURBOJPEG
+TEST(Codec, DecodeProgressiveJpeg) {
+  g_data_buffer = new uint8_t[MAX_INPUT_DATA_SIZE];
+  // test progressive jpeg
+  bool ret = test_decode(edk::CodecType::JPEG, edk::PixelFmt::NV12, 1920, 1080,
+                    std::bind(frame_callback, &rec, &cond, std::placeholders::_1), false, true);
+  EXPECT_TRUE(ret);
+  delete[] g_data_buffer;
+}
+#endif
 
 TEST(Codec, DecodeNoFrame) {
   {

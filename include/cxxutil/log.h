@@ -35,7 +35,7 @@
  * Min category log level
  *
  * Environment variable: EDK_LOG_LEVEL
- * Default: 3 (LOG_INFO)
+ * Default: 2 (LOG_WARNING)
  */
 
 #define STRINGIFY(src) #src
@@ -210,7 +210,7 @@ inline bool LogActivated(const char* category, LogSeverity severity) noexcept {
  * @param log_to_file Log messages go to log file
  * @param log_dir Directory to store log file
  */
-void InitLogging(bool log_to_stderr, bool log_to_file, const std::string& log_dir = "./") noexcept;
+void InitLogging(bool log_to_stderr, bool log_to_file, const std::string& log_dir = "") noexcept;
 
 /**
  * @brief Shutdown log output
