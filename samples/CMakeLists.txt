@@ -114,7 +114,13 @@ if (SANITIZE_MEMORY OR SANITIZE_ADDRESS OR SANITIZE_THREAD OR SANITIZE_UNDEFINED
 endif()
 
 # workaround for gcc known issue
-target_compile_options(stream-app PRIVATE -Wno-maybe-uninitialized)
+if ("${CMAKE_CXX_COMPILER_ID}" STREQUAL "Clang")
+  target_compile_options(stream-app PRIVATE -Wno-uninitialized)
+elseif ("${CMAKE_CXX_COMPILER_ID}" STREQUAL "GNU")
+  target_compile_options(stream-app PRIVATE -Wno-maybe-uninitialized)
+else()
+  message(FATAL_ERROR "Unsupported Compiler!")
+endif()
 
 target_include_directories(stream-app PRIVATE 
                            ${Samples_INCLUDE_DIRS}
@@ -135,7 +141,13 @@ if (SANITIZE_MEMORY OR SANITIZE_ADDRESS OR SANITIZE_THREAD OR SANITIZE_UNDEFINED
 endif()
 
 # workaround for gcc known issue
-target_compile_options(classification PRIVATE -Wno-maybe-uninitialized)
+if ("${CMAKE_CXX_COMPILER_ID}" STREQUAL "Clang")
+  target_compile_options(classification PRIVATE -Wno-uninitialized)
+elseif ("${CMAKE_CXX_COMPILER_ID}" STREQUAL "GNU")
+  target_compile_options(classification PRIVATE -Wno-maybe-uninitialized)
+else()
+  message(FATAL_ERROR "Unsupported Compiler!")
+endif()
 
 target_include_directories(classification PRIVATE 
                            ${Samples_INCLUDE_DIRS}

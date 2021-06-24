@@ -40,6 +40,7 @@
 #include <thread>
 #include <unordered_map>
 #include <vector>
+#include <utility>
 
 #include "backward.hpp"
 #include "cxxutil/edk_attribute.h"
@@ -57,16 +58,13 @@
 #define EnvToBool(envname, dflt)   \
   (!getenv(envname) ? (dflt) : memchr("tTyY1\0", getenv(envname)[0], 6) != NULL)
 
-static constexpr int DEFAULT_LOG_LEVEL = 3;
-static constexpr const char* DEFAULT_LOG_FILTER = "";
-
 static bool g_init_logging = false;
 static bool g_log_to_stderr = true;
 static bool g_log_to_file = false;
 static uint32_t g_flush_interval = 30;
 
 static bool g_handle_signals = EnvToBool("EDK_HANDLE_SIGNALS", false);
-static std::string g_log_filter = EnvToString("EDK_LOG_FILTER", "");
+static const char* g_log_filter = EnvToString("EDK_LOG_FILTER", "");
 // A simple helper class that registers for you the most common signals
 // and other callbacks to segfault, hardware exception, un-handled exception etc.
 static std::unique_ptr<backward::SignalHandling> sh{g_handle_signals ? (new backward::SignalHandling) : nullptr};
@@ -148,7 +146,7 @@ static const char* const_basename(const char* filepath) {
 namespace edk {
 namespace log {
 
-const int g_min_log_level = EnvToInt("EDK_LOG_LEVEL", 3);
+const int g_min_log_level = EnvToInt("EDK_LOG_LEVEL", 2);
 const bool g_enable_category_filter = getenv("EDK_LOG_FILTER");
 using CategoryFilterMaps = std::unordered_map<std::string, LogSeverity>;
 static std::unique_ptr<CategoryFilterMaps> CreateFilterMaps();
@@ -166,97 +164,8 @@ bool CategoryActivated(const char* category, LogSeverity severity) noexcept {
 
 constexpr int NUM_SEVERITIES = 7;
 const char* const LogSeverityNames[NUM_SEVERITIES] = {
-  "FATAL", "ERROR", "WARNING", "INFO", "DEBUG", "TRACE", "ALL"
+  "FATAL", "ERROR", "WARN", "INFO", "DEBUG", "TRACE", "ALL"
 };
-
-enum LogColor {
-  COLOR_DEFAULT,
-  COLOR_RED,
-  COLOR_GREEN,
-  COLOR_YELLOW
-};
-
-static LogColor SeverityToColor(LogSeverity severity) {
-  assert(severity >= 0 && severity < NUM_SEVERITIES);
-  LogColor color = COLOR_DEFAULT;
-  switch (severity) {
-  case LOG_INFO:
-  case LOG_DEBUG:
-  case LOG_TRACE:
-  case LOG_ALL:
-    color = COLOR_DEFAULT;
-    break;
-  case LOG_WARNING:
-    color = COLOR_YELLOW;
-    break;
-  case LOG_ERROR:
-  case LOG_FATAL:
-    color = COLOR_RED;
-    break;
-  default:
-    // should never get here.
-    assert(false);
-  }
-  return color;
-}
-
-#if defined(WIN32) || defined(_WIN32) || defined(__WIN32__)
-// Returns the character attribute for the given color.
-static WORD GetColorAttribute(LogColor color) {
-  switch (color) {
-    case COLOR_RED:    return FOREGROUND_RED;
-    case COLOR_GREEN:  return FOREGROUND_GREEN;
-    case COLOR_YELLOW: return FOREGROUND_RED | FOREGROUND_GREEN;
-    default:           return 0;
-  }
-}
-#else
-// Returns the ANSI color code for the given color.
-static const char* GetAnsiColorCode(LogColor color) {
-  switch (color) {
-    case COLOR_RED:     return "1";
-    case COLOR_GREEN:   return "2";
-    case COLOR_YELLOW:  return "3";
-    case COLOR_DEFAULT:  return "";
-  }
-  return NULL;  // stop warning about return type.
-}
-#endif  // OS_WINDOWS
-
-static void ColoredWriteToStderr(LogSeverity severity,
-                                 const char* message, size_t len) {
-  const LogColor color = SeverityToColor(severity);
-
-  // Avoid using cerr from this module since we may get called during
-  // exit code, and cerr may be partially or fully destroyed by then.
-  if (EDK_LIKELY(COLOR_DEFAULT == color)) {
-    fwrite(message, len, 1, stderr);
-    return;
-  }
-#if defined(WIN32) || defined(_WIN32) || defined(__WIN32__)
-  const HANDLE stderr_handle = GetStdHandle(STD_ERROR_HANDLE);
-
-  // Gets the current text color.
-  CONSOLE_SCREEN_BUFFER_INFO buffer_info;
-  GetConsoleScreenBufferInfo(stderr_handle, &buffer_info);
-  const WORD old_color_attrs = buffer_info.wAttributes;
-
-  // We need to flush the stream buffers into the console before each
-  // SetConsoleTextAttribute call lest it affect the text that is already
-  // printed but has not yet reached the console.
-  fflush(stderr);
-  SetConsoleTextAttribute(stderr_handle,
-                          GetColorAttribute(color) | FOREGROUND_INTENSITY);
-  fwrite(message, len, 1, stderr);
-  fflush(stderr);
-  // Restores the text color.
-  SetConsoleTextAttribute(stderr_handle, old_color_attrs);
-#else
-  fprintf(stderr, "\033[0;3%sm", GetAnsiColorCode(color));
-  fwrite(message, len, 1, stderr);
-  fprintf(stderr, "\033[m");  // Resets the terminal to default.
-#endif  // OS_WINDOWS
-}
 
 static void WriteToStderr(const char* message, size_t len) {
   // Avoid using cerr from this module since we may get called during
@@ -297,9 +206,10 @@ std::string LogSink::ToString(LogSeverity severity, const char* category,
                               const char* message, size_t message_len) {
   std::ostringstream stream;
   stream.fill('0');
-  stream << "EasyDK " << category
-         << ' '
-         << LogSeverityNames[severity][0]
+  stream << "[EasyDK-"
+         << LogSeverityNames[severity]
+         << "] "
+         << category << ' '
          << std::setw(4) << 1900 + tm_time->tm_year
          << std::setw(2) << 1 + tm_time->tm_mon
          << std::setw(2) << tm_time->tm_mday
@@ -635,7 +545,7 @@ inline void LogDestination::LogToSinks(LogMessage::LogMessageData* data) {
 
 inline void LogDestination::LogToStderr(LogSeverity severity, const char* message, size_t message_len) {
   if (g_log_to_stderr) {
-    ColoredWriteToStderr(severity, message, message_len);
+    WriteToStderr(message, message_len);
   }
 }
 
@@ -691,10 +601,10 @@ void LogMessage::Init(const char* category, const char* file, int line, LogSever
   data_->filename_ = const_basename(file);
   data_->category_ = category;
   data_->has_been_flushed_ = false;
-
-  stream() << "EasyDK " << data_->category_
-           << ' '
-           << LogSeverityNames[severity][0]
+  stream() << "[EasyDK-"
+           << LogSeverityNames[severity]
+           << "] "
+           << data_->category_ << ' '
            // << setw(4) << 1900+data_->tm_time_.tm_year
            << std::setw(2) << 1 + data_->tm_time_.tm_mon
            << std::setw(2) << data_->tm_time_.tm_mday
@@ -706,7 +616,7 @@ void LogMessage::Init(const char* category, const char* file, int line, LogSever
            << ' '
            << std::setfill(' ') << std::setw(5)
            << static_cast<unsigned int>(GetTID())
-#ifdef DEBUG
+#ifndef NDEBUG
            << ' '
            << data_->filename_ << ':' << data_->line_
 #endif

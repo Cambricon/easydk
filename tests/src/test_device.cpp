@@ -5,6 +5,7 @@
 #include <memory>
 #include <thread>
 #include <vector>
+#include <string>
 
 #include "device/mlu_context.h"
 #include "device/version.h"

@@ -57,5 +57,6 @@ target_include_directories(tests_edk PRIVATE
                            ${PROJECT_SOURCE_DIR}/include)
 target_link_libraries(tests_edk PRIVATE pthread dl gtest gtest_main easydk ${OpenCV_LIBS})
 target_compile_options(tests_edk PRIVATE "-Wno-deprecated-declarations")
+target_compile_definitions(tests_edk PRIVATE ${CODE_DEFINITIONS})
 
 install(TARGETS tests_edk RUNTIME DESTINATION bin)

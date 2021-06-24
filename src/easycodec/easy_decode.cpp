@@ -408,10 +408,10 @@ void DecodeHandler::AbortDecoder() {
       cnvideoDecAbort(handle_);
     }
     handle_ = nullptr;
+    status_.store(EasyDecode::Status::EOS);
     if (attr_.eos_callback) {
       attr_.eos_callback();
     }
-    status_.store(EasyDecode::Status::EOS);
 
     unique_lock<mutex> eos_lk(eos_mtx_);
     got_eos_ = true;
@@ -621,10 +621,10 @@ int DecodeHandler::ReceiveSequence(cnvideoDecSequenceInfo* info) {
 void DecodeHandler::ReceiveEOS() {
   LOGI(DECODE) << "Thread id: " << std::this_thread::get_id() << ",Received EOS from cncodec";
 
+  status_.store(EasyDecode::Status::EOS);
   if (attr_.eos_callback) {
     attr_.eos_callback();
   }
-  status_.store(EasyDecode::Status::EOS);
 
   unique_lock<mutex> eos_lk(eos_mtx_);
   got_eos_ = true;
