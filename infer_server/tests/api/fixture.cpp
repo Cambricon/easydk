@@ -70,3 +70,4 @@ bool cvt_bgr_to_yuv420sp(const cv::Mat& bgr_image, uint32_t alignment, PixelFmt 
   return true;
 }
 #endif
+

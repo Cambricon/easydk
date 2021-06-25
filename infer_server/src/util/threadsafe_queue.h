@@ -59,7 +59,7 @@ class ThreadSafeQueue {
    * @retval true Succeed
    * @retval false Fail, no element stored in queue
    */
-  bool TryPop(T& value);
+  bool TryPop(T& value);  // NOLINT
 
   /**
    * @brief Try to pop an element from queue, wait for `rel_time` if queue is empty
@@ -69,7 +69,7 @@ class ThreadSafeQueue {
    * @retval true Succeed
    * @retval false Timeout
    */
-  bool WaitAndTryPop(T& value, const std::chrono::microseconds rel_time);
+  bool WaitAndTryPop(T& value, const std::chrono::microseconds rel_time);  // NOLINT
 
   /**
    * @brief Pushes the given element value to the end of the queue
@@ -165,7 +165,7 @@ inline void GetFrontAndPop(std::priority_queue<T, Container, Compare>* q_, T* va
 }  // namespace detail
 
 template <typename T, typename Q>
-bool ThreadSafeQueue<T, Q>::TryPop(T& value) {
+bool ThreadSafeQueue<T, Q>::TryPop(T& value) {  // NOLINT
   std::lock_guard<std::mutex> lk(data_m_);
   if (q_.empty()) {
     return false;
@@ -176,7 +176,7 @@ bool ThreadSafeQueue<T, Q>::TryPop(T& value) {
 }
 
 template <typename T, typename Q>
-bool ThreadSafeQueue<T, Q>::WaitAndTryPop(T& value, const std::chrono::microseconds rel_time) {
+bool ThreadSafeQueue<T, Q>::WaitAndTryPop(T& value, const std::chrono::microseconds rel_time) {  // NOLINT
   std::unique_lock<std::mutex> lk(data_m_);
   if (notempty_cond_.wait_for(lk, rel_time, [&] { return !q_.empty(); })) {
     detail::GetFrontAndPop<T>(&q_, &value);

@@ -23,6 +23,10 @@
 #include <future>
 #include <memory>
 #include <random>
+#include <limits>
+#include <string>
+#include <set>
+#include <utility>
 
 #include "core/request_ctrl.h"
 #include "core/session.h"

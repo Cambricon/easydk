@@ -24,6 +24,7 @@
 #include <memory>
 #include <random>
 #include <utility>
+#include <vector>
 
 #include "core/cache.h"
 #include "core/session.h"

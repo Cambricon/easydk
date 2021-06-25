@@ -46,7 +46,7 @@ class half {
  public:
   half();
   ~half();
-  half(const float a);
+  half(const float a);  // NOLINT
   // Data Cast
   explicit operator int();
   explicit operator float();

@@ -22,6 +22,8 @@
 
 #include <cmath>
 #include <random>
+#include <algorithm>
+#include <vector>
 
 #include "cnrt.h"
 #include "core/data_type.h"

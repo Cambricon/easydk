@@ -26,6 +26,7 @@
 #include "sys/sysinfo.h"
 #endif
 #include <cstdlib>
+#include <string>
 
 #include "util/env.h"
 

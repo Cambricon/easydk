@@ -126,7 +126,7 @@ class CacheDynamic : public CacheBase {
     CHECK_EQ(batcher_->Size(), 0u) << "Executor Destruction] Batcher should not have any data";
   }
 
-  virtual void Stop() noexcept override {
+  void Stop() noexcept override {
     CacheBase::Stop();
     batcher_->Emit();
     cache_cond_.notify_all();

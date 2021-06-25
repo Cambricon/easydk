@@ -439,7 +439,7 @@ class ProcessorForkable : public Processor {
    *
    * @return std::shared_ptr<Processor> A new processor
    */
-  std::shared_ptr<Processor> Fork() noexcept(std::is_nothrow_default_constructible<T>::value) override final {
+  std::shared_ptr<Processor> Fork() noexcept(std::is_nothrow_default_constructible<T>::value) final {
     auto p = std::make_shared<T>();
     p->CopyParamsFrom(*this);
     if (p->Init() != Status::SUCCESS) return nullptr;
