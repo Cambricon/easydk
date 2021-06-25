@@ -23,6 +23,9 @@
 
 #include <chrono>
 #include <unordered_map>
+#include <map>
+#include <limits>
+#include <string>
 
 #include "infer_server.h"
 #include "util/spinlock.h"

@@ -21,6 +21,8 @@
 #ifndef INFER_SERVER_API_TEST_FIXTURE_H_
 #define INFER_SERVER_API_TEST_FIXTURE_H_
 
+#include <memory>
+
 #include "infer_server.h"
 #include "test_base.h"
 

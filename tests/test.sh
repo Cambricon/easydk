@@ -20,5 +20,8 @@ fi
 export LD_LIBRARY_PATH=$LD_LIBRARY_PATH:$NEUWARE_HOME/lib64
 
 ./bin/tests_edk
+ret=$?
 
 popd
+
+exit $ret

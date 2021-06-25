@@ -21,6 +21,7 @@
 #include <gtest/gtest.h>
 
 #include <thread>
+#include <vector>
 
 #include "test_base.h"
 #include "util/spinlock.h"
@@ -102,3 +103,4 @@ TEST(InferServerUtil, SpinLockGuard) {
 }
 
 }  // namespace infer_server
+

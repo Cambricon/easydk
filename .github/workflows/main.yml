@@ -1,0 +1,26 @@
+name: Precheckin
+
+on:
+  pull_request:
+    branches: [ master ]
+
+jobs:
+  build_and_test:
+    runs-on: self-hosted
+
+    steps:
+      - uses: actions/checkout@v2
+      - name: Lintgit Check
+        run: ./tools/lintgit master $PWD
+
+      - uses: actions/checkout@v2
+      - name: Run Test
+        run: |
+          mkdir build
+          pushd build
+          cmake -DBUILD_TESTS=ON -DBUILD_SAMPLES=ON -DCODE_COVERAGE_TEST=ON -DENABLE_KCF=OFF ..
+          make -j8
+          pushd ../tests
+          EDK_LOG_LEVEL=6 ./test.sh
+          popd
+          popd

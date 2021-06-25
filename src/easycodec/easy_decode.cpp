@@ -730,7 +730,7 @@ void DecodeHandler::FeedVideoData(const CnPacket& packet, bool integral_frame) {
 
 void DecodeHandler::FeedJpegData(const CnPacket& packet, int progressive_mode) {
   cnjpegDecInput input;
-  CHECK(DECODE, progressive_mode >= 0);
+  CHECK(DECODE, progressive_mode >= 0);  // NOLINT
 
   memset(&input, 0, sizeof(cnjpegDecInput));
   input.streamBuffer = reinterpret_cast<uint8_t*>(packet.data);

@@ -21,6 +21,8 @@
 #include <gtest/gtest.h>
 
 #include <random>
+#include <limits>
+#include <algorithm>
 
 #include "core/priority.h"
 
@@ -82,3 +84,4 @@ TEST(InferServerCore, ConstexprPriority) {
     ASSERT_EQ(c_p, Priority(base + 1));
   }
 }
+

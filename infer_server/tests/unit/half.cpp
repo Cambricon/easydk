@@ -22,8 +22,8 @@
 
 inline bool diffNotMuch(half a, half b) {
   return true;
-  float c = (float)a;
-  float d = (float)b;
+  float c = static_cast<float>(a);
+  float d = static_cast<float>(b);
   if (c == 0 || d == 0) {
     return true;
   }
@@ -44,7 +44,7 @@ half::half(const float a) { data_ = float2half(a); }
 // Data Cast
 half::operator int() {
   float a = half::half2float(data_);
-  return (int)a;
+  return static_cast<int>(a);
 }
 
 half::operator float() {
@@ -54,7 +54,7 @@ half::operator float() {
 
 half::operator double() {
   float a = half::half2float(data_);
-  return (double)a;
+  return static_cast<double>(a);
 }
 std::ostream& operator<<(std::ostream& output, const half& c) {
   float data_f = half::half2float(c.data_);
