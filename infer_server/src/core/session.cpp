@@ -114,6 +114,7 @@ void Executor::DispatchLoop() noexcept {
     batch_record_.unit_cnt += 1;
     batch_record_.total += batch_size;
 
+    waited = false;
     // dispatch to engine
     if (!idle_) {
       waited = true;

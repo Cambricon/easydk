@@ -84,7 +84,6 @@ class CacheBase {
     }
     cache_.pop_front();
     cache_lk.unlock();
-    cache_cond_.notify_one();
 
     return pack;
   }
@@ -114,7 +113,7 @@ class CacheDynamic : public CacheBase {
           pack->priority = GetPriority().Get(-data.at(0)->ctrl->RequestId());
           pack->data = std::move(data);
           std::unique_lock<std::mutex> lk(cache_mutex_);
-          cache_.push_back(pack);
+          cache_.emplace_back(std::move(pack));
           lk.unlock();
           cache_cond_.notify_all();
         },
