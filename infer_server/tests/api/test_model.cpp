@@ -29,21 +29,51 @@
 #include <string>
 #include <thread>
 
+#include "cnis/infer_server.h"
 #include "cnrt.h"
 #include "fixture.h"
-#include "infer_server.h"
 #include "model/model.h"
 
 namespace infer_server {
 namespace {
 
+#ifdef CNIS_USE_MAGICMIND
+constexpr const char* g_model_path1 =
+    "http://video.cambricon.com/models/MLU370/resnet50_nhwc_tfu_0.5_int8_fp16.model";
+constexpr const char* g_model_path2 =
+    "http://video.cambricon.com/models/MLU370/yolov3_nhwc_tfu_0.5_int8_fp16.model";
+#else
 constexpr const char* g_model_path1 =
     "http://video.cambricon.com/models/MLU270/Primary_Detector/ssd/resnet34_ssd.cambricon";
-
 constexpr const char* g_model_path2 =
     "http://video.cambricon.com/models/MLU270/Classification/resnet50/resnet50_offline.cambricon";
+#endif
 
 TEST_F(InferServerTestAPI, ModelManager) {
+#ifdef CNIS_USE_MAGICMIND
+  char env[] = "CNIS_MODEL_CACHE_LIMIT=2";
+  putenv(env);
+  InferServer::ClearModelCache();
+  auto m = server_->LoadModel(g_model_path1);
+  ASSERT_TRUE(m);
+  EXPECT_EQ(ModelManager::Instance()->CacheSize(), 1);
+  auto n = server_->LoadModel(g_model_path1);
+  ASSERT_TRUE(n);
+  EXPECT_EQ(ModelManager::Instance()->CacheSize(), 1);
+  auto l = server_->LoadModel(g_model_path2);
+  ASSERT_TRUE(l);
+  EXPECT_EQ(ModelManager::Instance()->CacheSize(), 2);
+  server_->LoadModel("./resnet50_nhwc_tfu_0.5_int8_fp16.graph", "./resnet50_nhwc_tfu_0.5_int8_fp16.data");
+  EXPECT_EQ(ModelManager::Instance()->CacheSize(), 2);
+  /************************************************************************************/
+  EXPECT_EQ(ModelManager::Instance()->CacheSize(), 2);
+  ASSERT_TRUE(server_->UnloadModel(m));
+  EXPECT_EQ(ModelManager::Instance()->CacheSize(), 1);
+  ASSERT_FALSE(server_->UnloadModel(n));
+  EXPECT_EQ(ModelManager::Instance()->CacheSize(), 1);
+  ASSERT_TRUE(server_->UnloadModel(l));
+  EXPECT_EQ(ModelManager::Instance()->CacheSize(), 0);
+#else
   char env[] = "CNIS_MODEL_CACHE_LIMIT=3";
   putenv(env);
   InferServer::ClearModelCache();
@@ -79,6 +109,7 @@ TEST_F(InferServerTestAPI, ModelManager) {
   ASSERT_TRUE(server_->UnloadModel(l));
   EXPECT_EQ(ModelManager::Instance()->CacheSize(), 1);
   delete[] modelptr;
+#endif
 }
 
 }  // namespace

@@ -45,16 +45,13 @@ enum class MemoryType {
 };
 
 namespace detail {
-struct CpuMemory;
-struct MluMemory;
+struct Memory;
 }  // namespace detail
 
 class Buffer {
  public:
-  /// callback function to deallocate memory on MLU
-  using MluMemoryDeallocator = std::function<void(void *memory, int device_id)>;
-  /// callback function to deallocate memory on CPU
-  using CpuMemoryDeallocator = std::function<void(void *memory)>;
+  /// callback function to deallocate memory
+  using MemoryDeallocator = std::function<void(void *memory, int device_id)>;
 
   /**
    * @brief Construct a new Buffer object contained CPU memory
@@ -79,7 +76,7 @@ class Buffer {
    * @param d A function to handle memory when destruct
    * @param device_id memory on which device
    */
-  Buffer(void *mlu_memory, size_t memory_size, MluMemoryDeallocator d, int device_id);
+  Buffer(void *mlu_memory, size_t memory_size, MemoryDeallocator d, int device_id);
 
   /**
    * @brief Construct a new Buffer object with raw CPU memory
@@ -88,7 +85,7 @@ class Buffer {
    * @param memory_size Memory size in bytes
    * @param d A function to handle memory when destruct
    */
-  Buffer(void *cpu_memory, size_t memory_size, CpuMemoryDeallocator d);
+  Buffer(void *cpu_memory, size_t memory_size, MemoryDeallocator d);
 
   /**
    * @brief default constructor
@@ -151,7 +148,7 @@ class Buffer {
    *
    * @return device id
    */
-  int DeviceId() const noexcept { return device_id_; }
+  int DeviceId() const noexcept;
 
   /**
    * @brief Get memory type
@@ -210,14 +207,12 @@ class Buffer {
 
  private:
   void LazyMalloc();
-  std::shared_ptr<detail::CpuMemory> cpu_{nullptr};
-  std::shared_ptr<detail::MluMemory> mlu_{nullptr};
+  std::shared_ptr<detail::Memory> data_{nullptr};
 
-  MemoryType type_{MemoryType::CPU};
   size_t memory_size_{0};
   size_t offset_{0};
 
-  int device_id_{-1};
+  MemoryType type_{MemoryType::CPU};
 };
 
 /**
@@ -263,6 +258,13 @@ class MluMemoryPool {
    * @return number of memory cached
    */
   size_t BufferNum() const noexcept { return buffer_num_; }
+
+  /**
+   * @brief Get device id
+   *
+   * @return device id
+   */
+  int DeviceId() const noexcept { return device_id_; }
 
  private:
   std::queue<void *> cache_;

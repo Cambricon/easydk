@@ -195,7 +195,7 @@ class MluContext {
    * @param id Device id
    * @return true if device exists, otherwise false returned
    */
-  bool CheckDeviceId(int id);
+  static bool CheckDeviceId(int id);
 
   /**
    * @brief Get the MLU channel id

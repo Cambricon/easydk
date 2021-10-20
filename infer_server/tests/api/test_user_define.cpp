@@ -24,16 +24,19 @@
 #include <memory>
 #include <utility>
 
-#include "buffer.h"
-#include "device/mlu_context.h"
+#include "cnis/buffer.h"
+#include "cnis/infer_server.h"
+#include "cnis/processor.h"
 #include "fixture.h"
-#include "infer_server.h"
-#include "processor.h"
 
 namespace infer_server {
 
+#ifdef CNIS_USE_MAGICMIND
+static const char* model_url = "http://video.cambricon.com/models/MLU370/resnet50_nhwc_tfu_0.5_int8_fp16.model";
+#else
 constexpr const char* model_url =
     "http://video.cambricon.com/models/MLU270/Primary_Detector/ssd/resnet34_ssd.cambricon";
+#endif
 
 struct MyData {
   Buffer data;
@@ -44,14 +47,7 @@ class MyProcessor : public ProcessorForkable<MyProcessor> {
   MyProcessor() noexcept : ProcessorForkable<MyProcessor>("MyProcessor") {}
   ~MyProcessor() {}
   Status Process(PackagePtr pack) noexcept override {
-    try {
-      edk::MluContext ctx;
-      ctx.SetDeviceId(dev_id_);
-      ctx.BindDevice();
-    } catch (edk::Exception& e) {
-      LOG(ERROR) << e.what();
-      return Status::ERROR_BACKEND;
-    }
+    if (!SetCurrentDevice(dev_id_)) return Status::ERROR_BACKEND;
 
     // discard all input and pass empty data to next processor
     for (auto& it : pack->data) {
@@ -78,9 +74,7 @@ class MyProcessor : public ProcessorForkable<MyProcessor> {
       model_ = GetParam<ModelPtr>("model_info");
       dev_id_ = GetParam<int>("device_id");
 
-      edk::MluContext ctx;
-      ctx.SetDeviceId(dev_id_);
-      ctx.BindDevice();
+      if (!SetCurrentDevice(dev_id_)) return Status::ERROR_BACKEND;
 
       auto shape = model_->InputShape(0);
       auto layout = model_->InputLayout(0);
@@ -88,9 +82,6 @@ class MyProcessor : public ProcessorForkable<MyProcessor> {
     } catch (bad_any_cast&) {
       LOG(ERROR) << "Unmatched data type";
       return Status::WRONG_TYPE;
-    } catch (edk::Exception& e) {
-      LOG(ERROR) << e.what();
-      return Status::ERROR_BACKEND;
     }
 
     return Status::SUCCESS;
@@ -103,18 +94,15 @@ class MyProcessor : public ProcessorForkable<MyProcessor> {
 };
 
 TEST_F(InferServerTestAPI, UserDefine) {
-  auto model = server_->LoadModel(model_url, "subnet0");
-  if (!model) {
-    std::cerr << "load model failed";
-    std::terminate();
-  }
+  auto model = server_->LoadModel(model_url);
+  ASSERT_TRUE(model) << "load model failed";
   auto preproc = MyProcessor::Create();
   SessionDesc desc;
   desc.name = "test user define";
   desc.model = model;
   desc.strategy = BatchStrategy::DYNAMIC;
   desc.preproc = std::move(preproc);
-  desc.batch_timeout = 100;
+  desc.batch_timeout = 10;
   desc.engine_num = 1;
   desc.show_perf = true;
   desc.priority = 0;

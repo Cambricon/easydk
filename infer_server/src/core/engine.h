@@ -29,7 +29,7 @@
 #include <utility>
 #include <vector>
 
-#include "infer_server.h"
+#include "cnis/infer_server.h"
 #include "util/thread_pool.h"
 
 namespace infer_server {
@@ -65,7 +65,7 @@ class Engine {
  public:
   using NotifyDoneFunc = std::function<void(Engine*)>;
   Engine() = default;
-  Engine(std::vector<std::shared_ptr<Processor>> processors, const NotifyDoneFunc& done_func, PriorityThreadPool* tp);
+  Engine(std::vector<std::shared_ptr<Processor>> processors, NotifyDoneFunc&& done_func, PriorityThreadPool* tp);
   ~Engine() {
     while (task_num_.load()) {
       // wait for all task done

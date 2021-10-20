@@ -22,13 +22,12 @@
 #define INFER_SERVER_CORE_PROFILE_H_
 
 #include <chrono>
-#include <unordered_map>
-#include <map>
 #include <limits>
+#include <map>
+#include <mutex>
 #include <string>
+#include <unordered_map>
 
-#include "infer_server.h"
-#include "util/spinlock.h"
 #include "util/timer.h"
 
 namespace infer_server {
@@ -108,7 +107,7 @@ class Profiler : public Clock {
   };
 
   void RequestStart() noexcept {
-    SpinLockGuard lk(mutex_);
+    std::lock_guard<std::mutex> lk(mutex_);
     if (processing_cnt_ == 0u) {
       start_time_ = Now();
     }
@@ -117,13 +116,13 @@ class Profiler : public Clock {
   }
 
   void Update() {
-    SpinLockGuard lk(mutex_);
+    std::lock_guard<std::mutex> lk(mutex_);
     Refresh();
   }
 
   void RequestEnd(uint32_t unit_cnt) noexcept {
     CHECK_NE(processing_cnt_, 0u);
-    SpinLockGuard lk(mutex_);
+    std::lock_guard<std::mutex> lk(mutex_);
     ++request_cnt_, ++period_request_cnt_;
     unit_cnt_ += unit_cnt;
     period_unit_cnt_ += unit_cnt;
@@ -172,7 +171,7 @@ class Profiler : public Clock {
     period_unit_cnt_ = 0;
   }
 
-  SpinLock mutex_;
+  std::mutex mutex_;
   Timer measure_timer_;
   time_point start_time_{time_point::min()};
   time_point last_update_;
@@ -197,7 +196,7 @@ class TagSetProfiler {
   void SetSelfUpdate(bool self_update) noexcept { self_update_ = self_update; }
 
   void RequestStart(const std::string& tag) noexcept {
-    SpinLockGuard lk(profilers_mutex_);
+    std::lock_guard<std::mutex> lk(profilers_mutex_);
     if (!profilers_.count(tag)) {
       profilers_[tag].Init(false);
     }
@@ -205,7 +204,7 @@ class TagSetProfiler {
   }
 
   void RequestEnd(const std::string& tag, uint32_t unit_cnt) noexcept {
-    SpinLockGuard lk(profilers_mutex_);
+    std::lock_guard<std::mutex> lk(profilers_mutex_);
     // cannot find tag at request end means tag has been discarded
     if (profilers_.count(tag)) {
       profilers_[tag].RequestEnd(unit_cnt);
@@ -213,12 +212,12 @@ class TagSetProfiler {
   }
 
   void RemoveTag(const std::string& tag) noexcept {
-    SpinLockGuard lk(profilers_mutex_);
+    std::lock_guard<std::mutex> lk(profilers_mutex_);
     profilers_.erase(tag);
   }
 
   float RequestPerSecond(const std::string& tag) noexcept {
-    SpinLockGuard lk(profilers_mutex_);
+    std::lock_guard<std::mutex> lk(profilers_mutex_);
     if (profilers_.count(tag)) {
       return profilers_[tag].RequestPerSecond();
     }
@@ -227,7 +226,7 @@ class TagSetProfiler {
   }
 
   float UnitPerSecond(const std::string& tag) noexcept {
-    SpinLockGuard lk(profilers_mutex_);
+    std::lock_guard<std::mutex> lk(profilers_mutex_);
     if (profilers_.count(tag)) {
       return profilers_[tag].UnitPerSecond();
     }
@@ -236,7 +235,7 @@ class TagSetProfiler {
   }
 
   float RequestThroughoutRealtime(const std::string& tag) noexcept {
-    SpinLockGuard lk(profilers_mutex_);
+    std::lock_guard<std::mutex> lk(profilers_mutex_);
     if (profilers_.count(tag)) {
       return profilers_[tag].RequestThroughoutRealtime();
     }
@@ -245,7 +244,7 @@ class TagSetProfiler {
   }
 
   float UnitThroughoutRealtime(const std::string& tag) noexcept {
-    SpinLockGuard lk(profilers_mutex_);
+    std::lock_guard<std::mutex> lk(profilers_mutex_);
     if (profilers_.count(tag)) {
       return profilers_[tag].UnitThroughoutRealtime();
     }
@@ -254,7 +253,7 @@ class TagSetProfiler {
   }
 
   ThroughoutStatistic Summary(const std::string& tag) noexcept {
-    SpinLockGuard lk(profilers_mutex_);
+    std::lock_guard<std::mutex> lk(profilers_mutex_);
     if (profilers_.count(tag)) {
       return profilers_[tag].Summary();
     }
@@ -263,7 +262,7 @@ class TagSetProfiler {
   }
 
   float RequestPerSecond() noexcept {
-    SpinLockGuard lk(profilers_mutex_);
+    std::lock_guard<std::mutex> lk(profilers_mutex_);
     float total = 0;
     for (auto& p : profilers_) {
       total += p.second.RequestPerSecond();
@@ -272,7 +271,7 @@ class TagSetProfiler {
   }
 
   float UnitPerSecond() noexcept {
-    SpinLockGuard lk(profilers_mutex_);
+    std::lock_guard<std::mutex> lk(profilers_mutex_);
     float total = 0;
     for (auto& p : profilers_) {
       total += p.second.UnitPerSecond();
@@ -281,7 +280,7 @@ class TagSetProfiler {
   }
 
   float RequestThroughoutRealtime() noexcept {
-    SpinLockGuard lk(profilers_mutex_);
+    std::lock_guard<std::mutex> lk(profilers_mutex_);
     float total = 0;
     for (auto& p : profilers_) {
       total += p.second.RequestThroughoutRealtime();
@@ -290,7 +289,7 @@ class TagSetProfiler {
   }
 
   float UnitThroughoutRealtime() noexcept {
-    SpinLockGuard lk(profilers_mutex_);
+    std::lock_guard<std::mutex> lk(profilers_mutex_);
     float total = 0;
     for (auto& p : profilers_) {
       total += p.second.UnitThroughoutRealtime();
@@ -299,7 +298,7 @@ class TagSetProfiler {
   }
 
   ThroughoutStatistic Summary() noexcept {
-    SpinLockGuard lk(profilers_mutex_);
+    std::lock_guard<std::mutex> lk(profilers_mutex_);
     ThroughoutStatistic ret;
     for (auto& p : profilers_) {
       auto tmp = p.second.Summary();
@@ -314,7 +313,7 @@ class TagSetProfiler {
   }
 
   void Update() noexcept {
-    SpinLockGuard lk(profilers_mutex_);
+    std::lock_guard<std::mutex> lk(profilers_mutex_);
     for (auto& p : profilers_) {
       p.second.Update();
     }
@@ -322,7 +321,7 @@ class TagSetProfiler {
 
  private:
   std::unordered_map<std::string, Profiler> profilers_;
-  SpinLock profilers_mutex_;
+  std::mutex profilers_mutex_;
   bool self_update_{true};
 };
 

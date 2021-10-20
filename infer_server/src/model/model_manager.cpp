@@ -39,7 +39,7 @@ std::mutex ModelManager::model_cache_mutex_;
 #define RETURN_VAL_IF_FAIL(cond, msg, ret_val) \
   do {                                         \
     if (!(cond)) {                             \
-      LOG(ERROR) << msg;                       \
+      LOG(ERROR) << (msg);                     \
       return ret_val;                          \
     }                                          \
   } while (0)
@@ -47,7 +47,7 @@ std::mutex ModelManager::model_cache_mutex_;
 namespace detail {
 struct BeginWith {
   explicit BeginWith(const std::string& str) noexcept : s(str) {}
-  inline bool operator()(const std::string& prefix) noexcept {
+  inline bool operator()(const std::string& prefix) const noexcept {
     if (s.size() < prefix.size()) return false;
     return prefix == s.substr(0, prefix.size());
   }
@@ -65,15 +65,15 @@ ModelManager* ModelManager::Instance() noexcept {
   return &m;
 }
 
-static inline const std::string GetModelKey(const std::string& model_path, const std::string& func_name) noexcept {
-  return model_path + func_name;
-};
+static inline std::string GetModelKey(const std::string& model_path, const std::string& func_name) noexcept {
+  return model_path + "_" + func_name;
+}
 
-static inline const std::string GetModelKey(const void* mem_ptr, const std::string& func_name) noexcept {
+static inline std::string GetModelKey(const void* mem_ptr, const std::string& func_name = "") noexcept {
   std::ostringstream ss;
-  ss << mem_ptr << func_name;
+  ss << mem_ptr << "_" << func_name;
   return ss.str();
-};
+}
 
 void ModelManager::CheckAndCleanCache() noexcept {
   if (model_cache_.size() >= GetUlongFromEnv("CNIS_MODEL_CACHE_LIMIT", 10)) {
@@ -86,6 +86,65 @@ void ModelManager::CheckAndCleanCache() noexcept {
   }
 }
 
+#ifdef CNIS_USE_MAGICMIND
+ModelPtr ModelManager::Load(const std::string& model_file) noexcept {
+  std::string model_path;
+  // check if model file exist
+  if (detail::IsNetFile(model_file)) {
+    model_path = DownloadModel(model_file);
+    RETURN_VAL_IF_FAIL(!model_path.empty(), "Download model graph file failed: " + model_file, nullptr);
+  } else {
+    model_path = model_file;
+    std::ifstream f;
+    f.open(model_path);
+    RETURN_VAL_IF_FAIL(f.is_open(), "Model file not exist. Please check model path: " + model_path, nullptr);
+    f.close();
+  }
+
+  std::string model_key = model_path;
+
+  std::unique_lock<std::mutex> lk(model_cache_mutex_);
+  if (model_cache_.find(model_key) == model_cache_.cend()) {
+    // cache not hit
+    LOG(INFO) << "Load model from model file: " << model_path;
+    auto model = std::make_shared<Model>();
+    if (!model->Init(model_path)) {
+      return nullptr;
+    }
+    CheckAndCleanCache();
+    model_cache_[model_key] = model;
+    return model;
+  } else {
+    // cache hit
+    LOG(INFO) << "Get model from cache";
+    return model_cache_.at(model_key);
+  }
+};
+
+ModelPtr ModelManager::Load(void* mem_ptr, size_t size) noexcept {
+  // check model in cache valid
+  RETURN_VAL_IF_FAIL(mem_ptr, "Invalid memory pointer, please check model cached in memory", nullptr);
+
+  std::string model_key = GetModelKey(mem_ptr);
+
+  std::unique_lock<std::mutex> lk(model_cache_mutex_);
+  if (model_cache_.find(model_key) == model_cache_.cend()) {
+    // cache not hit
+    LOG(INFO) << "Load model from memory: " << mem_ptr << ", size: " << size;
+    auto model = std::make_shared<Model>();
+    if (!model->Init(mem_ptr, size)) {
+      return nullptr;
+    }
+    CheckAndCleanCache();
+    model_cache_[model_key] = model;
+    return model;
+  } else {
+    // cache hit
+    LOG(INFO) << "Get model from cache";
+    return model_cache_.at(model_key);
+  }
+};
+#else
 ModelPtr ModelManager::Load(const std::string& url, const std::string& func_name) noexcept {
   std::string model_path;
   // check if model file exist
@@ -143,6 +202,7 @@ ModelPtr ModelManager::Load(void* mem_ptr, const std::string& func_name) noexcep
     return model_cache_.at(model_key);
   }
 };
+#endif
 
 std::shared_ptr<Model> ModelManager::GetModel(const std::string& name) noexcept {
   std::unique_lock<std::mutex> lk(model_cache_mutex_);

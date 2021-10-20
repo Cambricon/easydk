@@ -20,15 +20,15 @@
 
 #include <gtest/gtest.h>
 
+#include <algorithm>
 #include <cmath>
 #include <random>
-#include <algorithm>
 #include <vector>
 
+#include "cnis/infer_server.h"
 #include "cnrt.h"
 #include "core/data_type.h"
 #include "half.h"
-#include "infer_server.h"
 
 using infer_server::DataLayout;
 using infer_server::DataType;
@@ -67,11 +67,11 @@ TEST(InferServerCore, DataTypeStr) {
 }
 
 template <typename dtype>
-void Transpose(dtype* input_data, dtype* output_data,
-               const std::vector<int>& input_shape, const std::vector<int>& axis) {
+void Transpose(dtype* input_data, dtype* output_data, const std::vector<Shape::value_type>& input_shape,
+               const std::vector<int>& axis) {
   int old_index = -1;
   int new_index = -1;
-  const std::vector<int>& s = input_shape;
+  const std::vector<Shape::value_type>& s = input_shape;
 
   if (input_shape.size() != 4 || axis.size() != 4) {
     std::cerr << "only support 4 dimension\n";
@@ -155,7 +155,7 @@ TEST(InferServerCore, TransLayout_f32_u8) {
   for (size_t times = 0; times < repeat_times; ++times) {
     auto s = GenShape();
     size_t data_len = s.BatchDataCount();
-    std::vector<int> vec_s = s.Vectorize();
+    std::vector<Shape::value_type> vec_s = s.Vectorize();
     uint8_t* dst_baseline = new uint8_t[data_len];
     uint8_t* dst_tmp = new uint8_t[data_len];
     uint8_t* dst = new uint8_t[data_len];
@@ -188,7 +188,7 @@ TEST(InferServerCore, TransLayout_u8_f32) {
   for (size_t times = 0; times < repeat_times; ++times) {
     auto s = GenShape();
     size_t data_len = s.BatchDataCount();
-    std::vector<int> vec_s = s.Vectorize();
+    std::vector<Shape::value_type> vec_s = s.Vectorize();
     float* dst_baseline = new float[data_len];
     float* dst_tmp = new float[data_len];
     float* dst = new float[data_len];
@@ -221,7 +221,7 @@ TEST(InferServerCore, TransLayout_f32_f16) {
   for (size_t times = 0; times < repeat_times; ++times) {
     auto s = GenShape();
     size_t data_len = s.BatchDataCount();
-    std::vector<int> vec_s = s.Vectorize();
+    std::vector<Shape::value_type> vec_s = s.Vectorize();
     half* dst_baseline = new half[data_len];
     half* dst_tmp = new half[data_len];
     half* dst = new half[data_len];
@@ -254,7 +254,7 @@ TEST(InferServerCore, TransLayout_f16_f32) {
   for (size_t times = 0; times < repeat_times; ++times) {
     auto s = GenShape();
     size_t data_len = s.BatchDataCount();
-    std::vector<int> vec_s = s.Vectorize();
+    std::vector<Shape::value_type> vec_s = s.Vectorize();
     float* dst_baseline = new float[data_len];
     float* dst_tmp = new float[data_len];
     float* dst = new float[data_len];

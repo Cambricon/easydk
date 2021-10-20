@@ -5,10 +5,11 @@
 #include <memory>
 #include <string>
 
+#include "cnis/infer_server.h"
 #include "fixture.h"
-#include "infer_server.h"
 
 namespace infer_server {
+namespace {
 
 std::map<std::string, int> g_param_set{{"number1", 1}, {"number2", 2}, {"number4", 4}};
 
@@ -55,4 +56,5 @@ TEST_F(InferServerTestAPI, Processor) {
   EXPECT_TRUE(fork->HaveParam(g_param_set.begin()->first));
 }
 
+}  // namespace
 }  // namespace infer_server

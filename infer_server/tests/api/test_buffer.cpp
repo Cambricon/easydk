@@ -25,7 +25,8 @@
 #include <thread>
 #include <vector>
 
-#include "buffer.h"
+#include "cnis/buffer.h"
+#include "cxxutil/exception.h"
 #include "fixture.h"
 
 TEST_F(InferServerTestAPI, Buffer) {

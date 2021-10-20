@@ -46,7 +46,6 @@ class Batcher {
   }
 
   void AddItem(const item_type& item) {
-    VLOG(8) << "batcher add one item";
     std::unique_lock<std::mutex> lk(cache_mutex_);
     if (timeout_ && first_item_.load()) {
       timer_.Cancel();
@@ -60,7 +59,6 @@ class Batcher {
   }
 
   void AddItem(item_type&& item) {
-    VLOG(8) << "batcher add one item";
     std::unique_lock<std::mutex> lk(cache_mutex_);
     if (timeout_ && first_item_.load()) {
       timer_.Cancel();

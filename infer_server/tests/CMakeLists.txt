@@ -17,7 +17,6 @@ list(APPEND LINK_LIBS dl pthread gtest gtest_main ${OpenCV_LIBS} easydk cnis)
 # ---[ api tests
 file(GLOB apitest_srcs ${CMAKE_CURRENT_SOURCE_DIR}/api/*.cpp)
 add_executable(apitest_cnis ${apitest_srcs})
-
 add_sanitizers(apitest_cnis)
 
 if (CNIS_WITH_CONTRIB)
@@ -28,10 +27,9 @@ if (CNIS_WITH_CONTRIB)
 endif()
 
 target_include_directories(apitest_cnis PRIVATE
-                           ${NEUWARE_HOME}/include
+                           ${NEUWARE_INCLUDE_DIR}
                            ${CMAKE_CURRENT_SOURCE_DIR}/../../include
                            ${CMAKE_CURRENT_SOURCE_DIR}/../include
-                           ${CMAKE_CURRENT_SOURCE_DIR}/../contrib
                            ${CMAKE_CURRENT_SOURCE_DIR}/../src
                            ${CMAKE_CURRENT_SOURCE_DIR}/common
                            ${CMAKE_CURRENT_SOURCE_DIR}/api
@@ -42,7 +40,6 @@ target_compile_options(apitest_cnis PRIVATE "-Wno-deprecated-declarations")
 # ---[ unit tests
 file(GLOB unittest_srcs ${CMAKE_CURRENT_SOURCE_DIR}/unit/*.cpp)
 add_executable(unittest_cnis ${unittest_srcs})
-
 add_sanitizers(unittest_cnis)
 
 if (CNIS_RECORD_PERF)
@@ -50,7 +47,7 @@ if (CNIS_RECORD_PERF)
 endif()
 
 target_include_directories(unittest_cnis PRIVATE
-                           ${NEUWARE_HOME}/include
+                           ${NEUWARE_INCLUDE_DIR}
                            ${CMAKE_CURRENT_SOURCE_DIR}/../../include
                            ${CMAKE_CURRENT_SOURCE_DIR}/../include
                            ${CMAKE_CURRENT_SOURCE_DIR}/../src

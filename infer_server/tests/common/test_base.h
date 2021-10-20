@@ -24,9 +24,10 @@
 #include <gtest/gtest.h>
 #include <unistd.h>
 
+#include <iostream>
 #include <string>
 
-#include "device/mlu_context.h"
+#include "cnis/infer_server.h"
 
 inline std::string GetExePath() {
   constexpr int PATH_MAX_LENGTH = 1024;
@@ -46,16 +47,34 @@ inline std::string GetExePath() {
 
 class InferServerTest : public testing::Test {
  protected:
-  void SetMluContext() {
-    edk::MluContext context;
-    context.SetDeviceId(0);
-    context.BindDevice();
-    version_ = context.GetCoreVersion();
-  }
+  void SetMluContext() { infer_server::SetCurrentDevice(device_id_); }
   void SetUp() override { SetMluContext(); }
   void TearDown() override {}
-  edk::CoreVersion version_;
   static constexpr int device_id_ = 0;
+};
+
+class TestProcessor : public infer_server::ProcessorForkable<TestProcessor> {
+ public:
+  TestProcessor() noexcept : infer_server::ProcessorForkable<TestProcessor>("TestProcessor") {
+    std::cout << "[TestProcessor] Construct\n";
+  }
+
+  ~TestProcessor() { std::cout << "[TestProcessor] Destruct\n"; }
+
+  infer_server::Status Process(infer_server::PackagePtr data) noexcept override {
+    std::cout << "[TestProcessor] Process\n";
+    if (!initialized_) return infer_server::Status::ERROR_BACKEND;
+    return infer_server::Status::SUCCESS;
+  }
+
+  infer_server::Status Init() noexcept override {
+    std::cout << "[TestProcessor] Init\n";
+    initialized_ = true;
+    return infer_server::Status::SUCCESS;
+  }
+
+ private:
+  bool initialized_{false};
 };
 
 #endif  // INFER_SERVER_TEST_BASE_H_

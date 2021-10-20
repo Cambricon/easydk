@@ -19,16 +19,17 @@
  *************************************************************************/
 
 #include <glog/logging.h>
+#include <fstream>
 #include <memory>
+#include <string>
 #include <utility>
 #include <vector>
 
 #include "cnrt.h"
 
+#include "cnis/processor.h"
 #include "core/data_type.h"
-#include "device/mlu_context.h"
 #include "model/model.h"
-#include "processor.h"
 
 using std::shared_ptr;
 using std::vector;
@@ -44,6 +45,34 @@ namespace infer_server {
     }                                                \
   } while (0)
 struct PredictorPrivate {
+  // FIXME(dmh): data is not always float
+  void DumpData(vector<Buffer>& in, vector<Buffer>& out) {
+    // input
+    int64_t in_data_count = model->InputShape(0).BatchDataCount();
+    size_t in_data_size = in_data_count * GetTypeSize(model->InputLayout(0).dtype);
+    Buffer in_cpu(in_data_size);
+    in_cpu.CopyFrom(in[0], in_data_size);
+    const float* i_data = reinterpret_cast<const float*>(in_cpu.Data());
+
+    std::ofstream in_file("in.txt");
+    for (int idx = 0; idx < in_data_count; ++idx) {
+      in_file << i_data[idx] << "\n";
+    }
+    in_file.close();
+
+    // output
+    int64_t data_count = model->OutputShape(0).BatchDataCount();
+    size_t data_size = data_count * GetTypeSize(layouts[0].dtype);
+    Buffer out_cpu(data_size);
+    out_cpu.CopyFrom(out[0], data_size);
+    const float* o_data = reinterpret_cast<const float*>(out_cpu.Data());
+
+    std::ofstream out_file("out.txt");
+    for (int idx = 0; idx < data_count; ++idx) {
+      out_file << o_data[idx] << "\n";
+    }
+    out_file.close();
+  }
   ModelPtr model{nullptr};
   vector<std::unique_ptr<MluMemoryPool>> output_pools;
   std::shared_ptr<ModelRunner> runner;
@@ -73,12 +102,7 @@ Status Predictor::Init() noexcept {
     priv_->model = GetParam<ModelPtr>("model_info");
     device_id = GetParam<int>("device_id");
 
-    edk::MluContext ctx;
-    ctx.SetDeviceId(device_id);
-    ctx.BindDevice();
-  } catch (edk::Exception& e) {
-    LOG(ERROR) << e.what();
-    return Status::ERROR_BACKEND;
+    if (!SetCurrentDevice(device_id)) return Status::ERROR_BACKEND;
   } catch (bad_any_cast&) {
     LOG(ERROR) << "unmatched param type";
     return Status::WRONG_TYPE;
@@ -115,10 +139,28 @@ Status Predictor::Process(PackagePtr pack) noexcept {
   Status s = Status::SUCCESS;
   try {
     ModelIO& in_mlu = cdata->GetLref<ModelIO>();
+#ifdef CNIS_INFER_SHAPE_MUTABLE
+    out_mlu.shapes = priv_->runner->InferOutputShape(in_mlu.shapes);
+    if (out_mlu.shapes.empty()) {
+      LOG(ERROR) << "Invalid shapes: " << in_mlu.shapes;
+      return Status::ERROR_BACKEND;
+    }
+    size_t need_size;
+    for (size_t idx = 0; idx < priv_->output_pools.size(); ++idx) {
+      need_size = out_mlu.shapes[idx].BatchDataCount() * GetTypeSize(priv_->layouts[idx].dtype);
+      if (need_size > priv_->output_pools[idx]->MemorySize()) {
+        LOG(INFO) << "size larger than mem pool, malloc buffer instantly";
+        out_mlu.buffers.emplace_back(need_size, priv_->output_pools[idx]->DeviceId());
+      } else {
+        out_mlu.buffers.emplace_back(priv_->output_pools[idx]->Request());
+      }
+    }
+#else
     for (size_t idx = 0; idx < priv_->output_pools.size(); ++idx) {
       out_mlu.buffers.emplace_back(priv_->output_pools[idx]->Request());
       out_mlu.shapes.emplace_back(priv_->model->OutputShape(idx));
     }
+#endif
     s = priv_->runner->Run(in_mlu.buffers, out_mlu.buffers);
   } catch (bad_any_cast&) {
     LOG(ERROR) << "predictor received unsupported data type";
@@ -127,6 +169,14 @@ Status Predictor::Process(PackagePtr pack) noexcept {
 
   cdata->Set(std::move(out_mlu));
   return s;
+}
+
+std::string Predictor::Backend() noexcept {
+#ifdef CNIS_USE_MAGICMIND
+  return "magicmind";
+#else
+  return "cnrt";
+#endif
 }
 
 }  // namespace infer_server

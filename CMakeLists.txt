@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 2.8.7)
+cmake_minimum_required(VERSION 2.8.12)
 if(POLICY CMP0046)
   cmake_policy(SET CMP0046 NEW)
 endif()
@@ -9,48 +9,41 @@ endif()
 # ---[ easydk project
 project(easydk C CXX)
 
-set(EDK_VERSION 2.5.0)
 set(EDK_VERSION_MAJOR 2)
+set(EDK_VERSION_MINOR 6)
+set(EDK_VERSION_PATCH 0)
+set(EDK_VERSION "${EDK_VERSION_MAJOR}.${EDK_VERSION_MINOR}.${EDK_VERSION_PATCH}")
 
 #######################################################################
 # -- Build Flags
 
-option(MLU "MLU platform" MLU270)
-
 option(BUILD_TESTS "Build all of modules' unit-tests" OFF)
-option(BUILD_SAMPLES "Build samples" OFF)
-option(RELEASE "Build type" ON)
+option(BUILD_SAMPLES "Build samples" ON)
 option(CODE_COVERAGE_TEST "Build code coverage test" OFF)
 
 option(WITH_CODEC "Build easy codec" ON)
 option(WITH_INFER "Build easy infer" ON)
 option(WITH_TRACKER "Build easy tracker" ON)
 option(WITH_BANG "Build easy Bang" ON)
-option(WITH_CNPLUGIN "Build CNPlugin operator" OFF)
 option(ENABLE_KCF "Build with KCF track" OFF)
 
 option(WITH_INFER_SERVER "Build infer server" ON)
-option(WITH_TURBOJPEG "Build Turbo Jpeg" ON)
+option(WITH_TURBOJPEG "Build Turbo Jpeg" OFF)
 
 option(SANITIZE_MEMORY "Enable MemorySanitizer for sanitized targets." OFF)
 option(SANITIZE_ADDRESS "Enable AddressSanitizer for sanitized targets." OFF)
 option(SANITIZE_THREAD "Enable ThreadSanitizer for sanitized targets." OFF)
 option(SANITIZE_UNDEFINED "Enable UndefinedBehaviorSanitizer for sanitized targets." OFF)
 
-if (RELEASE)
-  set(CMAKE_BUILD_TYPE RELEASE)
-else()
-  set(CMAKE_BUILD_TYPE DEBUG)
-endif()
-
 set(CMAKE_CXX_FLAGS "-fPIC -Wall -Werror -std=c++11 -D_REENTRANT")
+set(CMAKE_CXX_FLAGS_DEBUG "-g")
+set(CMAKE_CXX_FLAGS_RELEASE "-DNDEBUG -O3")
+set(CMAKE_SHARED_LINKER_FLAGS "-Wl,--no-as-needed")
+
 if(CODE_COVERAGE_TEST)
   message(STATUS "Build with code coverage test")
   set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fprofile-arcs -ftest-coverage")
 endif()
-set(CMAKE_CXX_FLAGS_DEBUG "-DDEBUG -g")
-set(CMAKE_CXX_FLAGS_RELEASE "-DNDEBUG -O3")
-set(CMAKE_SHARED_LINKER_FLAGS "-Wl,--as-needed")
 
 set(CMAKE_INSTALL_DEFAULT_PREFIX "${PROJECT_SOURCE_DIR}/dist")
 if(CMAKE_INSTALL_PREFIX_INITIALIZED_TO_DEFAULT)
@@ -60,102 +53,32 @@ if(CMAKE_INSTALL_PREFIX_INITIALIZED_TO_DEFAULT)
 endif()
 message(STATUS "CMAKE_INSTALL_PREFIX = ${CMAKE_INSTALL_PREFIX}")
 
+if (NOT CMAKE_BUILD_TYPE)
+  set(CMAKE_BUILD_TYPE Release)
+endif()
 message(STATUS "!!!!! BUILD ${CMAKE_BUILD_TYPE} !!!!!")
-
-set(CMAKE_MODULE_PATH "${PROJECT_SOURCE_DIR}/cmake")
-find_package(Sanitizers)
 
 #######################################################################
 
-# judge platform according to MLU option and CMAKE_TOOLCHAIN_FILE
-if (MLU STREQUAL MLU270 OR MLU STREQUAL MLU220)
-  message(STATUS "generate MLU200 CLOUD Makefile")
-  set(MLU_PLATFORM MLU200CLOUD)
-elseif (MLU STREQUAL MLU220EDGE)
-  if (CMAKE_TOOLCHAIN_FILE)
-    message(STATUS "generate MLU200 EDGE Makefile")
-    set(MLU_PLATFORM MLU200EDGE)
-  else()
-    message(FATAL_ERROR "compiling on MLU220 EDGE need a cross-compile toolchain file")
-  endif()
-else()
-  message(STATUS "generate default (MLU200 CLOUD) Makefile")
-  set(MLU_PLATFORM MLU200CLOUD)
+set(CMAKE_MODULE_PATH ${PROJECT_SOURCE_DIR}/cmake ${PROJECT_SOURCE_DIR}/cmake/sanitizer)
+find_package(Sanitizers)
+
+# disable KCF
+if (WITH_TRACKER AND ENABLE_KCF)
+  message(WARNING "disable KCF since it's not supported on MLU220EDGE for now")
+  set(ENABLE_KCF OFF)
 endif()
 
-# platform involved dependencies
-if (MLU_PLATFORM STREQUAL MLU200EDGE)
-  # ---------------------- MLU200 EDGE --------------------------
-  # neuware include/libs
-  if(NOT DEFINED ENV{NEUWARE_HOME})
-    message(FATAL_ERROR "compiling on MLU220 EDGE need environment variable `NEUWARE_HOME`")
-  endif()
-  set(NEUWARE_HOME $ENV{NEUWARE_HOME})
-
-  set(CODE_DEFINITIONS "EDK_MLU200_EDGE")
-
-  # disable KCF and CNPLUGIN
-  if (WITH_TRACKER AND ENABLE_KCF)
-    message(WARNING "disable KCF since it's not supported on MLU220EDGE for now")
-    set(ENABLE_KCF OFF)
-  endif()
-  if (WITH_CNPLUGIN)
-    message(WARNING "disable cnplugin since it's not supported on MLU220EDGE for now")
-    set(WITH_CNPLUGIN OFF)
-  endif()
-else()
-  # ---------------------- MLU200 CLOUD --------------------------
-  # neuware include/libs
-  if(NOT DEFINED ENV{NEUWARE_HOME})
-    set(ENV{NEUWARE_HOME} /usr/local/neuware)
-  endif()
-  set(NEUWARE_HOME $ENV{NEUWARE_HOME})
-
-  set(CODE_DEFINITIONS "EDK_MLU200_CLOUD")
-
-  # cnplugin
-  if(WITH_CNPLUGIN)
-    # ---[ cnml
-    set(CNML_LIBS ${NEUWARE_HOME}/lib64/libcnml.so)
-    # ---[ cnplugin
-    set(CNPLUGIN_LIBS ${NEUWARE_HOME}/lib64/libcnplugin.so)
-  endif()
-endif()
+find_package(MLU)
 
 # set runtime path
 set(CMAKE_BUILD_RPATH "$ORIGIN;${NEUWARE_HOME}/lib64;")
 set(CMAKE_INSTALL_RPATH "$ORIGIN;${CMAKE_INSTALL_PREFIX}/lib;${NEUWARE_HOME}/lib64;")
 
-# ---[ cnrt
-set(CNRT_LIBS "${NEUWARE_HOME}/lib64/libcnrt.so")
-
-# ---[ cncodec
-if(WITH_CODEC)
-  set(CNCODEC_LIBS "${NEUWARE_HOME}/lib64/libcncodec.so")
-  if (MLU_PLATFORM STREQUAL MLU200EDGE)
-    list(APPEND CNCODEC_LIBS "${NEUWARE_HOME}/lib64/libion.so")
-  endif()
-endif()
-
-if(WITH_TURBOJPEG)
-  message("------------------- Turbo-JPEG and libyuv -----------------------")
-  set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -fPIC -fvisibility=hidden")
-  set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fvisibility=hidden")
-  list(APPEND CODE_DEFINITIONS "ENABLE_TURBOJPEG")
-  add_subdirectory(3rdparty/libjpeg-turbo)
-  add_subdirectory(3rdparty/libyuv)
-  set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -fvisibility=default")
-  set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fvisibility=default")
-  set(TURBOJPEG_INCLUDE_DIRS "${PROJECT_SOURCE_DIR}/3rdparty/libyuv/include"
-                             "${PROJECT_SOURCE_DIR}/3rdparty/libjpeg-turbo")
-  set(TURBOJPEG_LIBRARIES turbojpeg-static yuv)
-  message("------------------- Turbo-JPEG and libyuv END -----------------------")
-endif()
-
-# find backward
-include(${PROJECT_SOURCE_DIR}/3rdparty/backward/BackwardConfig.cmake)
-
 # ------------------- Sources -----------------------
+
+configure_file(${PROJECT_SOURCE_DIR}/config.h.in
+               ${PROJECT_SOURCE_DIR}/include/device/config.h)
 
 file(GLOB cxxutil_srcs ${CMAKE_CURRENT_SOURCE_DIR}/src/cxxutil/*.cpp)
 file(GLOB device_srcs ${CMAKE_CURRENT_SOURCE_DIR}/src/device/*.cpp)
@@ -179,7 +102,7 @@ if(WITH_TRACKER)
   file(GLOB_RECURSE track_srcs ${CMAKE_CURRENT_SOURCE_DIR}/src/easytrack/*.cpp)
   if(ENABLE_KCF)
     set(KCF_LIBS "${CMAKE_CURRENT_SOURCE_DIR}/src/easytrack/kcf/libkcf_mlu270.a")
-    list(APPEND CODE_DEFINITIONS "ENABLE_KCF")
+    list(APPEND EDK_DEFINITIONS "ENABLE_KCF")
   endif()
   install(DIRECTORY include/easytrack DESTINATION include)
 endif()
@@ -197,11 +120,6 @@ if(WITH_BANG)
   endif()
 endif()
 
-if(WITH_CNPLUGIN)
-  file(GLOB_RECURSE plugin_srcs ${CMAKE_CURRENT_SOURCE_DIR}/src/easyplugin/*.cpp)
-  install(DIRECTORY include/easyplugin DESTINATION include)
-endif()
-
 message(STATUS "@@@@@@@@@@@ Target : easydk")
 add_library(easydk SHARED
             ${cxxutil_srcs}
@@ -210,28 +128,43 @@ add_library(easydk SHARED
             ${codec_srcs}
             ${resize_srcs}
             ${resize_and_convert_srcs}
-            ${track_srcs}
-            ${plugin_srcs})
+            ${track_srcs})
 
 target_include_directories(easydk PRIVATE
-                           ${NEUWARE_HOME}/include
-                           ${CMAKE_CURRENT_SOURCE_DIR}/include
-                           ${TURBOJPEG_INCLUDE_DIRS}
-                           ${BACKWARD_INCLUDE_DIRS})
+                           ${NEUWARE_INCLUDE_DIR}
+                           ${CMAKE_CURRENT_SOURCE_DIR}/include)
 
 target_link_libraries(easydk PUBLIC
                       ${CNRT_LIBS}
-                      ${CNCODEC_LIBS}
-                      ${CNML_LIBS}
-                      ${CNPLUGIN_LIBS}
-                      ${KCF_LIBS}
-                      ${BACKWARD_LIBRARIES})
+                      ${CNDRV_LIBS}
+                      ${KCF_LIBS})
 
-if(WITH_TURBOJPEG)
-  target_link_libraries(easydk PRIVATE ${TURBOJPEG_LIBRARIES})
+if(WITH_CODEC)
+  target_link_libraries(easydk PUBLIC ${CNCODEC_LIBS})
+
+  # turbojpeg and libyuv
+  if(WITH_TURBOJPEG)
+    message("------------------- Turbo-JPEG and libyuv -----------------------")
+    set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -fPIC -fvisibility=hidden")
+    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fvisibility=hidden")
+    add_subdirectory(3rdparty/libjpeg-turbo)
+    add_subdirectory(3rdparty/libyuv)
+    set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -fvisibility=default")
+    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fvisibility=default")
+    message("------------------- Turbo-JPEG and libyuv END -----------------------")
+  
+    list(APPEND EDK_DEFINITIONS "ENABLE_TURBOJPEG")
+    target_include_directories(easydk PRIVATE "${PROJECT_SOURCE_DIR}/3rdparty/libyuv/include"
+                                              "${PROJECT_SOURCE_DIR}/3rdparty/libjpeg-turbo")
+    target_link_libraries(easydk PRIVATE turbojpeg-static yuv)
+  endif()
 endif()
 
-target_compile_definitions(easydk PRIVATE ${CODE_DEFINITIONS} ${BACKWARD_DEFINITIONS})
+# backward
+include(${PROJECT_SOURCE_DIR}/3rdparty/backward/BackwardConfig.cmake)
+target_include_directories(easydk PRIVATE ${BACKWARD_INCLUDE_DIRS})
+target_link_libraries(easydk PUBLIC ${BACKWARD_LIBRARIES})
+target_compile_definitions(easydk PRIVATE ${EDK_DEFINITIONS} ${BACKWARD_DEFINITIONS})
 
 set_target_properties(easydk PROPERTIES VERSION ${EDK_VERSION})
 set_target_properties(easydk PROPERTIES SOVERSION ${EDK_VERSION_MAJOR})
@@ -251,8 +184,5 @@ if(BUILD_TESTS)
   message(STATUS "----------------- Build tests ------------------")
   add_subdirectory(3rdparty/googletest)
   add_subdirectory(tests)
-  # This must be set in the root directory for the tests to be run by
-  # 'make test' or ctest.
-  enable_testing()
 endif()
 

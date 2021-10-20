@@ -34,10 +34,7 @@
 #include "shape.h"
 #include "util/any.h"
 #include "util/base_object.h"
-
-#define CNIS_VERSION_MAJOR 0
-#define CNIS_VERSION_MINOR 7
-#define CNIS_VERSION_PATCH 0
+#include "config.h"
 
 #define CNIS_GET_VERSION(major, minor, patch) (((major) << 20) | ((minor) << 10) | (patch))
 #define CNIS_VERSION CNIS_GET_VERSION(CNIS_VERSION_MAJOR, CNIS_VERSION_MINOR, CNIS_VERSION_PATCH)
@@ -126,6 +123,33 @@ inline std::string Version() {
 }
 
 /**
+ * @brief Set current deivce for this thread
+ *
+ * @param device_id device id
+ *
+ * @retval true success
+ * @retval false set device failed
+ */
+bool SetCurrentDevice(int device_id) noexcept;
+
+/**
+ * @brief Check whether device is accessible
+ *
+ * @param device_id device id
+ *
+ * @retval true device is accessible
+ * @retval false no such device
+ */
+bool CheckDevice(int device_id) noexcept;
+
+/**
+ * @brief Get total device count
+ *
+ * @retval device count
+ */
+uint32_t TotalDeviceCount() noexcept;
+
+/**
  * @brief Model interface
  */
 class ModelInfo {
@@ -188,21 +212,6 @@ class ModelInfo {
   virtual uint32_t BatchSize() const noexcept = 0;
 
   /**
-   * @brief Get model path
-   *
-   * @note model path is pointer address to memory if model is loaded from memory
-   * @return const std::string& model path
-   */
-  virtual const std::string& Path() const noexcept = 0;
-
-  /**
-   * @brief Get function name
-   *
-   * @return const std::string& function name
-   */
-  virtual const std::string& FunctionName() const noexcept = 0;
-
-  /**
    * @brief Get model key
    *
    * @return const std::string& model key
@@ -210,22 +219,6 @@ class ModelInfo {
   virtual std::string GetKey() const noexcept = 0;
 
   // ----------- Observers End -----------
-
-  /**
-   * @brief Alloc input memory on specified MLU
-   *
-   * @param device_id MLU device id
-   * @return std::vector<Buffer> input memory
-   */
-  virtual std::vector<Buffer> AllocMluInput(int device_id) const noexcept = 0;
-
-  /**
-   * @brief Alloc output memory on specified MLU
-   *
-   * @param device_id MLU device id
-   * @return std::vector<Buffer> output memory
-   */
-  virtual std::vector<Buffer> AllocMluOutput(int device_id) const noexcept = 0;
 };  // class ModelInfo
 
 using ModelPtr = std::shared_ptr<ModelInfo>;
@@ -415,7 +408,7 @@ class Processor : public BaseObject {
 };  // class Processor
 
 /**
- * @brief A convenient CRTP template provided `Fork` function
+ * @brief A convenient CRTP template provided `Fork` and `Create` function
  *
  * @tparam T Type of derived class
  */
@@ -662,21 +655,33 @@ class InferServer {
   /**
    * @brief Load model from uri, model won't be loaded again if it is already in cache
    *
-   * @note support download model from remote by HTTP, HTTPS, FTP, while compiled with flag `WITH_CURL`
-   * @param uri model uri, such as `../../model_file`, or "https://someweb/model_file"
-   * @param func_name name of function to be extracted
+   * @note support download model from remote by HTTP, HTTPS, FTP, while compiled with flag `WITH_CURL`,
+   *       use uri such as `../../model_file`, or "https://someweb/model_file"
+   * @param pattern1 offline model uri
+   * @param pattern2 extracted function name, work only if backend is cnrt
    * @return ModelPtr A model
    */
-  static ModelPtr LoadModel(const std::string& uri, const std::string& func_name = "subnet0") noexcept;
+  static ModelPtr LoadModel(const std::string& pattern1, const std::string& pattern2 = "subnet0") noexcept;
 
+#ifdef CNIS_USE_MAGICMIND
   /**
    * @brief Load model from memory, model won't be loaded again if it is already in cache
    *
-   * @param mem_ptr serialized model data in memory
+   * @param ptr serialized model data in memory
+   * @param size size of model data in memory
+   * @return ModelPtr A model
+   */
+  static ModelPtr LoadModel(void* ptr, size_t size) noexcept;
+#else
+  /**
+   * @brief Load model from memory, model won't be loaded again if it is already in cache
+   *
+   * @param ptr serialized model data in memory
    * @param func_name name of function to be extracted
    * @return ModelPtr A model
    */
-  static ModelPtr LoadModel(void* mem_ptr, const std::string& func_name = "subnet0") noexcept;
+  static ModelPtr LoadModel(void* ptr, const std::string& func_name = "subnet0") noexcept;
+#endif
 
   /**
    * @brief Remove model from cache, model won't be destroyed if still in use

@@ -23,6 +23,7 @@
 #include <glog/logging.h>
 
 #include <map>
+#include <string>
 #include <utility>
 #include <vector>
 
@@ -79,13 +80,13 @@ void TaskNode::Transmit(PackagePtr&& pack) noexcept {
     // tail of process, response to user
     for (auto& it : pack->data) {
       // SUCCESS flag won't cover errors happended before
-      it->ctrl->ProcessDone(Status::SUCCESS, it, it->index, perf);
+      it->ctrl->ProcessDone(Status::SUCCESS, it, it->index, std::move(perf));
     }
     done_notifier_();
   }
 }
 
-Engine::Engine(std::vector<std::shared_ptr<Processor>> processors, const NotifyDoneFunc& done_func,
+Engine::Engine(std::vector<std::shared_ptr<Processor>> processors, NotifyDoneFunc&& done_func,
                PriorityThreadPool* tp)
     : done_notifier_(std::move(done_func)), tp_(tp) {
   nodes_.reserve(processors.size());
@@ -104,7 +105,7 @@ Engine::Engine(std::vector<std::shared_ptr<Processor>> processors, const NotifyD
 }
 
 std::unique_ptr<Engine> Engine::Fork() {
-  auto fork_engine = new Engine;
+  auto* fork_engine = new Engine;
   fork_engine->tp_ = tp_;
   fork_engine->done_notifier_ = done_notifier_;
   fork_engine->nodes_.reserve(nodes_.size());

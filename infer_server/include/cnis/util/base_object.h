@@ -27,7 +27,7 @@
 #include <utility>
 #include <vector>
 
-#include "util/any.h"
+#include "any.h"
 
 namespace infer_server {
 

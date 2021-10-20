@@ -31,7 +31,7 @@ void ThreadPool<Q, T>::Resize(size_t n_threads) noexcept {
     size_t old_n_threads = threads_.size();
     if (old_n_threads <= n_threads) {
       // if the number of threads is increased
-      VLOG(3) << "add " << n_threads - old_n_threads << " threads into threadpool";
+      VLOG(3) << "add " << n_threads - old_n_threads << " threads into threadpool, total " << n_threads << " threads";
       threads_.resize(n_threads);
       flags_.resize(n_threads);
 
@@ -41,17 +41,15 @@ void ThreadPool<Q, T>::Resize(size_t n_threads) noexcept {
       }
     } else {
       // the number of threads is decreased
-      VLOG(3) << "stop " << old_n_threads - n_threads << " threads in threadpool, remain " << n_threads << " threads";
-      for (size_t i = old_n_threads - 1; i >= n_threads; --i) {
+      VLOG(3) << "remove " << old_n_threads - n_threads << " threads in threadpool, remain " << n_threads << " threads";
+      for (size_t i = n_threads; i < old_n_threads; ++i) {
         // this thread will finish
         flags_[i]->store(true);
         threads_[i]->detach();
       }
 
-      {
-        // stop the detached threads that were waiting
-        cv_.notify_all();
-      }
+      // stop the detached threads that were waiting
+      cv_.notify_all();
 
       // safe to delete because the threads are detached
       threads_.resize(n_threads);
@@ -63,10 +61,12 @@ void ThreadPool<Q, T>::Resize(size_t n_threads) noexcept {
 
 template <typename Q, typename T>
 void ThreadPool<Q, T>::Stop(bool wait_all_task_done) noexcept {
+  VLOG(4) << "Before stop threadpool ----- Task number in queue: " << task_q_.Size()
+          << ", thread number: " << threads_.size() << ", idle number: " << IdleNumber();
   if (!wait_all_task_done) {
     if (is_stop_) return;
     VLOG(3) << "stop all the thread without waiting for remained task done";
-    is_stop_ = true;
+    is_stop_.store(true);
     for (size_t i = 0, n = this->Size(); i < n; ++i) {
       // command the threads to stop
       flags_[i]->store(true);
@@ -78,10 +78,14 @@ void ThreadPool<Q, T>::Stop(bool wait_all_task_done) noexcept {
     if (is_done_ || is_stop_) return;
     VLOG(3) << "waiting for remained task done before stop all the thread";
     // give the waiting threads a command to finish
-    is_done_ = true;
+    is_done_.store(true);
   }
 
-  cv_.notify_all();  // stop all waiting threads
+  {
+    // may stuck on thread::join if no lock here
+    std::unique_lock<std::mutex> lock(mutex_);
+    cv_.notify_all();  // stop all waiting threads
+  }
 
   // wait for the computing threads to finish
   for (size_t i = 0; i < threads_.size(); ++i) {
@@ -133,7 +137,6 @@ void ThreadPool<Q, T>::SetThread(int i) noexcept {
         return have_task || is_done_ || flag.load();
       });
       --n_waiting_;
-      lock.unlock();
 
       // if the queue is empty and is_done_ == true or *flag then return
       if (!have_task) return;

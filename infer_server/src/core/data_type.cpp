@@ -20,9 +20,10 @@
 
 #include "data_type.h"
 
+#include <algorithm>
 #include <vector>
 
-#include "processor.h"
+#include "cnis/processor.h"
 
 namespace infer_server {
 namespace detail {
@@ -30,42 +31,55 @@ namespace detail {
 #define CHECK_CNRT_RET(ret, msg, val)              \
   do {                                             \
     if ((ret) != CNRT_RET_SUCCESS) {               \
-      LOG(ERROR) << msg << " error code: " << ret; \
+      LOG(ERROR) << (msg) << " error code: " << (ret); \
       return val;                                  \
     }                                              \
   } while (0)
 
-bool TransLayout(void *src_data, void *dst_data, const DataLayout &src_layout, const DataLayout &dst_layout,
-                 const Shape &shape) {
+bool TransLayout(void *src_data, void *dst_data, DataLayout src_layout, DataLayout dst_layout, const Shape &shape) {
+  VLOG(5) << "[Translayout] src layout: " << DataTypeStr(src_layout.dtype) << " | " << DimOrderStr(src_layout.order);
+  VLOG(5) << "              dst layout: " << DataTypeStr(dst_layout.dtype) << " | " << DimOrderStr(dst_layout.order);
   if (src_layout.order != DimOrder::NHWC && src_layout.order != DimOrder::NCHW) {
     LOG(ERROR) << "TransLayout: Unsupport data order(src).";
     return false;
   }
 
   char bits = 0;
-  if (src_layout.dtype != dst_layout.dtype) bits |= 1 << 0;
-  if (src_layout.order != dst_layout.order) bits |= 1 << 1;
-  cnrtRet_t error_code = CNRT_RET_SUCCESS;
-  int size = shape.BatchDataCount();
-  auto shape_vec = shape.Vectorize();
-  int *dim_values = shape_vec.data();
+  if (src_layout.dtype != dst_layout.dtype) {
+    bits |= 1 << 0;
+    VLOG(5) << "cast " << DataTypeStr(src_layout.dtype) << " to " << DataTypeStr(dst_layout.dtype);
+  }
   size_t n_dims = shape.Size();
   std::vector<int> axis(n_dims);
-  axis[0] = 0;
-  if (dst_layout.order == DimOrder::NHWC) {
-    for (size_t i = 1; i < n_dims - 1; ++i) {
-      axis[i] = i + 1;
+  if (src_layout.order != dst_layout.order) {
+    bits |= 1 << 1;
+    axis[0] = 0;
+    if (dst_layout.order == DimOrder::NHWC) {
+      VLOG(5) << "transform NCHW to NHWC";
+      for (size_t i = 1; i < n_dims - 1; ++i) {
+        axis[i] = i + 1;
+      }
+      if (n_dims > 1) axis[n_dims - 1] = 1;
+    } else if (dst_layout.order == DimOrder::NCHW) {
+      VLOG(5) << "transform NHWC to NCHW";
+      if (n_dims > 1) axis[1] = n_dims - 1;
+      for (size_t i = 2; i < n_dims; ++i) {
+        axis[i] = i - 1;
+      }
+    } else {
+      LOG(ERROR) << "TransLayout: Unsupport data order(dst).";
+      return false;
     }
-    if (n_dims > 1) axis[n_dims - 1] = 1;
-  } else if (dst_layout.order == DimOrder::NCHW) {
-    if (n_dims > 1) axis[1] = n_dims - 1;
-    for (size_t i = 2; i < n_dims; ++i) {
-      axis[i] = i - 1;
-    }
-  } else {
-    LOG(ERROR) << "TransLayout: Unsupport data order(dst).";
-    return false;
   }
+
+  cnrtRet_t error_code = CNRT_RET_SUCCESS;
+  int size = shape.BatchDataCount();
+  auto shape_vec_i64 = shape.Vectorize();
+  std::vector<int> shape_vec;
+  std::transform(shape_vec_i64.begin(), shape_vec_i64.end(), std::back_inserter(shape_vec),
+                 [](Shape::value_type v) -> int { return v; });
+  int *dim_values = shape_vec.data();
+
   switch (bits) {
     case 1 << 0:
       error_code = cnrtCastDataType(src_data, detail::CastDataType(src_layout.dtype), dst_data,

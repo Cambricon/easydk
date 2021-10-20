@@ -20,6 +20,7 @@
 
 #include "request_ctrl.h"
 
+#include <cassert>
 #include <map>
 #include <string>
 
@@ -28,13 +29,13 @@
 namespace infer_server {
 
 void RequestControl::ProcessDone(Status status, InferDataPtr output, uint32_t index,
-                                 std::map<std::string, float> perf) noexcept {
+                                 std::map<std::string, float>&& perf) noexcept {
   if (output) {
     CHECK_LT(index, data_num_);
     output_->data[index] = std::move(output);
   }
 
-  SpinLockGuard lk(done_mutex_);
+  std::lock_guard<std::mutex> lk(done_mutex_);
   for (auto& it : perf) {
     if (!output_->perf.count(it.first)) {
       output_->perf[it.first] = it.second;
@@ -48,7 +49,7 @@ void RequestControl::ProcessDone(Status status, InferDataPtr output, uint32_t in
   }
 
   VLOG(6) << "one data ready) request id: " << request_id_ << ", remain: " << wait_num_ - 1;
-  CHECK_NE(wait_num_, 0u);
+  assert(wait_num_ != 0u);
   if (--wait_num_ == 0) {
     VLOG(5) << "all data ready) request id: " << request_id_;
     process_finished_.store(true);

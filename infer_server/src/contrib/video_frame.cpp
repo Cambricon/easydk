@@ -21,7 +21,7 @@
 #include <glog/logging.h>
 #include <algorithm>
 
-#include "video_helper.h"
+#include "cnis/contrib/video_helper.h"
 
 namespace infer_server {
 namespace video {

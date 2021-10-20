@@ -149,7 +149,7 @@ bool SendData(edk::EasyDecode* decode, bool _abort = false) {
   fclose(fid);
   packet.data = g_data_buffer;
   packet.pts = 0;
-  return _abort ? decode->SendData(packet, false) : decode->SendData(packet, true);
+  return _abort ? decode->FeedData(packet) : (decode->FeedData(packet) && decode->FeedEos());
 }
 
 bool test_decode(edk::CodecType ctype, edk::PixelFmt pf, uint32_t frame_w, uint32_t frame_h,
@@ -280,6 +280,10 @@ TEST(Codec, DecodeProgressiveJpeg) {
   g_data_buffer = new uint8_t[MAX_INPUT_DATA_SIZE];
   // test progressive jpeg
   bool ret = test_decode(edk::CodecType::JPEG, edk::PixelFmt::NV12, 1920, 1080,
+                    std::bind(frame_callback, &rec, &cond, std::placeholders::_1), false, true);
+  EXPECT_TRUE(ret);
+
+  ret = test_decode(edk::CodecType::JPEG, edk::PixelFmt::NV21, 1920, 1080,
                     std::bind(frame_callback, &rec, &cond, std::placeholders::_1), false, true);
   EXPECT_TRUE(ret);
   delete[] g_data_buffer;

@@ -21,60 +21,61 @@
 #include "session.h"
 
 #include <list>
+#include <string>
 #include <utility>
+#include <vector>
 
+#include "cnis/infer_server.h"
+#include "cnis/processor.h"
 #include "engine.h"
-#include "infer_server.h"
-#include "processor.h"
 #include "profile.h"
 
 namespace infer_server {
 
-Executor::Executor(SessionDesc desc, PriorityThreadPool* tp, int device_id)
+Executor::Executor(const SessionDesc& desc, PriorityThreadPool* tp, int device_id)
     : desc_(desc), tp_(tp), device_id_(device_id) {
   CHECK(tp);
   CHECK_GE(device_id, 0);
-  CHECK_GT(desc.engine_num, 0u) << "engine number cannot be 0";
-  CHECK(desc.preproc) << "preprocess cannot be null";
+  CHECK_GT(desc_.engine_num, 0u) << "engine number cannot be 0";
+  CHECK(desc_.preproc) << "preprocess cannot be null";
 
   // init processors
-  auto predictor = std::make_shared<Predictor>();
-  desc.preproc->SetParams("model_info", desc.model, "device_id", device_id_, "host_input_layout",
-                          desc.host_input_layout);
-  if (desc.preproc->Init() != Status::SUCCESS)
-    throw std::runtime_error(desc.preproc->TypeName() + "] Init processors failed");
+  auto predictor = Predictor::Create();
+  desc_.preproc->SetParams("model_info", desc_.model, "device_id", device_id_, "host_input_layout",
+                           desc_.host_input_layout);
+  if (desc_.preproc->Init() != Status::SUCCESS)
+    throw std::runtime_error(desc_.preproc->TypeName() + "] Init processors failed");
 
-  predictor->SetParams("model_info", desc.model, "device_id", device_id_);
+  predictor->SetParams("model_info", desc_.model, "device_id", device_id_);
   if (predictor->Init() != Status::SUCCESS)
     throw std::runtime_error(predictor->TypeName() + "] Init processors failed");
 
-  desc.postproc->SetParams("model_info", desc.model, "device_id", device_id_, "host_output_layout",
-                           desc.host_output_layout);
-  if (desc.postproc->Init() != Status::SUCCESS)
-    throw std::runtime_error(desc.postproc->TypeName() + "] Init processors failed");
+  desc_.postproc->SetParams("model_info", desc_.model, "device_id", device_id_, "host_output_layout",
+                            desc_.host_output_layout);
+  if (desc_.postproc->Init() != Status::SUCCESS)
+    throw std::runtime_error(desc_.postproc->TypeName() + "] Init processors failed");
 
   // init engines
   auto notify_done_func = [this](Engine* idle) {
     idle_.store(idle);
     dispatch_cond_.notify_one();
   };
-  engines_.reserve(desc.engine_num);
-  engines_.emplace_back(new Engine({desc.preproc, predictor, desc.postproc}, std::move(notify_done_func), tp_));
-  for (size_t e_idx = 1; e_idx < desc.engine_num; ++e_idx) {
+  engines_.reserve(desc_.engine_num);
+  engines_.emplace_back(new Engine({desc_.preproc, predictor, desc_.postproc}, std::move(notify_done_func), tp_));
+  for (size_t e_idx = 1; e_idx < desc_.engine_num; ++e_idx) {
     engines_.emplace_back(engines_[0]->Fork());
   }
   idle_.store(engines_[0].get());
 
   // TODO(dmh): 3 is number of processors, refactor to adjustable
-  max_processing_num_ = 2 * desc.engine_num * 3 * desc.model->BatchSize();
+  max_processing_num_ = 4 * desc_.engine_num * 3 * desc_.model->BatchSize();
   // init cache
-  if (desc.strategy == BatchStrategy::DYNAMIC) {
-    cache_.reset(
-        new CacheDynamic(desc_.model->BatchSize(), Priority(desc.priority), desc_.batch_timeout));
-  } else if (desc.strategy == BatchStrategy::STATIC) {
-    cache_.reset(new CacheStatic(desc_.model->BatchSize(), Priority(desc.priority)));
+  if (desc_.strategy == BatchStrategy::DYNAMIC) {
+    cache_.reset(new CacheDynamic(desc_.model->BatchSize(), Priority(desc_.priority), desc_.batch_timeout));
+  } else if (desc_.strategy == BatchStrategy::STATIC) {
+    cache_.reset(new CacheStatic(desc_.model->BatchSize(), Priority(desc_.priority)));
   } else {
-    CHECK(false) << "Unsupport BatchStraregy";
+    CHECK(false) << "Unsupport BatchStrategy";
   }
   cache_->Start();
 
@@ -102,7 +103,6 @@ Executor::~Executor() {
 
 void Executor::DispatchLoop() noexcept {
   std::unique_lock<std::mutex> dispatch_lk(dispatch_mutex_, std::defer_lock);
-  bool waited = false;
   while (true) {
     // get package from cache
     PackagePtr pack = cache_->Pop();
@@ -114,32 +114,70 @@ void Executor::DispatchLoop() noexcept {
     batch_record_.unit_cnt += 1;
     batch_record_.total += batch_size;
 
-    waited = false;
     // dispatch to engine
-    if (!idle_) {
-      waited = true;
-      dispatch_lk.lock();
-      dispatch_cond_.wait(dispatch_lk, [this]() -> bool { return idle_; });
-      dispatch_lk.unlock();
-    }
-    VLOG(4) << desc_.name << "] dispatch to engine " << idle_;
-    idle_.load()->Run(std::move(pack));
-    idle_.store(nullptr);
-
-    // find idle engine
-    if (!waited) {
+    Engine* idle{nullptr};
+    if (idle_) {
+      idle = idle_.exchange(idle);
+    } else {
+      // find idle engine
       for (auto& it : engines_) {
         if (it->IsIdle()) {
-          idle_.store(it.get());
+          idle = it.get();
           break;
         }
       }
+      if (!idle) {
+        dispatch_lk.lock();
+        dispatch_cond_.wait(dispatch_lk, [this]() -> bool { return idle_; });
+        dispatch_lk.unlock();
+        idle = idle_.exchange(idle);
+      }
     }
+    VLOG(4) << desc_.name << "] dispatch to engine " << idle_;
+    idle->Run(std::move(pack));
   }
 }
 
 // constexpr is not inline in C++11
 constexpr uint32_t Profiler::period_interval_;
+
+void Session::WaitTaskDone(const std::string& tag) noexcept {
+  VLOG(3) << "session " << name_ << " wait [" << tag << "] task done";
+  std::vector<std::string> match = {tag};
+  if (!executor_->GetDesc().batch_timeout) executor_->FlushCache();
+  std::unique_lock<std::mutex> lk(request_mutex_);
+  auto last = std::find_first_of(request_list_.rbegin(), request_list_.rend(), match.begin(), match.end(),
+                                  [](RequestControl* c, const std::string& t) { return c->Tag() == t; });
+  if (last != request_list_.rend()) {
+    std::future<void> flag = (*last)->ResponseDonePromise();
+    lk.unlock();
+    flag.get();
+  } else {
+    lk.unlock();
+  }
+  // Task is popped from request_list before response.
+  // If there are `tag` task in reponse while find last `tag` task,
+  // WaitTaskDone may quit before `tag` task finishing response.
+  // Wait until response done to avoid that.
+  while (in_response_.load()) {}
+#ifdef CNIS_RECORD_PERF
+  profiler_.RemoveTag(tag);
+#endif
+}
+
+void Session::DiscardTask(const std::string& tag) noexcept {
+  VLOG(3) << "session " << name_ << " discard [" << tag << "] task";
+  if (!executor_->GetDesc().batch_timeout) executor_->FlushCache();
+  std::unique_lock<std::mutex> lk(request_mutex_);
+  std::for_each(request_list_.begin(), request_list_.end(), [&tag](RequestControl* it) {
+    if (it->Tag() == tag) {
+      it->Discard();
+    }
+  });
+#ifdef CNIS_RECORD_PERF
+  profiler_.RemoveTag(tag);
+#endif
+}
 
 RequestControl* Session::Send(PackagePtr&& pack, std::function<void(Status, PackagePtr)>&& response) noexcept {
   if (!running_.load()) {
@@ -179,9 +217,10 @@ RequestControl* Session::Send(PackagePtr&& pack, std::function<void(Status, Pack
   lk.unlock();
 
   if (data_size) {
-    CHECK(executor_->Upload(std::move(pack))) << "Cache should be running";
+    CHECK(executor_->Upload(std::move(pack), ctrl)) << "Cache should be running";
   } else {
     VLOG(3) << "session: " << name_ << " | No data in package with tag [" << pack->tag << "]";
+    CHECK(executor_->Upload(std::move(pack), ctrl)) << "Cache should be running";
     CheckAndResponse(ctrl);
   }
   return ctrl;

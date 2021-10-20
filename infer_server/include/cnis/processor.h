@@ -22,6 +22,7 @@
 #define INFER_SERVER_PROCESSOR_H_
 
 #include <memory>
+#include <string>
 #include <vector>
 
 #include "buffer.h"
@@ -76,6 +77,14 @@ class Predictor : public ProcessorForkable<Predictor> {
    * @retval Status::WRONG_TYPE Predictor get params of wrong type (bad_any_cast)
    */
   Status Init() noexcept override;
+
+  /**
+   * @brief Get backend string
+   *
+   * @retval magicmind Use magicmind to do inference
+   * @retval cnrt Use cnrt model to do inference
+   */
+  static std::string Backend() noexcept;
 
  private:
   PredictorPrivate* priv_;

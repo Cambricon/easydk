@@ -33,7 +33,7 @@ namespace infer_server {
 class Shape {
  public:
   /// stored value type
-  using value_type = int;
+  using value_type = int64_t;
 
   /**
    * @brief Construct a new Shape object
@@ -46,6 +46,16 @@ class Shape {
    * @param v vector stored shape value
    */
   explicit Shape(const std::vector<value_type>& v) noexcept { data_ = v; }
+
+  /**
+   * @brief Copy assign a Shape object from shape vector
+   *
+   * @param v vector stored shape value
+   */
+  Shape& operator=(const std::vector<value_type>& v) noexcept {
+    data_ = v;
+    return *this;
+  }
 
   Shape(const Shape&) = default;
   Shape& operator=(const Shape&) = default;
@@ -96,58 +106,6 @@ class Shape {
    * @return value_type batch size
    */
   value_type BatchSize() const noexcept { return data_[0]; }
-
-  /**
-   * @brief Get n value
-   *
-   * @note Only work on Shape of 4 dimension, will return 0 if size() != 4.
-   * @return value_type n or 0
-   */
-  value_type GetN() const noexcept {
-    if (Size() == 4) {
-      return data_[0];
-    }
-    return 0;
-  }
-
-  /**
-   * @brief Get height value
-   *
-   * @note Only work on Shape of 4 dimension, will return 0 if size() != 4.
-   * @return value_type height or 0
-   */
-  value_type GetH() const noexcept {
-    if (Size() == 4) {
-      return data_[1];
-    }
-    return 0;
-  }
-
-  /**
-   * @brief Get width value
-   *
-   * @note Only work on Shape of 4 dimension, will return 0 if size() != 4.
-   * @return value_type width or 0
-   */
-  value_type GetW() const noexcept {
-    if (Size() == 4) {
-      return data_[2];
-    }
-    return 0;
-  }
-
-  /**
-   * @brief Get channel value
-   *
-   * @note Only work on Shape of 4 dimension, will return 0 if size() != 4.
-   * @return value_type channel or 0
-   */
-  value_type GetC() const noexcept {
-    if (Size() == 4) {
-      return data_[3];
-    }
-    return 0;
-  }
 
   /**
    * @brief Get total data count / batch size

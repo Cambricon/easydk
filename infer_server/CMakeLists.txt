@@ -15,46 +15,35 @@ project(cnis CXX)
 option(CNIS_RECORD_PERF "Enable record performance" ON)
 option(CNIS_WITH_CONTRIB "Build contrib content" ON)
 option(CNIS_WITH_CURL "Build infer server with curl" ON)
-option(CNIS_WITH_CNCV "Build infer server with cncv" OFF)
+option(CNIS_USE_MAGICMIND "Build infer server with magicmind" OFF)
 
 #######################################################################
 
-# neuware include/libs
-if(NOT DEFINED ENV{NEUWARE_HOME})
-  set(ENV{NEUWARE_HOME} /usr/local/neuware)
-endif()
+set(CNIS_VERSION_MAJOR 1)
+set(CNIS_VERSION_MINOR 0)
+set(CNIS_VERSION_PATCH 0)
+set(CNIS_VERSION "${CNIS_VERSION_MAJOR}.${CNIS_VERSION_MINOR}.${CNIS_VERSION_PATCH}")
 
-set(NEUWARE_HOME $ENV{NEUWARE_HOME})
+configure_file(${CMAKE_CURRENT_SOURCE_DIR}/config.h.in
+               ${CMAKE_CURRENT_SOURCE_DIR}/include/cnis/config.h)
+
+find_package(MLU)
 
 # set runtime path
 set(CMAKE_BUILD_RPATH "$ORIGIN;${NEUWARE_HOME}/lib64;")
 
-# ---[ cnrt
-set(CNRT_LIBS "${NEUWARE_HOME}/lib64/libcnrt.so")
-
-# platform involved dependencies
-if (MLU_PLATFORM STREQUAL MLU200EDGE)
-  # ---[ Google-glog
-  find_path(GLOG_HEADER NAMES logging.h
-            PATHS ${PROJECT_SOURCE_DIR}/dist/include/glog
-            REQUIRED NO_CMAKE_FIND_ROOT_PATH)
-  find_library(GLOG_LIBRARIES NAMES glog
-               PATHS ${PROJECT_SOURCE_DIR}/dist/lib
-               REQUIRED NO_CMAKE_FIND_ROOT_PATH)
-  message(STATUS "Found Glog library: ${GLOG_LIBRARIES}")
-  message(STATUS "Found Glog headers: ${GLOG_HEADER}")
-  set(GLOG_INCLUDE_DIRS ${PROJECT_SOURCE_DIR}/dist/include)
-else()
-  # ---[ Google-glog
-  include("${CMAKE_CURRENT_SOURCE_DIR}/../cmake/FindGlog.cmake")
-endif()
+# ---[ Google-glog
+find_package(Glog)
+find_package(Gflags)
 
 if (CNIS_WITH_CONTRIB)
-  set(CONTRIB_INCLUDE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/contrib)
-  file(GLOB_RECURSE contrib_srcs ${CMAKE_CURRENT_SOURCE_DIR}/contrib/video/*.cpp)
+  file(GLOB_RECURSE contrib_srcs ${CMAKE_CURRENT_SOURCE_DIR}/src/contrib/*.cpp)
 endif()
 
-file(GLOB_RECURSE infer_server_srcs ${CMAKE_CURRENT_SOURCE_DIR}/src/*.cpp)
+file(GLOB_RECURSE infer_server_srcs ${CMAKE_CURRENT_SOURCE_DIR}/src/core/*.cpp
+                                    ${CMAKE_CURRENT_SOURCE_DIR}/src/model/*.cpp
+                                    ${CMAKE_CURRENT_SOURCE_DIR}/src/processor/*.cpp
+                                    ${CMAKE_CURRENT_SOURCE_DIR}/src/util/*.cpp)
 
 message(STATUS "@@@@@@@@@@@ Target : cnis")
 add_library(cnis SHARED ${infer_server_srcs} ${contrib_srcs})
@@ -63,7 +52,11 @@ if (CNIS_WITH_CURL)
   find_package(CURL REQUIRED)
   target_compile_definitions(cnis PRIVATE CNIS_HAVE_CURL)
   target_include_directories(cnis PRIVATE ${CURL_INCLUDE_DIR})
-  target_link_libraries(cnis ${CURL_LIBRARIES})
+  target_link_libraries(cnis PUBLIC ${CURL_LIBRARIES})
+endif()
+
+if (CNIS_USE_MAGICMIND)
+  target_link_libraries(cnis PUBLIC ${MAGICMIND_RUNTIME_LIBS})
 endif()
 
 if (CNIS_RECORD_PERF)
@@ -71,20 +64,22 @@ if (CNIS_RECORD_PERF)
 endif()
 
 # ---[ cncv
-if (CNIS_WITH_CONTRIB AND CNIS_WITH_CNCV)
-  set(CNCV_LIBS "${NEUWARE_HOME}/lib64/libcncv.so")
+if (CNIS_WITH_CONTRIB AND CNCV_LIBS)
   target_compile_definitions(cnis PRIVATE CNIS_HAVE_CNCV)
-  target_link_libraries(cnis ${CNCV_LIBS})
+  target_link_libraries(cnis PUBLIC ${CNCV_LIBS})
 endif()
 
 target_include_directories(cnis PRIVATE
-                           ${NEUWARE_HOME}/include
+                           ${NEUWARE_INCLUDE_DIR}
                            ${CMAKE_CURRENT_SOURCE_DIR}/../include
                            ${CMAKE_CURRENT_SOURCE_DIR}/include
                            ${CMAKE_CURRENT_SOURCE_DIR}/src
-                           ${CONTRIB_INCLUDE_DIR}
-                           ${GLOG_INCLUDE_DIRS})
-target_link_libraries(cnis ${CNRT_LIBS} ${GLOG_LIBRARIES} easydk)
+                           ${GLOG_INCLUDE_DIRS}
+                           ${GFLAGS_INCLUDE_DIRS})
+target_link_libraries(cnis PUBLIC ${CNDRV_LIBS} ${CNRT_LIBS} ${GLOG_LIBRARIES} ${GFLAGS_LIBRARIES} easydk)
+
+set_target_properties(cnis PROPERTIES VERSION ${CNIS_VERSION})
+set_target_properties(cnis PROPERTIES SOVERSION ${CNIS_VERSION_MAJOR})
 
 if(BUILD_TESTS)
   add_subdirectory(tests)
@@ -94,3 +89,13 @@ if(BUILD_SAMPLES)
   add_subdirectory(samples)
 endif()
 
+if (CNIS_WITH_CONTRIB)
+  install(DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/include/cnis
+          DESTINATION include)
+else()
+  install(DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/include/cnis
+          DESTINATION include
+          PATTERN "contrib" EXCLUDE)
+endif()
+
+install(TARGETS cnis LIBRARY DESTINATION lib)

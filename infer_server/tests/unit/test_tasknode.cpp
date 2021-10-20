@@ -23,35 +23,13 @@
 #include <future>
 #include <memory>
 
+#include "cnis/infer_server.h"
+#include "cnis/processor.h"
 #include "core/engine.h"
 #include "core/request_ctrl.h"
-#include "infer_server.h"
-#include "processor.h"
 #include "test_base.h"
 
 namespace infer_server {
-
-class TestProcessor : public ProcessorForkable<TestProcessor> {
- public:
-  TestProcessor() noexcept : ProcessorForkable("TestProcessor") { std::cout << "[TestProcessor] Construct\n"; }
-
-  ~TestProcessor() { std::cout << "[TestProcessor] Destruct\n"; }
-
-  Status Process(PackagePtr data) noexcept override {
-    std::cout << "[TestProcessor] Process\n";
-    if (!initialized_) return Status::ERROR_BACKEND;
-    return Status::SUCCESS;
-  }
-
-  Status Init() noexcept override {
-    std::cout << "[TestProcessor] Init\n";
-    initialized_ = true;
-    return Status::SUCCESS;
-  }
-
- private:
-  bool initialized_{false};
-};
 
 TEST(InferServerCore, TaskNode) {
   std::shared_ptr<Processor> proc = std::make_shared<TestProcessor>();

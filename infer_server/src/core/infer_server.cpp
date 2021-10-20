@@ -18,7 +18,7 @@
  * THE SOFTWARE.
  *************************************************************************/
 
-#include "infer_server.h"
+#include "cnis/infer_server.h"
 
 #include <glog/logging.h>
 
@@ -30,11 +30,10 @@
 #include <utility>
 #include <vector>
 
-#include "device/mlu_context.h"
+#include "cnis/processor.h"
+#include "cnis/util/any.h"
 #include "model/model.h"
-#include "processor.h"
 #include "session.h"
-#include "util/any.h"
 #include "util/env.h"
 #include "util/thread_pool.h"
 
@@ -48,7 +47,7 @@ class InferServerPrivate {
     std::unique_lock<std::mutex> lk(map_mutex);
     static std::unordered_map<int, std::unique_ptr<InferServerPrivate>> server_map;
     if (server_map.find(device_id) == server_map.end()) {
-      if (!edk::MluContext().CheckDeviceId(device_id)) {
+      if (!CheckDevice(device_id)) {
         return nullptr;
       }
       server_map.emplace(device_id, std::unique_ptr<InferServerPrivate>(new InferServerPrivate(device_id)));
@@ -56,7 +55,9 @@ class InferServerPrivate {
     return server_map[device_id].get();
   }
 
-  ~InferServerPrivate() {}
+  InferServerPrivate(InferServerPrivate&&) = default;
+  InferServerPrivate& operator=(InferServerPrivate&&) = default;
+  ~InferServerPrivate() = default;
 
   bool ExistExecutor(Executor_t executor) noexcept {
     std::unique_lock<std::mutex> lk(executor_map_mutex_);
@@ -65,8 +66,7 @@ class InferServerPrivate {
 
   Executor_t CreateExecutor(const SessionDesc& desc) noexcept {
     std::ostringstream ss;
-    ss << desc.model->Path() << "_" << desc.model->FunctionName() << "_" << desc.preproc->TypeName() << "_"
-       << desc.postproc->TypeName();
+    ss << desc.model->GetKey() << "_" << desc.preproc->TypeName() << "_" << desc.postproc->TypeName();
     std::string executor_name = ss.str();
     std::unique_lock<std::mutex> lk(executor_map_mutex_);
     if (executor_map_.count(executor_name)) {
@@ -86,7 +86,7 @@ class InferServerPrivate {
       size_t thread_num = tp_->Size();
       static size_t max_thread_num = 3 * GetCpuCoreNumber();
       if (thread_num < max_thread_num) {
-        tp_->Resize(std::min(thread_num + 3 * desc.engine_num, max_thread_num));
+        tp_->Resize(std::min(thread_num + 4 * desc.engine_num, max_thread_num));
       }
       tp_lk.unlock();
       return executor;
@@ -107,7 +107,7 @@ class InferServerPrivate {
     if (!executor->GetSessionNum()) {
       auto name = executor->GetName();
       if (executor_map_.count(name)) {
-        auto th_num = 3 * executor->GetEngineNum();
+        auto th_num = 4 * executor->GetEngineNum();
         VLOG(3) << "destroy executor: " << name;
         executor_map_.erase(name);
         lk.unlock();
@@ -129,20 +129,10 @@ class InferServerPrivate {
 
  private:
   explicit InferServerPrivate(int device_id) noexcept : device_id_(device_id) {
-    tp_.reset(new PriorityThreadPool([device_id]() -> bool {
-      try {
-        edk::MluContext ctx;
-        ctx.SetDeviceId(device_id);
-        ctx.BindDevice();
-        return true;
-      } catch (edk::Exception& e) {
-        LOG(ERROR) << "Init thread context failed, error: " << e.what();
-        return false;
-      }
-    }));
+    tp_.reset(new PriorityThreadPool([device_id]() -> bool { return SetCurrentDevice(device_id); }));
   }
   InferServerPrivate(const InferServerPrivate&) = delete;
-  const InferServerPrivate& operator=(const InferServerPrivate&) = delete;
+  InferServerPrivate& operator=(const InferServerPrivate&) = delete;
 
   std::map<std::string, std::unique_ptr<Executor>> executor_map_;
   std::mutex executor_map_mutex_;
@@ -181,7 +171,7 @@ Session_t InferServer::CreateSession(SessionDesc desc, std::shared_ptr<Observer>
   Executor_t executor = priv_->CreateExecutor(desc);
   if (!executor) return nullptr;
 
-  auto session = new Session(desc.name, executor, !(observer), desc.show_perf);
+  auto* session = new Session(desc.name, executor, !(observer), desc.show_perf);
   if (observer) {
     // async link
     session->SetObserver(std::move(observer));
@@ -209,7 +199,7 @@ bool InferServer::Request(Session_t session, PackagePtr input, any user_data, in
     LOG(ERROR) << "sync LinkHandle cannot be invoked with async api";
     return false;
   }
-  if (!input->data.empty() && !session->GetExecutor()->WaitIfCacheFull(timeout)) {
+  if (!session->GetExecutor()->WaitIfCacheFull(timeout)) {
     LOG(WARNING) << session->GetName() << "] Session is busy, request timeout";
     return false;
   }
@@ -299,13 +289,24 @@ bool InferServer::SetModelDir(const std::string& model_dir) noexcept {
   return false;
 }
 
-ModelPtr InferServer::LoadModel(const std::string& uri, const std::string& func_name) noexcept {
-  return ModelManager::Instance()->Load(uri, func_name);
+ModelPtr InferServer::LoadModel(const std::string& pattern1, const std::string& pattern2) noexcept {
+#ifdef CNIS_USE_MAGICMIND
+  return ModelManager::Instance()->Load(pattern1);
+#else
+  return ModelManager::Instance()->Load(pattern1, pattern2);
+#endif
 }
+
+#ifdef CNIS_USE_MAGICMIND
+ModelPtr InferServer::LoadModel(void* mem_cache, size_t size) noexcept {
+  return ModelManager::Instance()->Load(mem_cache, size);
+}
+#else
 ModelPtr InferServer::LoadModel(void* mem_cache, const std::string& func_name) noexcept {
   return ModelManager::Instance()->Load(mem_cache, func_name);
 }
-bool InferServer::UnloadModel(ModelPtr model) noexcept { return ModelManager::Instance()->Unload(model); }
+#endif
+bool InferServer::UnloadModel(ModelPtr model) noexcept { return ModelManager::Instance()->Unload(std::move(model)); }
 
 void InferServer::ClearModelCache() noexcept { ModelManager::Instance()->ClearCache(); }
 

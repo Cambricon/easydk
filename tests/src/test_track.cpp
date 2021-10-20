@@ -1,9 +1,12 @@
 #include <gtest/gtest.h>
 #include <opencv2/opencv.hpp>
 #include <memory>
+#include <numeric>
+#include <random>
 #include <string>
 #include <vector>
 #include "../../src/easytrack/hungarian.h"
+#include "../../src/easytrack/match.h"
 #include "easyinfer/mlu_memory_op.h"
 #include "easyinfer/model_loader.h"
 #include "easytrack/easy_track.h"
@@ -61,7 +64,7 @@ static std::vector<float> feature_3 = {
     0.132446};
 
 void data_gen(std::vector<edk::DetectObject> *objs, int det) {
-  float d = static_cast<float>(det) / 100;
+  float d = static_cast<float>(det) / 1000;
   objs->clear();
   if (det % 2 == 0) {
     objs->push_back(edk::DetectObject({1, 0.9f, {0.2f + d, 0.2f + d, 0.2f, 0.2f}}));
@@ -83,20 +86,12 @@ TEST(Easytrack, FeatureMatch) {
   std::vector<edk::DetectObject> detects;
   std::vector<edk::DetectObject> tracks;
 
-  int width = 1920, height = 1080;
-  cv::Mat image(height, width, CV_8UC3, cv::Scalar(0, 0, 0));
-
   edk::TrackFrame frame;
-  frame.data = image.data;
-  frame.width = width;
-  frame.height = height;
-  frame.format = edk::TrackFrame::ColorSpace::RGB24;
-  frame.dev_type = edk::TrackFrame::DevType::CPU;
 
   for (int j = 0; j < 3; j++) {
     edk::FeatureMatchTrack tracker;
     tracker.SetParams(0.2, 100, 0.7, 30, 3);
-    for (int i = 0; i < 10; i++) {
+    for (int i = 0; i < 1000; i++) {
       tracks.clear();
       frame.frame_id = i;
       data_gen(&detects, i);
@@ -110,29 +105,27 @@ TEST(Easytrack, FeatureMatch) {
 }
 TEST(Easytrack, hungarian) {
   HungarianAlgorithm hungarian_;
-  std::vector<std::vector<float>> cost_matrix(4, std::vector<float>(4));
-  cost_matrix = {{82, 83, 69, 92}, {77, 37, 49, 92}, {11, 69, 5, 86}, {8, 9, 98, 23}};
+  edk::Matrix cost_matrix(4, 4);
+  cost_matrix = {82, 83, 69, 92, 77, 37, 49, 92, 11, 69, 5, 86, 8, 9, 98, 23};
+  edk::Matrix one(4, 4);
+  one.Fill(1.f);
   std::vector<int> assignment;
-  hungarian_.Solve(cost_matrix, &assignment);
+  int t = 1000;
+  while (t--) {
+    hungarian_.Solve(cost_matrix, &assignment);
+    cost_matrix += one;
+  }
 }
 TEST(Easytrack, IouMatch) {
   std::vector<edk::DetectObject> detects;
   std::vector<edk::DetectObject> tracks;
 
-  int width = 1920, height = 1080;
-  cv::Mat image(height, width, CV_8UC3, cv::Scalar(0, 0, 0));
-
   edk::TrackFrame frame;
-  frame.data = image.data;
-  frame.width = width;
-  frame.height = height;
-  frame.format = edk::TrackFrame::ColorSpace::RGB24;
-  frame.dev_type = edk::TrackFrame::DevType::CPU;
 
   for (int j = 0; j < 3; j++) {
     edk::FeatureMatchTrack tracker;
     tracker.SetParams(0.2, 100, 0.7, 30, 3);
-    for (int i = 0; i < 10; i++) {
+    for (int i = 0; i < 1000; i++) {
       tracks.clear();
       frame.frame_id = i;
       data_gen(&detects, i);
@@ -140,6 +133,42 @@ TEST(Easytrack, IouMatch) {
       EXPECT_EQ(tracks.size(), detects.size());
     }
   }
+}
+
+TEST(Easytrack, CosineDistance) {
+  auto algo = edk::MatchAlgorithm::Instance();
+  EXPECT_EQ(algo, edk::MatchAlgorithm::Instance("Cosine"));
+  int feat_num = 128;
+  int t = 100;
+  std::default_random_engine engine;
+  std::random_device r_dev;
+  engine.seed(r_dev());
+  std::uniform_real_distribution<float> distribution;
+  while (t--) {
+    std::vector<float> feat_a(feat_num);
+    std::vector<float> feat_b(feat_num);
+    for (int i = 0; i < feat_num; ++i) {
+      feat_a[i] = distribution(engine);
+      feat_b[i] = distribution(engine);
+    }
+
+    float ip = edk::InnerProduct(feat_a, feat_b);
+    EXPECT_FLOAT_EQ(ip, std::inner_product(feat_a.begin(), feat_a.end(), feat_b.begin(), 0.f));
+
+    float feat_a_norm = std::sqrt(edk::InnerProduct(feat_a, feat_a));
+    EXPECT_FLOAT_EQ(feat_a_norm, edk::L2Norm(feat_a));
+    float feat_b_norm = std::sqrt(edk::InnerProduct(feat_b, feat_b));
+    EXPECT_FLOAT_EQ(feat_b_norm, edk::L2Norm(feat_b));
+
+    float dist = algo->Distance(std::vector<edk::Feature>{edk::Feature(feat_a, -1)}, edk::Feature(feat_b, -1));
+    EXPECT_FLOAT_EQ(dist, 1 - ip / (feat_a_norm * feat_b_norm));
+  }
+}
+
+TEST(Easytrack, InnerProduct) {
+  std::vector<float> feat_a(127);
+  std::vector<float> feat_b(325);
+  EXPECT_THROW(edk::InnerProduct(feat_a, feat_b), edk::Exception);
 }
 
 #ifdef ENABLE_KCF
@@ -159,13 +188,13 @@ TEST(Easytrack, KCF) {
   tracker->SetModel(loader);
   tracker->SetParams(0.2);
   int size[10] = {0};
-  void *output = mem_op.AllocMlu(width * height, 1);
+  void *output = mem_op.AllocMlu(width * height);
 
   std::string image_path = GetExePath() + "../../tests/data/500x500.jpg";
   cv::Mat image = cv::imread(image_path);
   cv::resize(image, image, cv::Size(width, height));
   cv::cvtColor(image, image, CV_BGRA2GRAY);
-  mem_op.MemcpyH2D(output, reinterpret_cast<void *>(image.data), width * height, 1);
+  mem_op.MemcpyH2D(output, reinterpret_cast<void *>(image.data), width * height);
 
   for (int i = 0; i < 10; i++) {
     detects.clear();

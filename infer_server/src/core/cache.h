@@ -29,7 +29,7 @@
 #include <mutex>
 #include <utility>
 
-#include "infer_server.h"
+#include "cnis/infer_server.h"
 #include "priority.h"
 #include "request_ctrl.h"
 #include "util/batcher.h"
@@ -88,6 +88,8 @@ class CacheBase {
     return pack;
   }
 
+  virtual void Flush() noexcept {}
+
  protected:
   virtual void Enqueue(PackagePtr&& pack) noexcept = 0;
   virtual void ClearDiscard(PackagePtr pack) noexcept = 0;
@@ -123,6 +125,10 @@ class CacheDynamic : public CacheBase {
   ~CacheDynamic() {
     // batcher should be clear
     CHECK_EQ(batcher_->Size(), 0u) << "Executor Destruction] Batcher should not have any data";
+  }
+
+  void Flush() noexcept override {
+    batcher_->Emit();
   }
 
   void Stop() noexcept override {

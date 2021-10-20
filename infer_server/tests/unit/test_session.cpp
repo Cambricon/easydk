@@ -24,9 +24,9 @@
 #include <string>
 #include <utility>
 
+#include "cnis/infer_server.h"
+#include "cnis/processor.h"
 #include "core/session.h"
-#include "infer_server.h"
-#include "processor.h"
 #include "test_base.h"
 
 namespace infer_server {
@@ -35,7 +35,11 @@ auto g_empty_preproc_func = [](ModelIO*, const InferData&, const ModelInfo&) { r
 
 constexpr int device_id = 0;
 
+#ifdef CNIS_USE_MAGICMIND
+static const char* model_url = "http://video.cambricon.com/models/MLU370/resnet50_nhwc_tfu_0.5_int8_fp16.model";
+#else
 static const char* model_url = "http://video.cambricon.com/models/MLU270/Primary_Detector/ssd/resnet34_ssd.cambricon";
+#endif
 
 class TestObserver : public Observer {
  public:
@@ -57,12 +61,11 @@ class TestObserver : public Observer {
 
 static SessionDesc ReturnSessionDesc(const std::string& name, std::shared_ptr<Processor> preproc, size_t batch_timeout,
                                      BatchStrategy strategy, uint32_t engine_num) {
-  auto postproc_ = std::make_shared<Postprocessor>();
   SessionDesc desc;
   desc.name = name;
-  desc.model = InferServer::LoadModel(model_url, "subnet0");
+  desc.model = InferServer::LoadModel(model_url);
   desc.strategy = strategy;
-  desc.postproc = postproc_;
+  desc.postproc = Postprocessor::Create();
   desc.batch_timeout = 10;
   desc.engine_num = engine_num;
   desc.show_perf = true;
@@ -103,19 +106,7 @@ TEST(InferServerCore, SessionInit) {
 }
 
 TEST(InferServerCore, SessionSend) {
-  PriorityThreadPool tp(
-      []() -> bool {
-        try {
-          edk::MluContext ctx;
-          ctx.SetDeviceId(device_id);
-          ctx.BindDevice();
-          return true;
-        } catch (edk::Exception& e) {
-          LOG(ERROR) << "Init thread context failed, error: " << e.what();
-          return false;
-        }
-      },
-      3);
+  PriorityThreadPool tp([]() -> bool { return SetCurrentDevice(device_id); }, 3);
   SessionDesc desc =
       ReturnSessionDesc("test session", std::make_shared<PreprocessorHost>(), 5, BatchStrategy::DYNAMIC, 1);
   std::unique_ptr<Executor> executor(new Executor(desc, &tp, 0));
@@ -145,19 +136,7 @@ TEST(InferServerCore, SessionSend) {
 }
 
 TEST(InferServerCore, SessionCheckAndResponse) {
-  PriorityThreadPool tp(
-      []() -> bool {
-        try {
-          edk::MluContext ctx;
-          ctx.SetDeviceId(device_id);
-          ctx.BindDevice();
-          return true;
-        } catch (edk::Exception& e) {
-          LOG(ERROR) << "Init thread context failed, error: " << e.what();
-          return false;
-        }
-      },
-      3);
+  PriorityThreadPool tp([]() -> bool { return SetCurrentDevice(device_id); }, 3);
   SessionDesc desc =
       ReturnSessionDesc("test session", std::make_shared<PreprocessorHost>(), 5, BatchStrategy::DYNAMIC, 1);
   std::unique_ptr<Executor> executor(new Executor(desc, &tp, 0));
@@ -182,19 +161,7 @@ TEST(InferServerCore, SessionCheckAndResponse) {
 }
 
 TEST(InferServerCore, SessionDiscardTask) {
-  PriorityThreadPool tp(
-      []() -> bool {
-        try {
-          edk::MluContext ctx;
-          ctx.SetDeviceId(device_id);
-          ctx.BindDevice();
-          return true;
-        } catch (edk::Exception& e) {
-          LOG(ERROR) << "Init thread context failed, error: " << e.what();
-          return false;
-        }
-      },
-      3);
+  PriorityThreadPool tp([]() -> bool { return SetCurrentDevice(device_id); }, 3);
   SessionDesc desc =
       ReturnSessionDesc("test session", std::make_shared<PreprocessorHost>(), 5, BatchStrategy::DYNAMIC, 1);
   std::unique_ptr<Executor> executor(new Executor(desc, &tp, 0));

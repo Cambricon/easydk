@@ -8,7 +8,7 @@
 #include <string>
 
 #include "device/mlu_context.h"
-#include "device/version.h"
+#include "device/config.h"
 #include "internal/mlu_task_queue.h"
 #include "test_base.h"
 

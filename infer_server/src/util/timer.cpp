@@ -131,6 +131,7 @@ class TimeCounter {
     running_.store(false);
     cond_.notify_one();
     if (th_.joinable()) th_.join();
+    std::unique_lock<std::mutex> lk(mutex_);
     for (auto& e : events_) {
       delete e;
     }

@@ -26,9 +26,9 @@
 #include <utility>
 #include <vector>
 
-#include "buffer.h"
-#include "infer_server.h"
-#include "processor.h"
+#include "cnis/buffer.h"
+#include "cnis/infer_server.h"
+#include "cnis/processor.h"
 
 namespace infer_server {
 namespace video {
@@ -73,10 +73,11 @@ enum class PreprocessType {
   UNKNOWN = 0,
   RESIZE_CONVERT = 1,
   SCALER = 2,
-  CNCV_RESIZE_CONVERT = 3,
+  CNCV_PREPROC = 3,
 };
 
 struct PreprocessorMLUPrivate;
+// assume that inference model only has one input
 class PreprocessorMLU : public ProcessorForkable<PreprocessorMLU> {
  public:
   PreprocessorMLU() noexcept;

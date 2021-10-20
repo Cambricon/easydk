@@ -37,7 +37,7 @@
 #include <vector>
 
 #include "cache.h"
-#include "infer_server.h"
+#include "cnis/infer_server.h"
 #include "priority.h"
 #include "profile.h"
 #include "request_ctrl.h"
@@ -51,18 +51,17 @@ using Executor_t = Executor*;
 class Session {
  public:
   Session(const std::string& name, Executor_t executor, bool sync_link, bool show_perf) noexcept
-      : name_(name), executor_(executor), running_(true), is_sync_link_(sync_link) {
+      : name_(name), executor_(executor), running_(true), is_sync_link_(sync_link), show_perf_(show_perf) {
 #ifdef CNIS_RECORD_PERF
     profiler_.SetSelfUpdate(false);
     // update and print performance information every 2 second
     perf_timer_.NotifyEvery(2000, [this, show_perf]() {
       profiler_.Update();
       if (show_perf) {
-        VLOG(3) << "[" << name_ << "] Session rps (total): " << profiler_.RequestPerSecond();
-        VLOG(3) << "[" << name_ << "] Session ups (total): " << profiler_.UnitPerSecond();
-        VLOG(3) << "[" << name_ << "] Session rps (realtime): " << profiler_.RequestThroughoutRealtime();
-        VLOG(3) << "[" << name_ << "] Session ups (realtime): " << profiler_.UnitThroughoutRealtime();
-        recorder_.PrintPerformance(name_);
+        LOG(INFO) << "[" << name_ << "] Session rps (total): " << profiler_.RequestPerSecond();
+        LOG(INFO) << "[" << name_ << "] Session ups (total): " << profiler_.UnitPerSecond();
+        LOG(INFO) << "[" << name_ << "] Session rps (realtime): " << profiler_.RequestThroughoutRealtime();
+        LOG(INFO) << "[" << name_ << "] Session ups (realtime): " << profiler_.UnitThroughoutRealtime();
       }
     });
 #endif
@@ -84,7 +83,7 @@ class Session {
     // stop print perf
     if (!perf_timer_.Idle()) {
       perf_timer_.Cancel();
-      recorder_.PrintPerformance(name_);
+      if (show_perf_) recorder_.PrintPerformance(name_);
     }
 #endif
   }
@@ -102,32 +101,9 @@ class Session {
 
   void CheckAndResponse(const RequestControl* caller) noexcept;
 
-  void WaitTaskDone(const std::string& tag) noexcept {
-    VLOG(3) << "session " << name_ << " wait [" << tag << "] task done";
-    std::vector<std::string> match = {tag};
-    std::unique_lock<std::mutex> lk(request_mutex_);
-    auto last = std::find_first_of(request_list_.rbegin(), request_list_.rend(), match.begin(), match.end(),
-                                   [](RequestControl* c, const std::string& t) { return c->Tag() == t; });
-    if (last == request_list_.rend()) return;
-    std::future<void> flag = (*last)->ResponseDonePromise();
-    lk.unlock();
-    flag.get();
-#ifdef CNIS_RECORD_PERF
-    profiler_.RemoveTag(tag);
-#endif
-  }
+  void WaitTaskDone(const std::string& tag) noexcept;
 
-  void DiscardTask(const std::string& tag) noexcept {
-    std::unique_lock<std::mutex> lk(request_mutex_);
-    std::for_each(request_list_.begin(), request_list_.end(), [&tag](RequestControl* it) {
-      if (it->Tag() == tag) {
-        it->Discard();
-      }
-    });
-#ifdef CNIS_RECORD_PERF
-    profiler_.RemoveTag(tag);
-#endif
-  }
+  void DiscardTask(const std::string& tag) noexcept;
 
 #ifdef CNIS_RECORD_PERF
   const std::map<std::string, LatencyStatistic>& GetPerformance() const noexcept { return recorder_.GetPerformance(); }
@@ -154,12 +130,13 @@ class Session {
   std::atomic<bool> running_{false};
   std::atomic<bool> in_response_{false};
   bool is_sync_link_{false};
+  bool show_perf_{false};
 };  // class Session
 
 class Engine;
 class Executor {
  public:
-  Executor(SessionDesc desc, PriorityThreadPool* tp, int device_id);
+  Executor(const SessionDesc& desc, PriorityThreadPool* tp, int device_id);
 
   ~Executor();
 
@@ -180,18 +157,24 @@ class Executor {
   }
 
   bool WaitIfCacheFull(int timeout) noexcept {
-    if (processing_num_.load() >= max_processing_num_) {
+    auto idle_pred = [this]() {
+      return processing_unit_.load() < max_processing_num_ && processing_req_.load() < max_processing_num_;
+    };
+    if (!idle_pred()) {
       std::unique_lock<std::mutex> lk(limit_mutex_);
       if (timeout > 0) {
-        return limit_cond_.wait_for(lk, std::chrono::milliseconds(timeout),
-                                    [this]() { return processing_num_.load() < max_processing_num_; });
+        return limit_cond_.wait_for(lk, std::chrono::milliseconds(timeout), idle_pred);
       } else {
         VLOG(4) << "Wait for cache not full";
-        limit_cond_.wait(lk, [this]() { return processing_num_.load() < max_processing_num_; });
+        limit_cond_.wait(lk, idle_pred);
         VLOG(4) << "Wait for cache not full done";
       }
     }
     return true;
+  }
+
+  void FlushCache() noexcept {
+    cache_->Flush();
   }
 
   /* ------------------- Observer --------------------- */
@@ -207,11 +190,13 @@ class Executor {
   PriorityThreadPool* GetThreadPool() const noexcept { return tp_; }
   /* ----------------- Observer END ------------------- */
 
-  bool Upload(PackagePtr&& pack) noexcept {
+  bool Upload(PackagePtr&& pack, RequestControl* ctrl) noexcept {
     uint32_t data_num = pack->data.size();
-    processing_num_.fetch_add(data_num);
-    pack->data[0]->ctrl->SetResponseDoneCallback([this, data_num]() {
-      processing_num_.fetch_sub(data_num);
+    processing_unit_.fetch_add(data_num);
+    processing_req_.fetch_add(1);
+    ctrl->SetResponseDoneCallback([this, data_num]() {
+      processing_unit_.fetch_sub(data_num);
+      processing_req_.fetch_sub(1);
       limit_cond_.notify_one();
     });
     return cache_->Push(std::forward<PackagePtr>(pack));
@@ -238,7 +223,8 @@ class Executor {
   // processing number limit
   std::mutex limit_mutex_;
   std::condition_variable limit_cond_;
-  std::atomic<uint32_t> processing_num_{0};
+  std::atomic<uint32_t> processing_unit_{0};
+  std::atomic<uint32_t> processing_req_{0};
   uint32_t max_processing_num_;
 
   LatencyStatistic batch_record_;

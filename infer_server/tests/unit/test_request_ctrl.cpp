@@ -21,11 +21,11 @@
 #include <gtest/gtest.h>
 
 #include <future>
+#include <limits>
 #include <memory>
 #include <random>
-#include <limits>
-#include <string>
 #include <set>
+#include <string>
 #include <utility>
 
 #include "core/request_ctrl.h"
@@ -85,6 +85,7 @@ TEST(InferServerCore, RequestCtrl) {
     ASSERT_TRUE(out);
     ASSERT_EQ(status, Status::SUCCESS);
     ASSERT_EQ(out->data.size(), data_num);
+    EXPECT_EQ(out->tag, tag);
   }
 }
 

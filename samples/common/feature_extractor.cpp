@@ -103,6 +103,8 @@ static float CalcFeatureOfRow(cv::Mat img, int n) {
   return result;
 }
 
+constexpr int kFeatureSizeCpu = 512;
+
 std::vector<float> FeatureExtractor::ExtractFeature(const edk::TrackFrame &frame, const edk::DetectObject &obj) {
   if (frame.format != edk::TrackFrame::ColorSpace::RGB24) {
     LOGE(SAMPLES) << "[FeatureExtractor] input image has non-support pixel format";
@@ -128,17 +130,17 @@ std::vector<float> FeatureExtractor::ExtractFeature(const edk::TrackFrame &frame
     return std::vector<float>(begin, end);
   } else {
 #if(CV_MAJOR_VERSION == 2)
-  cv::Ptr<cv::ORB> processer = new cv::ORB(128);
+  cv::Ptr<cv::ORB> processer = new cv::ORB(kFeatureSizeCpu);
 #elif(CV_MAJOR_VERSION >= 3)
-  cv::Ptr<cv::ORB> processer = cv::ORB::create(128);
+  cv::Ptr<cv::ORB> processer = cv::ORB::create(kFeatureSizeCpu);
 #endif
     std::vector<cv::KeyPoint> keypoints;
     processer->detect(obj_img, keypoints);
     cv::Mat desc;
     processer->compute(obj_img, keypoints, desc);
 
-    std::vector<float> features(128);
-    for (int i = 0; i < 128; i++) {
+    std::vector<float> features(kFeatureSizeCpu);
+    for (int i = 0; i < kFeatureSizeCpu; i++) {
       features[i] = i < desc.rows ? CalcFeatureOfRow(desc, i) : 0;
     }
     return features;

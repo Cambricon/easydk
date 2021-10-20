@@ -22,12 +22,12 @@
 
 #include <string>
 
-#include "infer_server.h"
-#include "processor.h"
+#include "cnis/infer_server.h"
+#include "cnis/processor.h"
 
 #ifdef CNIS_WITH_CONTRIB
-#include "opencv_frame.h"
-#include "video_helper.h"
+#include "cnis/contrib/opencv_frame.h"
+#include "cnis/contrib/video_helper.h"
 
 namespace infer_server {
 using video::PixelFmt;
@@ -139,6 +139,14 @@ TEST(InferServer, Version) {
   std::string version = std::to_string(CNIS_VERSION_MAJOR) + "." + std::to_string(CNIS_VERSION_MINOR) + "." +
                         std::to_string(CNIS_VERSION_PATCH);
   EXPECT_EQ(version, infer_server::Version());
+}
+
+TEST(InferServer, PredictorBackend) {
+#ifdef CNIS_USE_MAGICMIND
+  EXPECT_EQ(Predictor::Backend(), std::string("magicmind"));
+#else
+  EXPECT_EQ(Predictor::Backend(), std::string("cnrt"));
+#endif
 }
 
 }  // namespace infer_server

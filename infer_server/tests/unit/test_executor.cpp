@@ -24,9 +24,10 @@
 #include <string>
 #include <utility>
 
+#include "cnis/infer_server.h"
+#include "cnis/processor.h"
+#include "cnrt.h"
 #include "core/session.h"
-#include "infer_server.h"
-#include "processor.h"
 #include "test_base.h"
 
 namespace infer_server {
@@ -37,23 +38,27 @@ class Executor;
 using Executor_t = Executor*;
 class InferServerPrivate;
 
+#ifdef CNIS_USE_MAGICMIND
+static const char* model_url = "http://video.cambricon.com/models/MLU370/resnet50_nhwc_tfu_0.5_int8_fp16.model";
+#else
 static const char* model_url = "http://video.cambricon.com/models/MLU270/Primary_Detector/ssd/resnet34_ssd.cambricon";
+#endif
 
 static SessionDesc ReturnSessionDesc(const std::string& name, std::shared_ptr<Processor> preproc,
                               size_t batch_timeout, BatchStrategy strategy, uint32_t engine_num) {
-  auto postproc_ = std::make_shared<Postprocessor>();
   SessionDesc desc;
   desc.name = name;
-  desc.model = InferServer::LoadModel(model_url, "subnet0");
+  desc.model = InferServer::LoadModel(model_url);
   if (!desc.model) {
     std::cout << "Load Model fail, check it!" << std::endl;
   }
   desc.strategy = strategy;
-  desc.postproc = postproc_;
+  desc.postproc = Postprocessor::Create();
   desc.batch_timeout = 10;
   desc.engine_num = engine_num;
   desc.show_perf = true;
   desc.priority = 0;
+  desc.host_input_layout = {infer_server::DataType::FLOAT32, infer_server::DimOrder::NHWC};
   desc.host_output_layout = {infer_server::DataType::FLOAT32, infer_server::DimOrder::NHWC};
   if (preproc) {
     desc.preproc = preproc;
@@ -83,24 +88,13 @@ TEST(InferServerCoreDeathTest, InitExecutorFail) {
                                               BatchStrategy::SEQUENCE, 1),
                             &tp, 0),
                "");
+  InferServer::ClearModelCache();
 }
 
 TEST(InferServerCore, Executor) {
   // Executor init
   int device_id = 0;
-  PriorityThreadPool tp(
-      [device_id]() -> bool {
-        try {
-          edk::MluContext ctx;
-          ctx.SetDeviceId(device_id);
-          ctx.BindDevice();
-          return true;
-        } catch (edk::Exception& e) {
-          LOG(ERROR) << "Init thread context failed, error: " << e.what();
-          return false;
-        }
-      },
-      3);
+  PriorityThreadPool tp([device_id]() -> bool { return SetCurrentDevice(device_id); }, 3);
   SessionDesc desc =
       ReturnSessionDesc("test executor", std::make_shared<PreprocessorHost>(), 200, BatchStrategy::STATIC, 1);
 
@@ -145,7 +139,7 @@ TEST(InferServerCore, Executor) {
   input->data[0]->ctrl = ctrl.get();
   input->data[0]->index = 0;
   EXPECT_TRUE(executor->WaitIfCacheFull(-1));       // Executor::DispatchLoop() will cache_->Pop() the data
-  ASSERT_TRUE(executor->Upload(std::move(input)));  // cache_num = engine_num * 3
+  ASSERT_TRUE(executor->Upload(std::move(input), ctrl.get()));  // cache_num = engine_num * 3
   auto ret = response_flag.get_future().wait_for(std::chrono::seconds(1));
   EXPECT_EQ(std::future_status::ready, ret);
   ASSERT_NO_THROW(executor->Unlink(session.get()));

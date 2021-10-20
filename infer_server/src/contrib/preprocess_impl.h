@@ -33,16 +33,18 @@
 #include <utility>
 #include <vector>
 
-#include "easybang/resize_and_colorcvt.h"
-#include "infer_server.h"
+#include "cnis/contrib/video_helper.h"
+#include "cnis/infer_server.h"
+#include "cnis/processor.h"
+#include "cnis/shape.h"
 #include "model/model.h"
-#include "processor.h"
-#include "shape.h"
 #include "util/threadsafe_queue.h"
-#include "video_helper.h"
 
 #ifdef CNIS_HAVE_CNCV
 #include "cncv.h"
+#endif
+#ifndef CNIS_USE_MAGICMIND
+#include "easybang/resize_and_colorcvt.h"
 #endif
 
 namespace infer_server {
@@ -54,9 +56,11 @@ void ClipBoundingBox(BoundingBox* box) noexcept;
 class PreprocessBase {
  public:
   virtual ~PreprocessBase() {}
+  virtual bool Init() { return true; }
   virtual bool Execute(Package* pack, Buffer* output) = 0;
 };  // class PreprocessBase
 
+#ifndef CNIS_USE_MAGICMIND
 class ResizeConvert : virtual public PreprocessBase {
  public:
   ResizeConvert(ModelPtr model, int dev_id, PixelFmt dst_fmt, edk::CoreVersion core_version, int core_number,
@@ -84,8 +88,6 @@ class ResizeConvert : virtual public PreprocessBase {
   int core_number_;
   bool keep_aspect_ratio_;
 };  // class ResizeConvert
-
-std::ostream& operator<<(std::ostream& os, PixelFmt fmt) noexcept { return os << static_cast<int>(fmt); }
 
 bool ResizeConvert::RefreshOp(PixelFmt src_fmt) noexcept {
   enum : int64_t {
@@ -115,7 +117,8 @@ bool ResizeConvert::RefreshOp(PixelFmt src_fmt) noexcept {
       {YUV2ABGR_NV12, edk::MluResizeConvertOp::ColorMode::YUV2ABGR_NV12}};
 
   LOG_IF(FATAL, cvt_mode_map.count(color_cvt_mode) == 0)
-      << "Unsupport color convert mode. src pixel format : " << src_fmt << ", dst pixel format : " << dst_fmt_;
+      << "Unsupport color convert mode. src pixel format : " << static_cast<int>(src_fmt)
+      << ", dst pixel format : " << static_cast<int>(dst_fmt_);
 
   edk::MluResizeConvertOp::Attr op_attr;
   // image shape is always nhwc
@@ -175,6 +178,8 @@ bool ResizeConvert::Execute(Package* pack, Buffer* model_input) {
   op->SyncOneOutput(model_input->MutableData());
   return true;
 }
+
+#endif  // CNIS_USE_MAGICMIND
 
 class ScalerWorker {
  public:
@@ -455,101 +460,40 @@ bool Scaler::Execute(Package* pack, Buffer* model_input) {
     }                                                             \
   } while (0)
 
-class CncvResizeConvert : virtual public PreprocessBase {
+class PreprocessCncvBase {
  public:
-  CncvResizeConvert(ModelPtr model, int dev_id, PixelFmt dst_fmt, bool keep_aspect_ratio = true, uint8_t pad_value = 0,
-                    cncvColorSpace colorspace = CNCV_COLOR_SPACE_BT_601, cncvDepth_t depth = CNCV_DEPTH_8U)
-      : model_(model),
-        dev_id_(dev_id),
-        keep_aspect_ratio_(keep_aspect_ratio),
-        pad_value_(pad_value),
-        colorspace_(colorspace),
-        depth_(depth) {
-    batch_size_ = model_->BatchSize();
-    dst_descs_.resize(batch_size_);
-    src_descs_.resize(batch_size_);
-    src_rois_.resize(batch_size_);
-    dst_rois_.resize(batch_size_);
-    // init descriptor params
-    for (size_t i = 0; i < batch_size_; ++i) {
-      // dst desc
-      dst_descs_[i].pixel_fmt = GetCncvPixFmt(dst_fmt);
-      dst_descs_[i].height = model_->InputShape(0)[1];
-      dst_descs_[i].width = model_->InputShape(0)[1];
-      dst_descs_[i].depth = depth_;
-      SetStride(&dst_descs_[i]);
-      dst_descs_[i].color_space = colorspace_;
+  PreprocessCncvBase(ModelPtr model, int dev_id, cncvColorSpace colorspace = CNCV_COLOR_SPACE_BT_601)
+      : model_(model), dev_id_(dev_id), batch_size_(model->BatchSize()), colorspace_(colorspace) {}
 
-      // src desc
-      src_descs_[i].color_space = colorspace_;
-      src_descs_[i].depth = depth_;
-    }
+  virtual ~PreprocessCncvBase() {}
 
-    size_t ptr_size = batch_size_ * sizeof(void*);
-    mlu_input_y_ = Buffer(ptr_size, dev_id_);
-    mlu_input_uv_ = Buffer(ptr_size, dev_id_);
-    mlu_output_ = Buffer(ptr_size, dev_id_);
-    cpu_input_y_ = Buffer(ptr_size);
-    cpu_input_uv_ = Buffer(ptr_size);
-    cpu_output_ = Buffer(ptr_size);
-
-    // init mlu context
-    if (CNRT_RET_SUCCESS != cnrtCreateQueue(&queue_)) {
-      THROW_EXCEPTION(edk::Exception::Code::INIT_FAILED, "Create cnrtQueue failed");
-    }
-    if (CNCV_STATUS_SUCCESS != cncvCreate(&handle_)) {
-      THROW_EXCEPTION(edk::Exception::Code::INIT_FAILED, "Create cncvHandle failed");
-    }
-    if (CNCV_STATUS_SUCCESS != cncvSetQueue(handle_, queue_)) {
-      THROW_EXCEPTION(edk::Exception::Code::INIT_FAILED, "Set cnrtQueue to cncvHandle failed");
-    }
+  void SetCncvHandle(cnrtQueue_t queue, cncvHandle_t handle) noexcept {
+    handle_ = handle;
+    queue_ = queue;
   }
-  ~CncvResizeConvert() {
-    if (handle_) {
-      cncvStatus_t ret = cncvDestroy(handle_);
-      if (ret != CNCV_STATUS_SUCCESS) LOG(ERROR) << "cncvDestroy failed, error code: " << ret;
-    }
-    if (queue_) {
-      cnrtRet_t ret = cnrtDestroyQueue(queue_);
-      if (ret != CNRT_RET_SUCCESS) LOG(ERROR) << "cnrtDestroyQueue failed, error code: " << ret;
-    }
-  }
-  bool Execute(Package* pack, Buffer* output) override;
+
   int DeviceId() const noexcept { return dev_id_; }
 
- private:
+ protected:
   cncvPixelFormat GetCncvPixFmt(PixelFmt fmt);
   uint32_t GetCncvDepthSize(cncvDepth_t depth);
   void SetStride(cncvImageDescriptor* desc);
   void KeepAspectRatio(cncvRect* dst_roi, const cncvImageDescriptor& src, const cncvImageDescriptor& dst);
+  cncvDepth_t GetCncvDepth(const DataType& type);
 
- private:
+ protected:
+  cnrtQueue_t queue_;
+  cncvHandle_t handle_;
   ModelPtr model_;
   int dev_id_;
-  bool keep_aspect_ratio_;
-  uint8_t pad_value_ = 0;
-  size_t batch_size_ = 1;
+  size_t batch_size_{1};
   cncvColorSpace colorspace_;
-  cncvDepth_t depth_ = CNCV_DEPTH_8U;
 
   Buffer workspace_;
-  Buffer mlu_input_y_;
-  Buffer mlu_input_uv_;
-  Buffer mlu_output_;
-  Buffer cpu_input_y_;
-  Buffer cpu_input_uv_;
-  Buffer cpu_output_;
-
-  std::vector<cncvImageDescriptor> src_descs_;
-  std::vector<cncvImageDescriptor> dst_descs_;
-  std::vector<cncvRect> src_rois_;
-  std::vector<cncvRect> dst_rois_;
-  cnrtQueue_t queue_ = nullptr;
-  cncvHandle_t handle_ = nullptr;
-  size_t workspace_size_ = 0;
+  size_t workspace_size_{0};
 };
 
-uint32_t CncvResizeConvert::GetCncvDepthSize(cncvDepth_t depth) {
+uint32_t PreprocessCncvBase::GetCncvDepthSize(cncvDepth_t depth) {
   switch (depth) {
     case CNCV_DEPTH_8U:
     case CNCV_DEPTH_8S:
@@ -568,7 +512,7 @@ uint32_t CncvResizeConvert::GetCncvDepthSize(cncvDepth_t depth) {
   }
 }
 
-cncvPixelFormat CncvResizeConvert::GetCncvPixFmt(PixelFmt fmt) {
+cncvPixelFormat PreprocessCncvBase::GetCncvPixFmt(PixelFmt fmt) {
   switch (fmt) {
     case PixelFmt::I420:
       return CNCV_PIX_FMT_I420;
@@ -594,7 +538,7 @@ cncvPixelFormat CncvResizeConvert::GetCncvPixFmt(PixelFmt fmt) {
   }
 }
 
-void CncvResizeConvert::SetStride(cncvImageDescriptor* desc) {
+void PreprocessCncvBase::SetStride(cncvImageDescriptor* desc) {
   int depth = GetCncvDepthSize(desc->depth);
   switch (desc->pixel_fmt) {
     case CNCV_PIX_FMT_I420:
@@ -623,8 +567,8 @@ void CncvResizeConvert::SetStride(cncvImageDescriptor* desc) {
   }
 }
 
-void CncvResizeConvert::KeepAspectRatio(cncvRect* dst_roi, const cncvImageDescriptor& src,
-                                        const cncvImageDescriptor& dst) {
+void PreprocessCncvBase::KeepAspectRatio(cncvRect* dst_roi, const cncvImageDescriptor& src,
+                                         const cncvImageDescriptor& dst) {
   float src_ratio = static_cast<float>(src.width) / src.height;
   float dst_ratio = static_cast<float>(dst.width) / dst.height;
   if (src_ratio < dst_ratio) {
@@ -645,6 +589,81 @@ void CncvResizeConvert::KeepAspectRatio(cncvRect* dst_roi, const cncvImageDescri
     dst_roi->w = dst.width;
   }
 }
+cncvDepth_t PreprocessCncvBase::GetCncvDepth(const DataType& type) {
+  switch (type) {
+    case DataType::UINT8:
+      return CNCV_DEPTH_8U;
+    case DataType::FLOAT32:
+      return CNCV_DEPTH_32F;
+    case DataType::FLOAT16:
+      return CNCV_DEPTH_16F;
+    case DataType::INT16:
+      return CNCV_DEPTH_16S;
+    case DataType::INT32:
+      return CNCV_DEPTH_32S;
+    case DataType::INVALID:
+    default:
+      LOG(ERROR) << "Unsupport Depth! Please Check!";
+  }
+  return CNCV_DEPTH_INVALID;
+}
+
+class CncvResizeConvert : public PreprocessCncvBase {
+ public:
+  CncvResizeConvert(ModelPtr model, int dev_id, PixelFmt dst_fmt, bool keep_aspect_ratio = true, uint8_t pad_value = 0,
+                    cncvColorSpace colorspace = CNCV_COLOR_SPACE_BT_601)
+      : PreprocessCncvBase(model, dev_id, colorspace),
+        keep_aspect_ratio_(keep_aspect_ratio),
+        pad_value_(pad_value) {
+    dst_descs_.resize(batch_size_);
+    src_descs_.resize(batch_size_);
+    src_rois_.resize(batch_size_);
+    dst_rois_.resize(batch_size_);
+
+    // init descriptor params
+    for (size_t i = 0; i < batch_size_; ++i) {
+      // dst desc
+      dst_descs_[i].pixel_fmt = GetCncvPixFmt(dst_fmt);
+      dst_descs_[i].height = model_->InputShape(0)[1];
+      dst_descs_[i].width = model_->InputShape(0)[2];
+      dst_descs_[i].depth = CNCV_DEPTH_8U;
+      SetStride(&dst_descs_[i]);
+      dst_descs_[i].color_space = colorspace_;
+
+      // src desc
+      src_descs_[i].color_space = colorspace_;
+      src_descs_[i].depth = CNCV_DEPTH_8U;
+    }
+
+    size_t ptr_size = batch_size_ * sizeof(void*);
+    mlu_input_y_ = Buffer(ptr_size, dev_id_);
+    mlu_input_uv_ = Buffer(ptr_size, dev_id_);
+    mlu_output_ = Buffer(ptr_size, dev_id_);
+    cpu_input_y_ = Buffer(ptr_size);
+    cpu_input_uv_ = Buffer(ptr_size);
+    cpu_output_ = Buffer(ptr_size);
+  }
+
+  ~CncvResizeConvert() {}
+
+  bool Execute(Package* pack, Buffer* output);
+
+ private:
+  Buffer mlu_input_y_;
+  Buffer mlu_input_uv_;
+  Buffer mlu_output_;
+  Buffer cpu_input_y_;
+  Buffer cpu_input_uv_;
+  Buffer cpu_output_;
+
+  std::vector<cncvImageDescriptor> src_descs_;
+  std::vector<cncvImageDescriptor> dst_descs_;
+  std::vector<cncvRect> src_rois_;
+  std::vector<cncvRect> dst_rois_;
+
+  bool keep_aspect_ratio_;
+  uint8_t pad_value_ = 0;
+};
 
 bool CncvResizeConvert::Execute(Package* pack, Buffer* output) {
   auto batch_size = pack->data.size();
@@ -667,7 +686,7 @@ bool CncvResizeConvert::Execute(Package* pack, Buffer* output) {
   for (size_t i = 0; i < batch_size; ++i) {
     VideoFrame& frame = pack->data[i]->GetLref<VideoFrame>();
     if (frame.format != PixelFmt::NV12 && frame.format != PixelFmt::NV21) {
-      LOG(ERROR) << "Not supported!";
+      LOG(ERROR) << "[ResizeConvert] Pixel format " << static_cast<int>(frame.format) << " not supported!";
       return false;
     }
     // init cpu ptr
@@ -714,8 +733,11 @@ bool CncvResizeConvert::Execute(Package* pack, Buffer* output) {
 
   size_t required_workspace_size = 0;
   // use batch_size from model to reduce remalloc times
-  cncvGetResizeConvertWorkspaceSize(batch_size_, src_descs_.data(), src_rois_.data(), dst_descs_.data(),
-                                    dst_rois_.data(), &required_workspace_size);
+  CNCV_SAFE_CALL(
+      cncvGetResizeConvertWorkspaceSize(batch_size, src_descs_.data(),
+                                        src_rois_.data(), dst_descs_.data(),
+                                        dst_rois_.data(), &required_workspace_size),
+      false);
 
   // prepare workspace
   if (!workspace_.OwnMemory() || workspace_size_ < required_workspace_size) {
@@ -734,9 +756,285 @@ bool CncvResizeConvert::Execute(Package* pack, Buffer* output) {
                         workspace_size_, workspace_.MutableData(),
                         CNCV_INTER_BILINEAR),
       false);
-  CNRT_SAFE_CALL(cnrtSyncQueue(queue_), false);
   return true;
 }
+
+static inline uint32_t GetChannelNum(PixelFmt fmt) {
+  switch (fmt) {
+    case PixelFmt::RGB24:
+    case PixelFmt::BGR24:
+      return 3;
+    case PixelFmt::RGBA:
+    case PixelFmt::BGRA:
+    case PixelFmt::ARGB:
+    case PixelFmt::ABGR:
+      return 4;
+    default:
+      std::cerr << "Unsupport dst_fmt in CNCV Preproc." << std::endl;
+  }
+  return 0;
+}
+
+class CncvMeanStd : public PreprocessCncvBase {
+ public:
+  CncvMeanStd(ModelPtr model, int dev_id, PixelFmt dst_fmt, std::vector<float> mean, std::vector<float> std,
+              cncvColorSpace colorspace = CNCV_COLOR_SPACE_BT_601, cncvDepth_t depth = CNCV_DEPTH_8U)
+      : PreprocessCncvBase(model, dev_id, colorspace), mean_(std::move(mean)), std_(std::move(std)), src_depth_(depth) {
+    // init src_desc
+    src_desc_.pixel_fmt = GetCncvPixFmt(dst_fmt);
+    src_desc_.height = model_->InputShape(0)[1];
+    src_desc_.width = model_->InputShape(0)[2];
+    src_desc_.depth = src_depth_;
+    SetStride(&src_desc_);
+    src_desc_.color_space = colorspace_;
+
+    // init dst_desc
+    auto dst_depth = GetCncvDepth(model_->InputLayout(0).dtype);
+    dst_desc_.depth = dst_depth;
+    dst_desc_.pixel_fmt = GetCncvPixFmt(dst_fmt);
+    dst_desc_.height = model_->InputShape(0)[1];
+    dst_desc_.width = model_->InputShape(0)[2];
+    SetStride(&dst_desc_);
+    dst_desc_.color_space = colorspace_;
+
+    size_t ptr_size = sizeof(void*) * batch_size_;
+    mlu_input_ = Buffer(ptr_size, dev_id_);
+    mlu_output_ = Buffer(ptr_size, dev_id_);
+    cpu_input_ = Buffer(ptr_size);
+    cpu_output_ = Buffer(ptr_size);
+    fmt_ = dst_fmt;
+  }
+  ~CncvMeanStd() {}
+  bool Execute(Package* pack, Buffer* output);
+  bool Execute(Buffer* input, Buffer* output, size_t batch_size);
+  bool CheckParam() noexcept {
+    uint32_t chn_num = GetChannelNum(fmt_);
+    if (mean_.size() < chn_num || std_.size() < chn_num) {
+      LOG(ERROR) << "wrong param -- mean: " << mean_ << ", std: " << std_;
+      return false;
+    }
+    return true;
+  }
+
+ private:
+  std::vector<float> mean_;
+  std::vector<float> std_;
+
+  Buffer mlu_input_;
+  Buffer mlu_output_;
+  Buffer cpu_input_;
+  Buffer cpu_output_;
+
+  cncvImageDescriptor src_desc_;
+  cncvImageDescriptor dst_desc_;
+  cncvDepth_t src_depth_{CNCV_DEPTH_8U};
+  PixelFmt fmt_;
+};
+
+bool CncvMeanStd::Execute(Package* pack, Buffer* output) {
+  auto batch_size = pack->data.size();
+  size_t ptr_size = batch_size * sizeof(void*);
+
+  // init mlu buff
+  void* mlu_input_ptr = mlu_input_.MutableData();
+  void* mlu_output_ptr = mlu_output_.MutableData();
+
+  // init cpu buff
+  void** cpu_input_ptr = reinterpret_cast<void**>(cpu_input_.MutableData());
+  void** cpu_output_ptr = reinterpret_cast<void**>(cpu_output_.MutableData());
+  size_t output_offset = 0;
+
+  for (size_t i = 0; i < batch_size; ++i) {
+    VideoFrame& frame = pack->data[i]->GetLref<VideoFrame>();
+    if (static_cast<int>(frame.format) < 3 || static_cast<int>(frame.format) > 8) {
+      LOG(ERROR) << "[MeanStd] Pixel format " << static_cast<int>(frame.format) << " not supported!";
+      return false;
+    }
+    // init cpu ptr
+    cpu_input_ptr[i] = frame.plane[0].MutableData();
+    cpu_output_ptr[i] = (*output)(output_offset).MutableData();
+    output_offset += dst_desc_.stride[0] * dst_desc_.height;
+  }
+  mlu_input_.CopyFrom(cpu_input_, ptr_size);
+  mlu_output_.CopyFrom(cpu_output_, ptr_size);
+
+  size_t required_workspace_size = 0;
+  uint32_t channel_num = model_->InputShape(0)[3];
+  // use batch_size from model to reduce remalloc times
+  cncvGetMeanStdWorkspaceSize(channel_num, &required_workspace_size);
+  if (!workspace_.OwnMemory() || workspace_size_ < required_workspace_size) {
+    workspace_size_ = required_workspace_size;
+    workspace_ = Buffer(workspace_size_, dev_id_);
+  }
+
+  // cncv 0.4.0 bug: std will be changed to 1.f / std in cncvMeanStd
+  float mean[4], std[4];
+  memcpy(mean, mean_.data(), mean_.size() * sizeof(float));
+  memcpy(std, std_.data(), std_.size() * sizeof(float));
+
+  // compute
+  CNCV_SAFE_CALL(
+      cncvMeanStd(handle_, batch_size, src_desc_, reinterpret_cast<void**>(mlu_input_ptr), mean, std, dst_desc_,
+                  reinterpret_cast<void**>(mlu_output_ptr), required_workspace_size, workspace_.MutableData()),
+      false);
+  return true;
+}
+
+bool CncvMeanStd::Execute(Buffer* input, Buffer* output, size_t batch_size) {
+  size_t ptr_size = batch_size * sizeof(void*);
+  size_t output_offset = 0;
+  size_t input_offset = 0;
+
+  void* mlu_input_ptr = mlu_input_.MutableData();
+  void** cpu_input_ptr = reinterpret_cast<void**>(cpu_input_.MutableData());
+
+  void* mlu_output_ptr = mlu_output_.MutableData();
+  void** cpu_output_ptr = reinterpret_cast<void**>(cpu_output_.MutableData());
+
+  for (size_t i = 0; i < batch_size; ++i) {
+    cpu_output_ptr[i] = (*output)(output_offset).MutableData();
+    output_offset += dst_desc_.stride[0] * dst_desc_.height;
+
+    cpu_input_ptr[i] = (*input)(input_offset).MutableData();
+    input_offset += src_desc_.stride[0] * src_desc_.height;
+  }
+  mlu_input_.CopyFrom(cpu_input_, ptr_size);
+  mlu_output_.CopyFrom(cpu_output_, ptr_size);
+
+  size_t required_workspace_size = 0;
+  uint32_t channel_num = model_->InputShape(0)[3];
+  // use batch_size from model to reduce remalloc times
+  cncvGetMeanStdWorkspaceSize(channel_num, &required_workspace_size);
+  if (!workspace_.OwnMemory() || workspace_size_ < required_workspace_size) {
+    workspace_size_ = required_workspace_size;
+    workspace_ = Buffer(workspace_size_, dev_id_);
+  }
+
+  // cncv 0.4.0 bug: std will be changed to 1.f / std in cncvMeanStd
+  float mean[4], std[4];
+  memcpy(mean, mean_.data(), mean_.size() * sizeof(float));
+  memcpy(std, std_.data(), std_.size() * sizeof(float));
+  // compute
+  CNCV_SAFE_CALL(
+      cncvMeanStd(handle_, batch_size, src_desc_, reinterpret_cast<void**>(mlu_input_ptr), mean, std, dst_desc_,
+                  reinterpret_cast<void**>(mlu_output_ptr), required_workspace_size, workspace_.MutableData()),
+      false);
+  return true;
+}
+
+class PreprocessCNCV : public PreprocessBase {
+ public:
+  PreprocessCNCV(ModelPtr model, int dev_id, PixelFmt dst_fmt, std::vector<float> mean, std::vector<float> std,
+                 bool normalize = false, bool keep_aspect_ratio = false,
+                 uint8_t pad_value = 0, cncvDepth_t depth = CNCV_DEPTH_8U,
+                 cncvColorSpace colorspace = CNCV_COLOR_SPACE_BT_601)
+      : model_(model), dev_id_(dev_id), dst_fmt_(dst_fmt) {
+    VLOG(3) << "PreprocessCNCV params: "
+            << "\n\tdevice id: " << dev_id
+            << "\n\tdst format: " << static_cast<int>(dst_fmt)  // TODO(dmh): print string of dst format
+            << "\n\tnormalize: " << normalize << "\n\tkeep_aspect_ratio: " << keep_aspect_ratio
+            << "\n\tpad_value: " << static_cast<int>(pad_value) << "\n\tdepth: " << depth;
+    VLOG_IF(3, !mean.empty()) << "mean: " << mean;
+    VLOG_IF(3, !std.empty()) << "std: " << std;
+    rc_ptr_.reset(new CncvResizeConvert(model, dev_id, dst_fmt, keep_aspect_ratio, pad_value, colorspace));
+    // normalize: img / 255.f
+    // mean_std: (pixel - mean) / std
+    // normalize + mean_std = (pixel - 255 * mean) / (255 * std)
+    uint32_t chn_num = GetChannelNum(dst_fmt);
+    if (normalize) {
+      if (mean.empty()) mean.resize(chn_num, 0.f);
+      if (std.empty()) std.resize(chn_num, 1.f);
+      for (auto& m : mean) {
+        m *= 255;
+      }
+      for (auto& s : std) {
+        s *= 255;
+      }
+    }
+    if (mean.empty() && !std.empty()) mean.resize(chn_num, 0.f);
+    if (!mean.empty() && std.empty()) std.resize(chn_num, 1.f);
+    if (!mean.empty() && !std.empty()) {
+      ms_ptr_.reset(new CncvMeanStd(model, dev_id, dst_fmt, std::move(mean), std::move(std), colorspace, depth));
+    }
+  }
+
+  bool Init() override {
+    if (CNRT_RET_SUCCESS != cnrtCreateQueue(&queue_)) {
+      LOG(ERROR) << "Create cnrtQueue failed";
+      return false;
+    }
+    if (CNCV_STATUS_SUCCESS != cncvCreate(&handle_)) {
+      LOG(ERROR) << "Create cncvHandle failed";
+      return false;
+    }
+    if (CNCV_STATUS_SUCCESS != cncvSetQueue(handle_, queue_)) {
+      LOG(ERROR) << "Set cnrtQueue to cncvHandle failed";
+      return false;
+    }
+    if (rc_ptr_) rc_ptr_->SetCncvHandle(queue_, handle_);
+    if (ms_ptr_) {
+      ms_ptr_->SetCncvHandle(queue_, handle_);
+      if (!ms_ptr_->CheckParam()) return false;
+    }
+    return true;
+  }
+
+  ~PreprocessCNCV() {
+    if (handle_) {
+      cncvStatus_t ret = cncvDestroy(handle_);
+      if (ret != CNCV_STATUS_SUCCESS) LOG(ERROR) << "cncvDestroy failed, error code: " << ret;
+    }
+    if (queue_) {
+      cnrtRet_t ret = cnrtDestroyQueue(queue_);
+      if (ret != CNRT_RET_SUCCESS) LOG(ERROR) << "cnrtDestroyQueue failed, error code: " << ret;
+    }
+  }
+  bool Execute(Package* pack, Buffer* output) override;
+
+ private:
+  std::unique_ptr<CncvResizeConvert> rc_ptr_{nullptr};
+  std::unique_ptr<CncvMeanStd> ms_ptr_{nullptr};
+  ModelPtr model_{nullptr};
+
+  int dev_id_;
+  cnrtQueue_t queue_{nullptr};
+  cncvHandle_t handle_{nullptr};
+
+  PixelFmt dst_fmt_;
+  Buffer cache_;
+  size_t cache_size_{0};
+};
+
+bool PreprocessCNCV::Execute(Package* pack, Buffer* output) {
+  VideoFrame& frame = pack->data[0]->GetLref<VideoFrame>();
+  auto batch_size = pack->data.size();
+
+  size_t height = model_->InputShape(0)[1];
+  size_t width = model_->InputShape(0)[2];
+  size_t channel = model_->InputShape(0)[3];
+  size_t cache_size = height * width * channel * batch_size;
+
+  bool use_resize_convert = !(frame.format == dst_fmt_ && frame.width == width && frame.height == height);
+
+  bool ret = true;
+  if (use_resize_convert && ms_ptr_) {
+    if (!cache_.OwnMemory() || cache_size > cache_size_) {
+      cache_size_ = cache_size;
+      cache_ = Buffer(cache_size_, dev_id_);
+    }
+    ret = rc_ptr_->Execute(pack, &cache_) && ms_ptr_->Execute(&cache_, output, batch_size);
+  } else if (use_resize_convert && !ms_ptr_) {
+    ret = rc_ptr_->Execute(pack, output);
+  } else if (!use_resize_convert && ms_ptr_) {
+    ret = ms_ptr_->Execute(pack, output);
+  } else {
+    LOG(ERROR) << "unsupport preprocess";
+    return false;
+  }
+  CNRT_SAFE_CALL(cnrtSyncQueue(queue_), false);
+  return ret;
+}
+
 #endif  // CNIS_HAVE_CNCV
 
 }  // namespace detail

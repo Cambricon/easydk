@@ -23,6 +23,7 @@
 #include <opencv2/opencv.hpp>
 
 #include <chrono>
+#include <fstream>
 #include <future>
 #include <iostream>
 #include <list>
@@ -32,12 +33,17 @@
 #include <utility>
 #include <vector>
 
+#include "cnis/infer_server.h"
+#include "cnis/processor.h"
 #include "fixture.h"
-#include "infer_server.h"
-#include "processor.h"
 
 #ifdef CNIS_WITH_CONTRIB
-#include "video_helper.h"
+#include "cnis/contrib/opencv_frame.h"
+#include "cnis/contrib/video_helper.h"
+
+#ifndef CNIS_USE_MAGICMIND
+#include "device/mlu_context.h"
+#endif
 
 using infer_server::Buffer;
 
@@ -47,9 +53,20 @@ using video::PixelFmt;
 using video::PreprocessorMLU;
 using video::PreprocessType;
 
+#ifdef CNIS_USE_MAGICMIND
+static constexpr const char* model_url =
+    "http://video.cambricon.com/models/MLU370/resnet50_nhwc_tfu_0.5_int8_fp16.model";
+static const std::vector<float> preproc_mean{104.f, 117.f, 123.f};
+static const std::vector<float> preproc_std{1.f, 1.f, 1.f};
+static constexpr bool preproc_normalize{false};
+static constexpr bool keep_aspect_ratio{true};
+static constexpr int pad_value{128};
+static constexpr bool transpose{false};
+#else
 constexpr const char* model_url =
     "http://video.cambricon.com/models/MLU270/Primary_Detector/ssd/resnet34_ssd.cambricon";
-constexpr const char* image_path = "../../../tests/data/1080p.jpg";
+#endif
+constexpr const char* image_path = "../../../tests/data/500x500.jpg";
 
 class TestObserver : public Observer {
  public:
@@ -157,13 +174,23 @@ class InferServerRequestTest : public InferServerTestAPI {
     return in;
   }
 
+  PackagePtr PrepareOpenCVInput(const std::string& image_path, size_t data_num) {
+    PackagePtr in = std::make_shared<Package>();
+    std::cout << "image path: " << image_path << std::endl;
+    cv::Mat img = cv::imread(GetExePath() + image_path);
+    for (size_t i = 0; i < data_num; ++i) {
+      video::OpencvFrame cvframe;
+      cvframe.img = img;
+      cvframe.fmt = PixelFmt::BGR24;
+      in->data.emplace_back(new InferData);
+      in->data[i]->Set(std::move(cvframe));
+    }
+    return in;
+  }
+
   Session_t PrepareSession(const std::string& name, std::shared_ptr<Processor> preproc,
                            std::shared_ptr<Processor> postproc, size_t batch_timeout, BatchStrategy strategy,
                            std::shared_ptr<Observer> observer, bool cncv_used = false) {
-    if (version_ != edk::CoreVersion::MLU220 && version_ != edk::CoreVersion::MLU270) {
-      std::cerr << "Unsupport core version" << static_cast<int>(version_) << std::endl;
-      return nullptr;
-    }
     SessionDesc desc;
     desc.name = name;
     desc.model = model_;
@@ -171,13 +198,25 @@ class InferServerRequestTest : public InferServerTestAPI {
     desc.preproc = std::move(preproc);
     desc.postproc = std::move(postproc);
     desc.batch_timeout = batch_timeout;
-    desc.engine_num = 1;
+    desc.host_input_layout = {DataType::FLOAT32, DimOrder::NHWC};
+    desc.engine_num = 2;
     desc.show_perf = true;
     desc.priority = 0;
     desc.host_output_layout = {infer_server::DataType::FLOAT32, infer_server::DimOrder::NCHW};
-    auto p_type = cncv_used ? PreprocessType::CNCV_RESIZE_CONVERT : PreprocessType::RESIZE_CONVERT;
-    if (version_ == edk::CoreVersion::MLU220) p_type = PreprocessType::SCALER;
+#ifdef CNIS_USE_MAGICMIND
+    desc.preproc->SetParams("dst_format", PixelFmt::RGB24, "preprocess_type", PreprocessType::CNCV_PREPROC, "mean",
+                            preproc_mean, "std", preproc_std, "normalize", preproc_normalize);
+#else
+    edk::MluContext context(device_id_);
+    auto version = context.GetCoreVersion();
+    if (version != edk::CoreVersion::MLU220 && version != edk::CoreVersion::MLU270) {
+      std::cerr << "Unsupport core version" << static_cast<int>(version) << std::endl;
+      return nullptr;
+    }
+    auto p_type = cncv_used ? PreprocessType::CNCV_PREPROC : PreprocessType::RESIZE_CONVERT;
+    if (version == edk::CoreVersion::MLU220) p_type = PreprocessType::SCALER;
     desc.preproc->SetParams("dst_format", PixelFmt::ARGB, "preprocess_type", p_type);
+#endif
     if (observer) {
       return server_->CreateSession(desc, observer);
     } else {
@@ -187,7 +226,7 @@ class InferServerRequestTest : public InferServerTestAPI {
 
   void WaitAsyncDone() {
     auto f = get_response_.get_future();
-    ASSERT_NE(f.wait_for(std::chrono::seconds(1)), std::future_status::timeout) << "wait for response timeout";
+    ASSERT_NE(f.wait_for(std::chrono::seconds(30)), std::future_status::timeout) << "wait for response timeout";
     EXPECT_EQ(f.get(), Status::SUCCESS);
   }
 
@@ -207,14 +246,7 @@ class MyPostprocessor : public ProcessorForkable<MyPostprocessor> {
   ~MyPostprocessor() {}
   Status Process(PackagePtr pack) noexcept override {
     if (!pack->predict_io || !pack->predict_io->HasValue()) return Status::ERROR_BACKEND;
-    try {
-      edk::MluContext ctx;
-      ctx.SetDeviceId(dev_id_);
-      ctx.BindDevice();
-    } catch (edk::Exception& e) {
-      LOG(ERROR) << e.what();
-      return Status::ERROR_BACKEND;
-    }
+    if (!SetCurrentDevice(dev_id_)) return Status::ERROR_BACKEND;
 
     auto output = pack->predict_io->Get<ModelIO>();
     auto& shape = output.shapes[0];
@@ -349,21 +381,30 @@ TEST_F(InferServerRequestTest, ProcessFailed) {
 }
 
 TEST_F(InferServerRequestTest, DynamicBatchPreprocessHost) {
+#ifdef CNIS_USE_MAGICMIND
+  preproc_host_->SetParams<PreprocessorHost::ProcessFunction>(
+      "process_function", video::OpencvPreproc::GetFunction(PixelFmt::RGB24, preproc_mean, preproc_std,
+                                                            preproc_normalize, keep_aspect_ratio, pad_value,
+                                                            transpose));
+#endif
   Session_t session = PrepareSession("dynamic batch process with preprocess host", preproc_host_, postproc_, 5,
                                      BatchStrategy::DYNAMIC, observer_);
   ASSERT_NE(session, nullptr);
 
-  constexpr size_t data_number = 10;
-  auto in = PrepareInput(image_path, data_number);
+  constexpr size_t data_number = 4;
+  auto in = PrepareOpenCVInput(image_path, data_number);
   server_->Request(session, std::move(in), nullptr);
 
   WaitAsyncDone();
   auto response = observer_->GetPackage();
+  ASSERT_TRUE(response);
+
   EXPECT_EQ(response->data.size(), data_number);
   server_->DestroySession(session);
 }
 
 TEST_F(InferServerRequestTest, InputContinuousData) {
+  int dev_id = device_id_;
   Session_t session =
       PrepareSession("continuous data input", empty_preproc_host_, postproc_, 5, BatchStrategy::STATIC, nullptr);
   ASSERT_NE(session, nullptr);
@@ -371,7 +412,15 @@ TEST_F(InferServerRequestTest, InputContinuousData) {
   size_t data_size = 12;
   auto in = Package::Create(data_size);
   ModelIO input;
-  input.buffers = model_->AllocMluInput(0);
+  input.buffers.reserve(model_->InputNum());
+  input.shapes.reserve(model_->InputNum());
+  for (uint32_t idx = 0; idx < model_->InputNum(); ++idx) {
+    size_t len = model_->InputShape(idx).BatchDataCount() * GetTypeSize(model_->InputLayout(idx).dtype);
+    input.buffers.emplace_back(len, dev_id);
+    (void)input.buffers[idx].MutableData();
+    input.shapes.emplace_back(model_->InputShape(idx));
+    input.shapes[idx][0] = data_size;
+  }
   in->predict_io.reset(new InferData);
   in->predict_io->Set(input);
   Status status;
@@ -432,6 +481,7 @@ TEST_F(InferServerRequestTest, OutputMluData) {
 }
 
 TEST_F(InferServerRequestTest, ParallelInfer) {
+  int dev_id = device_id_;
   auto my_postproc = MyPostprocessor::Create();
   auto another_empty_preproc_host = PreprocessorHost::Create();
   Session_t session1 =
@@ -441,9 +491,17 @@ TEST_F(InferServerRequestTest, ParallelInfer) {
                                       BatchStrategy::STATIC, nullptr);
   ASSERT_NE(session2, nullptr);
 
-  size_t data_size = 12;
+  size_t data_size = 1;
   ModelIO input;
-  input.buffers = model_->AllocMluInput(0);
+
+  input.buffers.reserve(model_->InputNum());
+  for (uint32_t idx = 0; idx < model_->InputNum(); ++idx) {
+    size_t len = model_->InputShape(idx).BatchDataCount() * GetTypeSize(model_->InputLayout(idx).dtype);
+    input.buffers.emplace_back(len, dev_id);
+    (void)input.buffers[idx].MutableData();
+    input.shapes.emplace_back(model_->InputShape(idx));
+    input.shapes[idx][0] = data_size;
+  }
 
   auto in1 = Package::Create(data_size);
   in1->predict_io.reset(new InferData);
@@ -482,10 +540,7 @@ TEST_F(InferServerRequestTest, ResponseOrder) {
   constexpr int test_number = 1000;
   constexpr const char* tag = "test response order";
   for (int idx = 0; idx < test_number; ++idx) {
-    auto in = std::make_shared<Package>();
-    in->data.clear();
-    in->data.emplace_back(new InferData);
-    in->data[0]->Set(nullptr);
+    auto in = Package::Create(4);
     in->tag = tag;
     ASSERT_TRUE(server_->Request(session, std::move(in), idx));
   }
@@ -497,7 +552,7 @@ TEST_F(InferServerRequestTest, ResponseOrder) {
     auto response = observer_->GetResponse();
     if (!response.first) continue;
 
-    EXPECT_EQ(response.first->data.size(), 1u);
+    EXPECT_EQ(response.first->data.size(), 4u);
     EXPECT_EQ(any_cast<int>(response.second), response_number++);
   }
 
@@ -562,17 +617,17 @@ TEST_F(InferServerRequestTest, MultiThreadProcessDynamic) {
 
   auto proc_func = [this, img_nv12, &img, session](int id) {
     PackagePtr in = std::make_shared<Package>();
-    for (int i = 0; i < 10; ++i) {
+    for (int i = 0; i < 1; ++i) {
       in->data.push_back(std::make_shared<InferData>());
       in->data[i]->Set(ConvertToVideoFrame(img_nv12, img.cols, img.rows));
     }
     in->tag = std::to_string(id);
     Status status;
     auto out = std::make_shared<Package>();
-    ASSERT_TRUE(server_->RequestSync(session, std::move(in), &status, out, 1000));
+    ASSERT_TRUE(server_->RequestSync(session, std::move(in), &status, out, 10000));
 
     EXPECT_EQ(status, Status::SUCCESS);
-    EXPECT_EQ(out->data.size(), 10u);
+    EXPECT_EQ(out->data.size(), 1u);
   };
 
   for (int i = 0; i < 10; i++) {

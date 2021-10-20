@@ -18,14 +18,14 @@
  * THE SOFTWARE.
  *************************************************************************/
 
-#ifndef EDK_VERSION_H_
-#define EDK_VERSION_H_
+#ifndef EDK_CONFIG_H_
+#define EDK_CONFIG_H_
 
 #include <string>
 
-#define EDK_VERSION_MAJOR 2
-#define EDK_VERSION_MINOR 5
-#define EDK_VERSION_PATCH 0
+#define EDK_VERSION_MAJOR @EDK_VERSION_MAJOR@
+#define EDK_VERSION_MINOR @EDK_VERSION_MINOR@
+#define EDK_VERSION_PATCH @EDK_VERSION_PATCH@
 
 #define EDK_GET_VERSION(major, minor, patch) (((major) << 20) | ((minor) << 10) | (patch))
 #define EDK_VERSION EDK_GET_VERSION(EDK_VERSION_MAJOR, EDK_VERSION_MINOR, EDK_VERSION_PATCH)
@@ -47,4 +47,4 @@ std::string Version() {
 
 }  // namespace edk
 
-#endif  // EDK_VERSION_H_
+#endif  // EDK_CONFIG_H_

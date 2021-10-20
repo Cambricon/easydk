@@ -24,14 +24,18 @@
 #include <utility>
 #include <vector>
 
-#include "infer_server.h"
-#include "opencv_frame.h"
-#include "processor.h"
-#include "video_helper.h"
+#include "cnis/contrib/opencv_frame.h"
+#include "cnis/contrib/video_helper.h"
+#include "cnis/infer_server.h"
+#include "cnis/processor.h"
 
+#ifdef CNIS_USE_MAGICMIND
+constexpr const char* g_model_path =
+    "http://video.cambricon.com/models/MLU370/yolov3_nhwc_tfu_0.5_int8_fp16.model";
+#else
 constexpr const char* g_model_path =
     "http://video.cambricon.com/models/MLU270/Primary_Detector/ssd/resnet34_ssd.cambricon";
-constexpr const char* g_func_name = "subnet0";
+#endif
 
 struct DetectObject {
   int label;
@@ -76,7 +80,7 @@ class PrintResult : public infer_server::Observer {
   void Response(infer_server::Status status, infer_server::PackagePtr out, infer_server::any user_data) noexcept {
     int frame_index = infer_server::any_cast<int>(user_data);
     if (status != infer_server::Status::SUCCESS) {
-      std::cerr << "Infer SSD failed for frame index " << frame_index << std::endl;
+      std::cerr << "Infer failed for frame index " << frame_index << std::endl;
       return;
     }
     for (auto& it : out->data) {
@@ -111,20 +115,27 @@ int main(int argc, char** argv) {
 
   // server by device id
   infer_server::InferServer server(0);
-  // load model
-  infer_server::ModelPtr model = infer_server::InferServer::LoadModel(g_model_path, g_func_name);
 
   infer_server::SessionDesc desc;
   desc.batch_timeout = 200;
   desc.strategy = infer_server::BatchStrategy::DYNAMIC;
-  desc.name = "infer server demo session";
+  desc.name = "infer server demo";
   desc.show_perf = true;
-  desc.preproc = std::make_shared<infer_server::PreprocessorHost>();
-  desc.postproc = std::make_shared<infer_server::Postprocessor>();
-  desc.model = model;
+  desc.preproc = infer_server::PreprocessorHost::Create();
+  desc.postproc = infer_server::Postprocessor::Create();
 
   // config process function
-  desc.preproc->SetParams("process_function", infer_server::video::DefaultOpencvPreproc::GetFunction());
+  #ifdef CNIS_USE_MAGICMIND
+  // load model
+  desc.model = infer_server::InferServer::LoadModel(g_model_path);
+  desc.preproc->SetParams("process_function",
+                          infer_server::video::OpencvPreproc::GetFunction(infer_server::video::PixelFmt::RGB24,
+                                                                          {}, {}, true, true));
+  #else
+  desc.model = infer_server::InferServer::LoadModel(g_model_path);
+  desc.preproc->SetParams("process_function",
+                          infer_server::video::OpencvPreproc::GetFunction(infer_server::video::PixelFmt::RGBA));
+  #endif
   desc.postproc->SetParams("process_function", infer_server::Postprocessor::ProcessFunction(PostprocSSD(0.5)));
 
   infer_server::Session_t session = server.CreateSession(desc, std::make_shared<PrintResult>());

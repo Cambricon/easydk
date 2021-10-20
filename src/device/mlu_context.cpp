@@ -175,7 +175,9 @@ void MluContext::BindDevice() {
     CALL_CNRT_FUNC(cnrtSetCurrentChannel(channel), "Set current channel failed.");
     LOGT(DEVICE) << "Bind channel [" << channel_id_ << "] for this thread";
   }
+#if CNRT_MAJOR_VERSION < 5
   CALL_CNRT_FUNC(cnrtSetDeviceFlag(1), "Set device flag failed.");
+#endif
 }
 
 CoreVersion MluContext::GetCoreVersion() {

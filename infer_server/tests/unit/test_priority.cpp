@@ -20,9 +20,9 @@
 
 #include <gtest/gtest.h>
 
-#include <random>
-#include <limits>
 #include <algorithm>
+#include <limits>
+#include <random>
 
 #include "core/priority.h"
 

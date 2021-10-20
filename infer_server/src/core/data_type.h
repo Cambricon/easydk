@@ -23,14 +23,19 @@
 
 #include <glog/logging.h>
 #include <string>
+#include <vector>
 
+#include "cnis/infer_server.h"
 #include "cnrt.h"
-#include "infer_server.h"
+
+#ifdef CNIS_USE_MAGICMIND
+#include "interface_runtime.h"
+#endif
 
 namespace infer_server {
 namespace detail {
 
-inline std::string DataTypeStr(const DataType &type) noexcept {
+inline std::string DataTypeStr(DataType type) noexcept {
   switch (type) {
 #define DATATYPE2STR(type) \
   case DataType::type:     \
@@ -43,6 +48,23 @@ inline std::string DataTypeStr(const DataType &type) noexcept {
 #undef DATATYPE2STR
     default:
       LOG(ERROR) << "Unsupported data type";
+      return "INVALID";
+  }
+}
+
+inline std::string DimOrderStr(DimOrder order) noexcept {
+  switch (order) {
+#define DIMORDER2STR(order) \
+  case DimOrder::order:     \
+    return #order;
+    DIMORDER2STR(NCHW)
+    DIMORDER2STR(NHWC)
+    DIMORDER2STR(HWCN)
+    DIMORDER2STR(TNC)
+    DIMORDER2STR(NTC)
+#undef DIMORDER2STR
+    default:
+      LOG(ERROR) << "Unsupported dim order";
       return "INVALID";
   }
 }
@@ -64,6 +86,25 @@ inline cnrtDataType CastDataType(DataType type) noexcept {
   }
 }
 
+#ifdef CNIS_USE_MAGICMIND
+inline DataType CastDataType(magicmind::DataType type) noexcept {
+  switch (type) {
+#define RETURN_DATA_TYPE(type)    \
+  case magicmind::DataType::type: \
+    return DataType::type;
+    RETURN_DATA_TYPE(UINT8)
+    RETURN_DATA_TYPE(FLOAT16)
+    RETURN_DATA_TYPE(FLOAT32)
+    RETURN_DATA_TYPE(INT32)
+    RETURN_DATA_TYPE(INT16)
+#undef RETURN_DATA_TYPE
+    default:
+      LOG(ERROR) << "Unsupported data type";
+      return DataType::INVALID;
+  }
+}
+#endif
+
 inline DataType CastDataType(cnrtDataType type) noexcept {
   switch (type) {
 #define RETURN_DATA_TYPE(type) \
@@ -81,10 +122,58 @@ inline DataType CastDataType(cnrtDataType type) noexcept {
   }
 }
 
-bool TransLayout(void *src_data, void *dst_data, const DataLayout &src_layout, const DataLayout &dst_layout,
-                 const Shape &shape);
+bool TransLayout(void* src_data, void* dst_data, DataLayout src_layout, DataLayout dst_layout, const Shape& shape);
 
 }  // namespace detail
+
+template <typename dtype>
+inline std::vector<dtype> DimNHWC2NCHW(const std::vector<dtype>& dim) {
+  switch (dim.size()) {
+    case 1:
+      return dim;
+    case 2:
+      return dim;
+    case 3:
+      return std::vector<dtype>({dim[0], dim[2], dim[1]});
+    case 4:
+      return std::vector<dtype>({dim[0], dim[3], dim[1], dim[2]});
+    case 5:
+      return std::vector<dtype>({dim[0], dim[4], dim[1], dim[2], dim[3]});
+    default:
+      CHECK(0) << "unsupport dimension";
+  }
+  return {};
+}
+
+template <typename dtype>
+inline const std::vector<dtype> DimNCHW2NHWC(const std::vector<dtype>& dim) {
+  switch (dim.size()) {
+    case 1:
+      return dim;
+    case 2:
+      return dim;
+    case 3:
+      return std::vector<dtype>({dim[0], dim[2], dim[1]});
+    case 4:
+      return std::vector<dtype>({dim[0], dim[2], dim[3], dim[1]});
+    case 5:
+      return std::vector<dtype>({dim[0], dim[2], dim[3], dim[4], dim[1]});
+    default:
+      CHECK(0) << "unsupport dimension";
+  }
+  return {};
+}
+
+template <typename T>
+std::ostream& operator<<(std::ostream& os, const std::vector<T>& v_t) {
+  os << "vec {";
+  for (size_t i = 0; i < v_t.size() - 1; ++i) {
+    os << v_t[i] << ", ";
+  }
+  if (v_t.size() > 0) os << v_t[v_t.size() - 1];
+  os << "}";
+  return os;
+}
 }  // namespace infer_server
 
 #endif  // INFER_SERVER_CORE_DATATYPE_H_

@@ -30,9 +30,14 @@
 #include <unordered_map>
 #include <vector>
 
-#include "buffer.h"
-#include "infer_server.h"
-#include "shape.h"
+#include "cnis/buffer.h"
+#include "cnis/infer_server.h"
+#include "cnis/shape.h"
+
+#ifdef CNIS_USE_MAGICMIND
+#include "interface_runtime.h"
+#include "mm_helper.h"
+#endif
 
 namespace infer_server {
 
@@ -46,27 +51,45 @@ class ModelRunner {
   ModelRunner& operator=(ModelRunner&& other) = default;
   ~ModelRunner();
 
+#ifdef CNIS_USE_MAGICMIND
+  bool Init(MModel* model, mm_unique_ptr<MContext> ctx) noexcept;
+  std::vector<Shape> InferOutputShape(const std::vector<Shape>& input) noexcept;
+#else
   bool Init(Model* model) noexcept;
   bool ForkFrom(const ModelRunner& other) noexcept;
+#endif
   Status Run(std::vector<Buffer>& input, std::vector<Buffer>& output) noexcept;  // NOLINT
 
  private:
-  uint32_t input_num_{0};
-  uint32_t output_num_{0};
+#ifdef CNIS_USE_MAGICMIND
+  mm_unique_ptr<MContext> ctx_{nullptr};
+  std::vector<MTensor*> inputs_;
+  std::vector<MTensor*> outputs_;
+  std::vector<Shape> i_shapes_;
+  std::vector<Shape> o_shapes_;
+#else
   cnrtRuntimeContext_t ctx_{nullptr};
-  cnrtQueue_t task_queue_{nullptr};
   void** params_{nullptr};
+#endif
+  cnrtQueue_t task_queue_{nullptr};
 #ifdef PERF_HARDWARE_TIME
   cnrtNotifier_t notifier_start_{nullptr}, notifier_end_{nullptr};
 #endif
+  uint32_t input_num_{0};
+  uint32_t output_num_{0};
   int device_id_{0};
 };  // class RuntimeContext
 
 class Model : public ModelInfo {
  public:
   Model() = default;
+#ifdef CNIS_USE_MAGICMIND
+  bool Init(void* mem_ptr, size_t size) noexcept;
+  bool Init(const std::string& model_path) noexcept;
+#else
   bool Init(const std::string& model_path, const std::string& func_name) noexcept;
   bool Init(void* mem_ptr, const std::string& func_name) noexcept;
+#endif
   ~Model();
 
   bool HasInit() const noexcept { return has_init_; }
@@ -91,6 +114,29 @@ class Model : public ModelInfo {
   uint32_t OutputNum() const noexcept override { return o_num_; }
   uint32_t BatchSize() const noexcept override { return model_batch_size_; }
 
+#ifdef CNIS_USE_MAGICMIND
+  std::shared_ptr<ModelRunner> GetRunner(int device_id) noexcept {
+    MEngine* engine{nullptr};
+    std::unique_lock<std::mutex> lk(engine_map_mutex_);
+    auto iter = engine_map_.find(device_id);
+    if (iter == engine_map_.end()) {
+      if (!SetCurrentDevice(device_id)) return nullptr;
+      MModel::EngineConfig config;
+      config.device_type = "MLU";
+      engine = model_->CreateIEngine(config);
+      if (!engine) return nullptr;
+      engine_map_[device_id].reset(engine);
+    } else {
+      engine = iter->second.get();
+    }
+    auto runner = std::make_shared<ModelRunner>(device_id);
+    MContext* ctx = engine->CreateIContext();
+    if (!ctx || !runner->Init(model_.get(), mm_unique_ptr<MContext>(ctx))) return nullptr;
+    return runner;
+  }
+  MModel* GetModel() noexcept { return model_.get(); }
+  std::string GetKey() const noexcept override { return model_file_; }
+#else
   std::shared_ptr<ModelRunner> GetRunner(int device_id) noexcept {
     std::unique_lock<std::mutex> lk(runner_map_mutex_);
     if (!runner_map_.count(device_id)) {
@@ -110,55 +156,39 @@ class Model : public ModelInfo {
       }
     }
   }
-
-  std::vector<Buffer> AllocMluInput(int device_id) const noexcept override {
-    std::vector<Buffer> input;
-    input.reserve(InputNum());
-    for (uint32_t idx = 0; idx < InputNum(); ++idx) {
-      input.emplace_back(InputShape(idx).BatchDataCount() * GetTypeSize(InputLayout(idx).dtype), device_id);
-      (void)input[idx].MutableData();
-    }
-    return input;
-  }
-
-  std::vector<Buffer> AllocMluOutput(int device_id) const noexcept override {
-    std::vector<Buffer> output;
-    output.reserve(OutputNum());
-    for (uint32_t idx = 0; idx < OutputNum(); ++idx) {
-      output.emplace_back(OutputShape(idx).BatchDataCount() * GetTypeSize(OutputLayout(idx).dtype), device_id);
-      (void)output[idx].MutableData();
-    }
-    return output;
-  }
-
   cnrtFunction_t GetFunction() noexcept { return function_; }
-
   cnrtModel_t GetModel() noexcept { return model_; }
-
-  const std::string& Path() const noexcept override { return path_; }
-  const std::string& FunctionName() const noexcept override { return func_name_; }
-  std::string GetKey() const noexcept override { return Path() + FunctionName(); }
+  std::string GetKey() const noexcept override { return path_ + "_" + func_name_; }
+#endif
 
  private:
+#ifndef CNIS_USE_MAGICMIND
   bool LoadFunction(const std::string& func_name) noexcept;
+#endif
   bool GetModelInfo() noexcept;
   Model(const Model&) = delete;
   Model& operator=(const Model&) = delete;
 
  private:
+#ifdef CNIS_USE_MAGICMIND
+  mm_unique_ptr<MModel> model_{nullptr};
+  std::map<int, mm_unique_ptr<MEngine>> engine_map_;
+  std::mutex engine_map_mutex_;
+  std::string model_file_;
+#else
   cnrtModel_t model_{nullptr};
   cnrtFunction_t function_{nullptr};
   std::map<int, std::shared_ptr<ModelRunner>> runner_map_;
   std::mutex runner_map_mutex_;
+  std::string path_, func_name_;
+#endif
 
   std::vector<DataLayout> i_mlu_layouts_, o_mlu_layouts_;
   std::vector<Shape> input_shapes_, output_shapes_;
-  std::vector<int64_t> i_data_sizes_, o_data_sizes_;
-  std::string path_, func_name_;
   int i_num_{0}, o_num_{0};
   uint32_t model_batch_size_{1};
   bool has_init_{false};
-};  // class InferModelInternal
+};  // class Model
 
 // use environment CNIS_MODEL_CACHE_LIMIT to control cache limit
 class ModelManager {
@@ -167,8 +197,13 @@ class ModelManager {
 
   void SetModelDir(const std::string& model_dir) noexcept { model_dir_ = model_dir; }
 
+#ifdef CNIS_USE_MAGICMIND
+  ModelPtr Load(const std::string& model_file) noexcept;
+  ModelPtr Load(void* mem_cache, size_t size) noexcept;
+#else
   ModelPtr Load(const std::string& model_path, const std::string& func_name) noexcept;
   ModelPtr Load(void* mem_cache, const std::string& func_name) noexcept;
+#endif
 
   bool Unload(ModelPtr model) noexcept;
 

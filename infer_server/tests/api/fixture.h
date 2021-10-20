@@ -23,7 +23,7 @@
 
 #include <memory>
 
-#include "infer_server.h"
+#include "cnis/infer_server.h"
 #include "test_base.h"
 
 class InferServerTestAPI : public InferServerTest {
@@ -39,7 +39,7 @@ class InferServerTestAPI : public InferServerTest {
 #ifdef CNIS_WITH_CONTRIB
 #include <opencv2/opencv.hpp>
 
-#include "video_helper.h"
+#include "cnis/contrib/video_helper.h"
 bool cvt_bgr_to_yuv420sp(const cv::Mat& bgr_image, uint32_t alignment, infer_server::video::PixelFmt pixel_fmt,
                          uint8_t* yuv_2planes_data);
 #endif

@@ -24,58 +24,23 @@
 #include <utility>
 #include <vector>
 
+#include "cnis/infer_server.h"
 #include "core/engine.h"
 #include "core/request_ctrl.h"
-#include "infer_server.h"
-#include "processor.h"
 #include "test_base.h"
 
 namespace infer_server {
 namespace {
 
-constexpr const char* model_url =
-    "http://video.cambricon.com/models/MLU270/Primary_Detector/ssd/resnet34_ssd.cambricon";
 auto empty_response_func = [](Status, PackagePtr) {};
 auto empty_notifier_func = [](const RequestControl*) {};
 
 std::vector<std::shared_ptr<Processor>> PrepareProcessors(int device_id) {
-  auto model = InferServer::LoadModel(model_url, "subnet0");
-  if (!model) {
-    std::cerr << "load model failed\n";
-    return {};
-  }
   std::vector<std::shared_ptr<Processor>> processors;
-  // preproc
-  DataLayout host_input_layout_{DataType::UINT8, DimOrder::NHWC};
-  auto preproc = std::make_shared<PreprocessorHost>();
-  auto empty_preproc_func = [](ModelIO*, const InferData&, const ModelInfo&) { return true; };
-  preproc->SetParams<PreprocessorHost::ProcessFunction>("process_function", empty_preproc_func);
-  preproc->SetParams("model_info", model, "device_id", device_id, "host_input_layout", host_input_layout_);
-  EXPECT_EQ(preproc->Init(), Status::SUCCESS);
-  if (preproc->Init() != Status::SUCCESS) {
-    std::cerr << "Init preproc failed\n";
-    return {};
+  for (size_t idx = 0; idx < 3; ++idx) {
+    processors.emplace_back(TestProcessor::Create());
+    processors[idx]->Init();
   }
-  processors.push_back(preproc);
-
-  // predictor
-  auto predictor = std::make_shared<Predictor>();
-  predictor->SetParams("model_info", model, "device_id", device_id);
-  if (predictor->Init() != Status::SUCCESS) {
-    std::cerr << "Init predictor failed\n";
-    return {};
-  }
-  processors.push_back(predictor);
-
-  // postproc
-  DataLayout host_output_layout{infer_server::DataType::FLOAT32, infer_server::DimOrder::NHWC};
-  std::shared_ptr<Processor> postproc = std::make_shared<Postprocessor>();
-  postproc->SetParams("model_info", model, "device_id", device_id, "host_output_layout", host_output_layout);
-  if (postproc->Init() != Status::SUCCESS) {
-    std::cerr << "Init postproc failed\n";
-    return {};
-  }
-  processors.push_back(postproc);
   return processors;
 }
 
@@ -84,25 +49,12 @@ TEST(InferServerCore, EngineIdle) {
 
   auto processors = PrepareProcessors(device_id);
   ASSERT_EQ(processors.size(), 3u);
-  auto preproc = processors[0];
-  auto predictor = processors[1];
-  auto postproc = processors[2];
 
   // test idle
   {
-    PriorityThreadPool tp([device_id]() -> bool {
-      try {
-        edk::MluContext ctx;
-        ctx.SetDeviceId(device_id);
-        ctx.BindDevice();
-        return true;
-      } catch (edk::Exception& e) {
-        LOG(ERROR) << "Init thread context failed, error: " << e.what();
-        return false;
-      }
-    });
+    PriorityThreadPool tp([device_id]() -> bool { return SetCurrentDevice(device_id); });
 
-    std::unique_ptr<Engine> engine(new Engine({preproc, predictor, postproc}, [](Engine* idle) {}, &tp));
+    std::unique_ptr<Engine> engine(new Engine(processors, [](Engine* idle) {}, &tp));
     ASSERT_TRUE(engine);
     EXPECT_NE(engine->Fork().get(), engine.get());
 
@@ -141,27 +93,11 @@ TEST(InferServerCore, EngineProcess) {
 
   auto processors = PrepareProcessors(device_id);
   ASSERT_EQ(processors.size(), 3u);
-  auto preproc = processors[0];
-  auto predictor = processors[1];
-  auto postproc = processors[2];
   {
-    PriorityThreadPool tp(
-        [device_id]() -> bool {
-          try {
-            edk::MluContext ctx;
-            ctx.SetDeviceId(device_id);
-            ctx.BindDevice();
-            return true;
-          } catch (edk::Exception& e) {
-            LOG(ERROR) << "Init thread context failed, error: " << e.what();
-            return false;
-          }
-        },
-        3);
+    PriorityThreadPool tp([device_id]() -> bool { return SetCurrentDevice(device_id); }, 3);
 
     std::promise<void> done_flag;
-    std::unique_ptr<Engine> engine(
-        new Engine({preproc, predictor, postproc}, [&done_flag](Engine* idle) { done_flag.set_value(); }, &tp));
+    std::unique_ptr<Engine> engine(new Engine(processors, [&done_flag](Engine* idle) { done_flag.set_value(); }, &tp));
     ASSERT_TRUE(engine);
 
     std::unique_ptr<RequestControl> ctrl(

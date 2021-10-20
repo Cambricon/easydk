@@ -24,15 +24,13 @@
 #include <utility>
 #include <vector>
 
+#include "cnis/processor.h"
 #include "cnrt.h"
 #include "core/data_type.h"
-#include "device/mlu_context.h"
 #include "model/model.h"
-#include "processor.h"
 #include "util/env.h"
 #include "util/thread_pool.h"
 
-using std::shared_ptr;
 using std::vector;
 
 namespace infer_server {
@@ -71,9 +69,6 @@ Postprocessor::~Postprocessor() {
     uint32_t idle_num = priv_->tp->IdleNumber();
     if (idle_num > priv_->increased_tp) {
       if (priv_->increased_tp == priv_->tp->Size()) {
-        // if we resize to 0 threads here, segment fault will occur occasionally!
-        // but it won't happen under debug mode, so the bug cannot be located.
-        // simply avoid resize to 0 thread, as workaround.
         VLOG(3) << "Destroy postproc worker thread pool";
         // no any other postproc instance, ensure no task in pool
         priv_->tp->Stop(true);
@@ -110,20 +105,15 @@ Status Postprocessor::Init() noexcept {
 
     parallel = HaveParam("parallel") ? GetParam<int>("parallel") : 0;
 
-    edk::MluContext ctx;
-    ctx.SetDeviceId(device_id);
-    ctx.BindDevice();
-  } catch (edk::Exception& e) {
-    LOG(ERROR) << e.what();
-    return Status::ERROR_BACKEND;
+    if (!SetCurrentDevice(device_id)) return Status::ERROR_BACKEND;
   } catch (bad_any_cast&) {
     LOG(ERROR) << "unmatched param type";
     return Status::WRONG_TYPE;
   }
 
   if (priv_->process_func) {
-    // increased number of threads limited in [1, 8]
-    priv_->increased_tp = parallel > 0 ? (parallel < 8 ? parallel : 8) : 2;
+    // increased number of threads limited in [1, 16]
+    priv_->increased_tp = parallel > 0 ? (parallel < 16 ? parallel : 16) : 4;
     std::unique_lock<std::mutex> lk(priv_->tp_mutex);
     if (!priv_->tp) {
       VLOG(3) << "Create postproc worker thread pool";
@@ -160,16 +150,32 @@ Status Postprocessor::Process(PackagePtr pack) noexcept {
 
   ModelIO& out_mlu = cdata->GetLref<ModelIO>();
   vector<Buffer> out_cpu;
+  out_cpu.reserve(out_mlu.buffers.size());
 
   size_t host_type_size = GetTypeSize(priv_->host_layout.dtype);
   for (size_t out_idx = 0; out_idx < out_mlu.buffers.size(); ++out_idx) {
-    const Shape& s = priv_->model->OutputShape(out_idx);
+    // TransLayout need NHWC shape
+    Shape s = priv_->layouts[out_idx].order == DimOrder::NCHW ? Shape(DimNCHW2NHWC(out_mlu.shapes[out_idx].Vectorize()))
+                                                              : out_mlu.shapes[out_idx];
     size_t batch_data_len = s.BatchDataCount();
     size_t type_size = GetTypeSize(priv_->layouts[out_idx].dtype);
     Buffer out_tmp(batch_data_len * type_size);
     out_cpu.emplace_back(batch_data_len * host_type_size);
+    // TODO(dmh): multi output host_layout set by user?
+    // do not cast INT32 to float
+    bool no_cast =
+        priv_->layouts[out_idx].dtype == priv_->host_layout.dtype || priv_->layouts[out_idx].dtype == DataType::INT32;
+    // do not transpose when num of dims == 1 / 2
+    bool no_transpose = priv_->layouts[out_idx].order == priv_->host_layout.order || s.Size() < 3;
     // copy to host
+    if (no_cast && no_transpose) {
+      out_mlu.buffers[out_idx].CopyTo(&out_cpu[out_idx], batch_data_len * type_size);
+      continue;
+    }
     out_mlu.buffers[out_idx].CopyTo(&out_tmp, batch_data_len * type_size);
+    // do not cast INT32 to float
+    DataLayout tmp = priv_->host_layout;
+    tmp.dtype = priv_->layouts[out_idx].dtype == DataType::INT32 ? DataType::INT32 : tmp.dtype;
     // transform data layout
     detail::TransLayout(out_tmp.MutableData(), out_cpu[out_idx].MutableData(), priv_->layouts[out_idx],
                         priv_->host_layout, s);
@@ -179,14 +185,31 @@ Status Postprocessor::Process(PackagePtr pack) noexcept {
   const size_t batch_size = pack->data.size();
   std::vector<std::future<bool>> res;
   res.reserve(batch_size);
+  // collect output shapes
+  std::vector<Shape> out_shapes;
+  for (size_t out_idx = 0; out_idx < out_cpu.size(); ++out_idx) {
+    bool no_transpose = priv_->layouts[out_idx].order == priv_->host_layout.order || out_mlu.shapes[out_idx].Size() < 3;
+    Shape s;
+    // shape is corresponding to buffer after translayout
+    if (no_transpose) {
+      s = out_mlu.shapes[out_idx];
+    } else if (priv_->host_layout.order == DimOrder::NHWC) {
+      s = Shape(DimNCHW2NHWC(out_mlu.shapes[out_idx].Vectorize()));
+    } else if (priv_->host_layout.order == DimOrder::NCHW) {
+      s = Shape(DimNHWC2NCHW(out_mlu.shapes[out_idx].Vectorize()));
+    } else {
+      LOG(ERROR) << "Non supported dim order: " << static_cast<int>(priv_->host_layout.order);
+      return Status::ERROR_BACKEND;
+    }
+    s[0] = 1;
+    out_shapes.emplace_back(std::move(s));
+  }
   for (size_t batch_idx = 0; batch_idx < batch_size; ++batch_idx) {
     ModelIO outputs;
     for (size_t out_idx = 0; out_idx < out_cpu.size(); ++out_idx) {
-      Shape s = out_mlu.shapes[out_idx];
-      s[0] = 1;
-      outputs.buffers.emplace_back(out_cpu[out_idx](batch_idx * host_type_size * s.DataCount()));
-      outputs.shapes.emplace_back(std::move(s));
+      outputs.buffers.emplace_back(out_cpu[out_idx](batch_idx * host_type_size * out_shapes[out_idx].DataCount()));
     }
+    outputs.shapes = out_shapes;
     if (priv_->process_func) {
       res.emplace_back(priv_->tp->Push(0, priv_->process_func, pack->data[batch_idx].get(), std::move(outputs),
                                        std::ref(*(priv_->model))));

@@ -23,15 +23,16 @@
 
 #include <glog/logging.h>
 
+#include <cassert>
 #include <chrono>
 #include <functional>
 #include <future>
 #include <map>
+#include <mutex>
 #include <string>
 #include <utility>
 
-#include "infer_server.h"
-#include "util/spinlock.h"
+#include "cnis/infer_server.h"
 
 namespace infer_server {
 
@@ -51,12 +52,12 @@ class RequestControl {
         wait_num_(data_num),
         process_finished_(data_num ? false : true) {
     output_->data.resize(data_num);
-    CHECK(response_) << "response cannot be null";
-    CHECK(done_notifier_) << "notifier cannot be null";
+    assert(response_);
+    assert(done_notifier_);
   }
 
   ~RequestControl() {
-    SpinLockGuard lk(done_mutex_);
+    std::lock_guard<std::mutex> lk(done_mutex_);
     if (resp_done_cb_) {
       resp_done_cb_();
     }
@@ -94,6 +95,7 @@ class RequestControl {
   }
 
   void Response() noexcept {
+    output_->tag = tag_;
     response_(status_.load(), std::move(output_));
     VLOG(6) << "response end) request id: " << request_id_;
   }
@@ -105,7 +107,7 @@ class RequestControl {
   void ProcessFailed(Status status) noexcept { ProcessDone(status, nullptr, 0, {}); }
 
   // process on one piece of data done
-  void ProcessDone(Status status, InferDataPtr output, uint32_t index, std::map<std::string, float> perf) noexcept;
+  void ProcessDone(Status status, InferDataPtr output, uint32_t index, std::map<std::string, float>&& perf) noexcept;
 
  private:
   RequestControl() = delete;
@@ -114,7 +116,7 @@ class RequestControl {
   NotifyFunc done_notifier_;
   std::function<void()> resp_done_cb_{nullptr};
   std::string tag_;
-  SpinLock done_mutex_;
+  std::mutex done_mutex_;
   std::promise<void> response_done_flag_;
   int64_t request_id_;
   uint32_t data_num_;

@@ -18,19 +18,20 @@
  * THE SOFTWARE.
  *************************************************************************/
 
-#include "buffer.h"
+#include "cnis/buffer.h"
 
 #include <cnrt.h>
 #include <glog/logging.h>
 
+#include <cassert>
 #include <memory>
 #include <string>
 #include <utility>
 
-#include "device/mlu_context.h"
+#include "cnis/infer_server.h"
+#include "cxxutil/exception.h"
 
 using edk::Exception;
-using edk::MluContext;
 
 namespace infer_server {
 
@@ -60,111 +61,103 @@ static inline std::string TransDirectionStr(cnrtMemTransDir_t direction) {
 
 static inline void MemcpyMLU(void* dst, const void* src, size_t size, cnrtMemTransDir_t direction) {
   cnrtRet_t error_code;
-  VLOG(5) << "copy memory, " << TransDirectionStr(direction) << ", size " << size << ", src: " << src
+  VLOG(6) << "copy memory, " << TransDirectionStr(direction) << ", size " << size << ", src: " << src
           << ", dst: " << src;
   error_code = cnrtMemcpy(dst, const_cast<void*>(src), size, direction);
   CHECK_CNRT_RET(error_code, "Memcpy " + TransDirectionStr(direction) + " failed.");
 }
 
 namespace detail {
-struct CpuMemory {
-  ~CpuMemory() {
-    if (data && deallocator) {
-      deallocator(data);
-    }
-  }
-  void* data{nullptr};
-  Buffer::CpuMemoryDeallocator deallocator{nullptr};
-};
-
-struct MluMemory {
-  ~MluMemory() {
+struct Memory {
+  Memory(void* _data, int _device_id, Buffer::MemoryDeallocator&& _deallocator)
+      : data(_data), deallocator(std::forward<Buffer::MemoryDeallocator>(_deallocator)), device_id(_device_id) {}
+  ~Memory() {
     if (data && deallocator) {
       deallocator(data, device_id);
     }
   }
+  Memory(const Memory&) = delete;
+  Memory& operator=(const Memory&) = delete;
   void* data{nullptr};
-  int device_id{0};
-  Buffer::MluMemoryDeallocator deallocator{nullptr};
+  Buffer::MemoryDeallocator deallocator{nullptr};
+  int device_id{-1};
 };
 }  // namespace detail
 
-Buffer::Buffer(size_t memory_size, int device_id) : memory_size_(memory_size), device_id_(device_id) {
+Buffer::Buffer(size_t memory_size, int device_id) : memory_size_(memory_size) {
   if (!memory_size) {
     THROW_EXCEPTION(Exception::INVALID_ARG, "memory cannot be empty");
   }
-  MluContext ctx;
-  if (!ctx.CheckDeviceId(device_id)) {
+  if (!CheckDevice(device_id)) {
     THROW_EXCEPTION(Exception::UNAVAILABLE, std::string("no such device: ") + std::to_string(device_id));
   }
-  mlu_ = std::make_shared<detail::MluMemory>();
-  mlu_->device_id = device_id;
+  data_ = std::make_shared<detail::Memory>(nullptr, device_id, [](void* memory, int device_id) {
+    if (!SetCurrentDevice(device_id)) return;
+    VLOG(5) << "Free memory on MLU. " << memory;
+    cnrtRet_t ret = cnrtFree(memory);
+    if (CNRT_RET_SUCCESS != ret) {
+      LOG(ERROR) << "free memory failed, error code: " << ret;
+    }
+  });
   type_ = MemoryType::MLU;
 }
 
 Buffer::Buffer(size_t memory_size) : memory_size_(memory_size) {
-  cpu_ = std::make_shared<detail::CpuMemory>();
+  if (!memory_size) {
+    THROW_EXCEPTION(Exception::INVALID_ARG, "memory cannot be empty");
+  }
+  data_ = std::make_shared<detail::Memory>(nullptr, -1, [](void* memory, int /*unused*/) {
+    VLOG(5) << "Free memory on CPU. " << memory;
+    free(memory);
+  });
   type_ = MemoryType::CPU;
 }
 
-Buffer::Buffer(void* mlu_memory, size_t memory_size, MluMemoryDeallocator d, int device_id)
-    : memory_size_(memory_size), device_id_(device_id) {
+Buffer::Buffer(void* mlu_memory, size_t memory_size, MemoryDeallocator d, int device_id) : memory_size_(memory_size) {
   if (!mlu_memory || !memory_size) {
     THROW_EXCEPTION(Exception::INVALID_ARG, "memory cannot be empty");
   }
-  MluContext ctx;
-  if (!ctx.CheckDeviceId(device_id)) {
+  if (!CheckDevice(device_id)) {
     THROW_EXCEPTION(Exception::UNAVAILABLE, std::string("no such device: ") + std::to_string(device_id));
   }
-  mlu_ = std::make_shared<detail::MluMemory>();
-  mlu_->data = mlu_memory;
-  mlu_->device_id = device_id;
-  mlu_->deallocator = std::move(d);
+  data_ = std::make_shared<detail::Memory>(mlu_memory, device_id, std::move(d));
   type_ = MemoryType::MLU;
 }
 
-Buffer::Buffer(void* cpu_memory, size_t memory_size, CpuMemoryDeallocator d) : memory_size_(memory_size) {
-  cpu_ = std::make_shared<detail::CpuMemory>();
-  cpu_->data = cpu_memory;
-  cpu_->deallocator = std::move(d);
+Buffer::Buffer(void* cpu_memory, size_t memory_size, MemoryDeallocator d) : memory_size_(memory_size) {
+  if (!cpu_memory || !memory_size) {
+    THROW_EXCEPTION(Exception::INVALID_ARG, "memory cannot be empty");
+  }
+  data_ = std::make_shared<detail::Memory>(cpu_memory, -1, std::move(d));
   type_ = MemoryType::CPU;
 }
 
+int Buffer::DeviceId() const noexcept {
+  assert(data_);
+  return data_->device_id;
+}
+
 void Buffer::LazyMalloc() {
-  CHECK(memory_size_) << "memory size is 0";
-  if (type_ == MemoryType::CPU && !cpu_->data) {
-    VLOG(4) << "Alloc memory on CPU in " << memory_size_ << " bytes";
-    cpu_->data = malloc(memory_size_);
-    if (!cpu_->data) THROW_EXCEPTION(Exception::MEMORY, "malloc failed");
-    cpu_->deallocator = [](void* memory) { free(memory); };
-  } else if (type_ == MemoryType::MLU && !mlu_->data) {
-    cnrtRet_t error_code;
-    VLOG(4) << "Alloc memory on MLU in " << memory_size_ << " bytes";
-    error_code = cnrtMalloc(&mlu_->data, memory_size_);
-    CHECK_CNRT_RET(error_code, "Mlu malloc failed.");
-    mlu_->deallocator = [](void* memory, int device_id) {
-      try {
-        MluContext ctx;
-        ctx.SetDeviceId(device_id);
-        ctx.BindDevice();
-      } catch (Exception& e) {
-        LOG(ERROR) << e.what();
-        return;
-      }
-      VLOG(4) << "Free memory on MLU";
-      cnrtRet_t ret = cnrtFree(memory);
-      if (CNRT_RET_SUCCESS != ret) {
-        LOG(ERROR) << "free memory failed, error code: " << ret;
-      }
-    };
+  assert(memory_size_);
+  assert(data_);
+  if (!data_->data) {
+    if (type_ == MemoryType::CPU) {
+      data_->data = malloc(memory_size_);
+      VLOG(5) << "Alloc memory on CPU in " << memory_size_ << " bytes. " << data_->data;
+      if (!data_->data) THROW_EXCEPTION(Exception::MEMORY, "malloc failed");
+    } else if (type_ == MemoryType::MLU) {
+      cnrtRet_t error_code;
+      error_code = cnrtMalloc(&data_->data, memory_size_);
+      VLOG(5) << "Alloc memory on MLU in " << memory_size_ << " bytes. " << data_->data;
+      CHECK_CNRT_RET(error_code, "Mlu malloc failed.");
+    }
   }
 }
 
 Buffer Buffer::operator()(size_t offset) const {
-  CHECK_LT(offset + this->offset_, memory_size_);
+  if (offset + this->offset_ >= memory_size_) THROW_EXCEPTION(Exception::INVALID_ARG, "Offset out of range");
   Buffer buf;
-  buf.cpu_ = this->cpu_;
-  buf.mlu_ = this->mlu_;
+  buf.data_ = this->data_;
   buf.type_ = this->type_;
   buf.memory_size_ = this->memory_size_;
   buf.offset_ = this->offset_ + offset;
@@ -172,39 +165,16 @@ Buffer Buffer::operator()(size_t offset) const {
 }
 
 void* Buffer::MutableData() {
-  if (type_ == MemoryType::CPU) {
-    LazyMalloc();
-    return DataOffset(cpu_->data, offset_);
-  } else if (type_ == MemoryType::MLU) {
-    LazyMalloc();
-    return DataOffset(mlu_->data, offset_);
-  } else {
-    CHECK(false) << "unsupport memory type";
-    return nullptr;
-  }
+  LazyMalloc();
+  return DataOffset(data_->data, offset_);
 }
 
 const void* Buffer::Data() const {
-  if (type_ == MemoryType::CPU) {
-    if (!cpu_ && !cpu_->data) THROW_EXCEPTION(Exception::MEMORY, "buffer not initialized");
-    return DataOffset(cpu_->data, offset_);
-  } else if (type_ == MemoryType::MLU) {
-    if (!mlu_ && !mlu_->data) THROW_EXCEPTION(Exception::MEMORY, "buffer not initialized");
-    return DataOffset(mlu_->data, offset_);
-  } else {
-    CHECK(false) << "unsupport memory type";
-    return nullptr;
-  }
+  if (!data_ || !data_->data) THROW_EXCEPTION(Exception::MEMORY, "buffer not initialized");
+  return DataOffset(data_->data, offset_);
 }
 bool Buffer::OwnMemory() const noexcept {
-  if (type_ == MemoryType::CPU) {
-    return cpu_ && cpu_->data;
-  } else if (type_ == MemoryType::MLU) {
-    return mlu_ && mlu_->data;
-  } else {
-    CHECK(false) << "unsupport memory type";
-    return false;
-  }
+  return data_ && data_->data;
 }
 
 void Buffer::CopyFrom(void* cpu_src, size_t copy_size) {
@@ -218,9 +188,9 @@ void Buffer::CopyFrom(void* cpu_src, size_t copy_size) {
   LazyMalloc();
 
   if (type_ == MemoryType::CPU) {
-    memcpy(DataOffset(cpu_->data, offset_), cpu_src, copy_size);
+    memcpy(DataOffset(data_->data, offset_), cpu_src, copy_size);
   } else if (type_ == MemoryType::MLU) {
-    MemcpyMLU(DataOffset(mlu_->data, offset_), cpu_src, copy_size, CNRT_MEM_TRANS_DIR_HOST2DEV);
+    MemcpyMLU(DataOffset(data_->data, offset_), cpu_src, copy_size, CNRT_MEM_TRANS_DIR_HOST2DEV);
   }
 }
 
@@ -231,17 +201,14 @@ void Buffer::CopyTo(void* cpu_dst, size_t copy_size) const {
   if (!cpu_dst) {
     THROW_EXCEPTION(Exception::INVALID_ARG, "copy: cpu dst is null!");
   }
+  if (!data_->data) {
+    THROW_EXCEPTION(Exception::MEMORY, "copy: buffer donot own data");
+  }
 
   if (type_ == MemoryType::CPU) {
-    if (!cpu_->data) {
-      THROW_EXCEPTION(Exception::MEMORY, "copy: buffer donot own data");
-    }
-    memcpy(cpu_dst, DataOffset(cpu_->data, offset_), copy_size);
+    memcpy(cpu_dst, DataOffset(data_->data, offset_), copy_size);
   } else if (type_ == MemoryType::MLU) {
-    if (!mlu_->data) {
-      THROW_EXCEPTION(Exception::MEMORY, "copy: buffer donot own data");
-    }
-    MemcpyMLU(cpu_dst, DataOffset(mlu_->data, offset_), copy_size, CNRT_MEM_TRANS_DIR_DEV2HOST);
+    MemcpyMLU(cpu_dst, DataOffset(data_->data, offset_), copy_size, CNRT_MEM_TRANS_DIR_DEV2HOST);
   }
 }
 
@@ -256,13 +223,13 @@ void Buffer::CopyFrom(const Buffer& src, size_t copy_size) {
   LazyMalloc();
 
   if (this->type_ == MemoryType::CPU && src.Type() == MemoryType::CPU) {
-    memcpy(DataOffset(cpu_->data, offset_), src.Data(), copy_size);
+    memcpy(DataOffset(data_->data, offset_), src.Data(), copy_size);
   } else if (this->type_ == MemoryType::CPU && src.Type() == MemoryType::MLU) {
-    MemcpyMLU(DataOffset(cpu_->data, offset_), src.Data(), copy_size, CNRT_MEM_TRANS_DIR_DEV2HOST);
+    MemcpyMLU(DataOffset(data_->data, offset_), src.Data(), copy_size, CNRT_MEM_TRANS_DIR_DEV2HOST);
   } else if (this->type_ == MemoryType::MLU && src.Type() == MemoryType::CPU) {
-    MemcpyMLU(DataOffset(mlu_->data, offset_), src.Data(), copy_size, CNRT_MEM_TRANS_DIR_HOST2DEV);
+    MemcpyMLU(DataOffset(data_->data, offset_), src.Data(), copy_size, CNRT_MEM_TRANS_DIR_HOST2DEV);
   } else if (this->type_ == MemoryType::MLU && src.Type() == MemoryType::MLU) {
-    MemcpyMLU(DataOffset(mlu_->data, offset_), src.Data(), copy_size, CNRT_MEM_TRANS_DIR_DEV2DEV);
+    MemcpyMLU(DataOffset(data_->data, offset_), src.Data(), copy_size, CNRT_MEM_TRANS_DIR_DEV2DEV);
   } else {
     CHECK(false) << "unknown copy direction";
   }
@@ -279,8 +246,7 @@ MluMemoryPool::MluMemoryPool(size_t memory_size, size_t max_buffer_num, int devi
   if (!memory_size || !max_buffer_num) {
     THROW_EXCEPTION(Exception::INVALID_ARG, "memory size or max buffer number is 0!");
   }
-  MluContext ctx;
-  if (!ctx.CheckDeviceId(device_id)) {
+  if (!CheckDevice(device_id)) {
     THROW_EXCEPTION(Exception::UNAVAILABLE, std::string("no such device: ") + std::to_string(device_id));
   }
 
@@ -289,34 +255,28 @@ MluMemoryPool::MluMemoryPool(size_t memory_size, size_t max_buffer_num, int devi
 
 MluMemoryPool::~MluMemoryPool() {
   VLOG(3) << "Destroy MLU memory pool";
-  try {
-    running_.store(false);
-    size_t remain_memory = buffer_num_;
-    MluContext ctx;
-    ctx.SetDeviceId(device_id_);
-    ctx.BindDevice();
-    std::unique_lock<std::mutex> lk(q_mutex_);
-    while (remain_memory) {
-      if (cache_.empty()) {
-        VLOG(5) << "wait for memory released";
-        empty_cond_.wait(lk, [this]() { return !cache_.empty(); });
-      }
-
-      VLOG(4) << "Free memory on MLU " << cache_.front() << ", size = " << memory_size_;
-      cnrtRet_t ret = cnrtFree(cache_.front());
-      cache_.pop();
-      if (CNRT_RET_SUCCESS != ret) {
-        LOG(ERROR) << "free memory failed, error code: " << ret;
-      }
-      --remain_memory;
+  running_.store(false);
+  size_t remain_memory = buffer_num_;
+  if (!SetCurrentDevice(device_id_)) return;
+  std::unique_lock<std::mutex> lk(q_mutex_);
+  while (remain_memory) {
+    if (cache_.empty()) {
+      VLOG(5) << "wait for memory released";
+      empty_cond_.wait(lk, [this]() { return !cache_.empty(); });
     }
-  } catch (std::exception& e) {
-    LOG(ERROR) << e.what();
+
+    VLOG(5) << "Free memory on MLU " << cache_.front() << ", size = " << memory_size_;
+    cnrtRet_t ret = cnrtFree(cache_.front());
+    cache_.pop();
+    if (CNRT_RET_SUCCESS != ret) {
+      LOG(ERROR) << "free memory failed, error code: " << ret;
+    }
+    --remain_memory;
   }
 }
 
 Buffer MluMemoryPool::Request(int timeout_ms) {
-  VLOG(5) << "request a piece of MLU memory";
+  VLOG(6) << "request a piece of MLU memory";
   if (!running_.load()) {
     LOG(WARNING) << "pool is not running";
     THROW_EXCEPTION(Exception::UNAVAILABLE, "pool is not running");
@@ -325,13 +285,11 @@ Buffer MluMemoryPool::Request(int timeout_ms) {
   std::unique_lock<std::mutex> lk(q_mutex_);
   if (cache_.empty()) {
     if (buffer_num_ < max_buffer_num_) {
-      MluContext ctx;
-      ctx.SetDeviceId(device_id_);
-      ctx.BindDevice();
+      if (!SetCurrentDevice(device_id_)) THROW_EXCEPTION(Exception::INIT_FAILED, "Set device failed");
       cnrtRet_t error_code;
-      VLOG(4) << "Alloc memory on MLU in " << memory_size_ << " bytes";
       void* data{nullptr};
       error_code = cnrtMalloc(&data, memory_size_);
+      VLOG(5) << "Alloc memory on MLU in " << memory_size_ << " bytes. " << data;
       CHECK_CNRT_RET(error_code, "MLU malloc failed");
       cache_.push(data);
       ++buffer_num_;
@@ -358,8 +316,8 @@ Buffer MluMemoryPool::Request(int timeout_ms) {
   void* m = cache_.front();
   cache_.pop();
   return Buffer(m, memory_size_,
-                [this](void* m, int) {
-                  VLOG(5) << "release memory";
+                [this](void* m, int /*unused*/) {
+                  VLOG(6) << "release memory";
                   std::unique_lock<std::mutex> lk(q_mutex_);
                   cache_.push(m);
                   empty_cond_.notify_one();

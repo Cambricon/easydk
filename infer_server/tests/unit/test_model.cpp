@@ -22,8 +22,10 @@
 
 #include <memory>
 #include <string>
+#include <vector>
 
 #include "cnrt.h"
+#include "core/data_type.h"
 #include "model/model.h"
 #include "test_base.h"
 
@@ -35,8 +37,38 @@
 namespace infer_server {
 
 TEST_F(InferServerTest, Model) {
-  std::string model_path = GetExePath() + "../../../tests/data/resnet50_270.cambricon";
   auto m = std::make_shared<Model>();
+#ifdef CNIS_USE_MAGICMIND
+  std::string model_uri = "http://video.cambricon.com/models/MLU370/resnet50_nhwc_tfu_0.5_int8_fp16.model";
+  // download model
+  auto tmp = InferServer::LoadModel(model_uri);
+  InferServer::UnloadModel(tmp);
+  tmp.reset();
+
+  ASSERT_TRUE(m->Init("resnet50_nhwc_tfu_0.5_int8_fp16.model"));
+  auto* model = m->GetModel();
+
+  size_t i_num = model->GetInputNum();
+  size_t o_num = model->GetOutputNum();
+  ASSERT_EQ(i_num, m->InputNum());
+  ASSERT_EQ(o_num, m->OutputNum());
+  std::vector<mm::Dims> in_dims = model->GetInputDimensions();
+  std::vector<mm::Dims> out_dims = model->GetOutputDimensions();
+  std::vector<mm::DataType> i_dtypes = model->GetInputDataTypes();
+  std::vector<mm::DataType> o_dtypes = model->GetOutputDataTypes();
+
+  // TODO(dmh): test layout after read layout from model supported by mm
+  for (size_t idx = 0; idx < i_num; ++idx) {
+    EXPECT_EQ(detail::CastDataType(i_dtypes[idx]), m->InputLayout(idx).dtype);
+    EXPECT_EQ(Shape(in_dims[idx].GetDims()), m->InputShape(idx));
+  }
+  for (size_t idx = 0; idx < o_num; ++idx) {
+    EXPECT_EQ(detail::CastDataType(o_dtypes[idx]), m->OutputLayout(idx).dtype);
+    EXPECT_EQ(Shape(out_dims[idx].GetDims()), m->OutputShape(idx));
+  }
+  EXPECT_EQ(in_dims[0].GetDimValue(0), m->BatchSize());
+#else
+  std::string model_path = GetExePath() + "../../../tests/data/resnet50_270.cambricon";
   ASSERT_TRUE(m->Init(model_path, "subnet0"));
   cnrtRet_t error_code;
   auto function = m->GetFunction();
@@ -80,8 +112,8 @@ TEST_F(InferServerTest, Model) {
     free(output_dim_values);
   }
 
-  EXPECT_EQ(m->FunctionName(), "subnet0");
-  EXPECT_EQ(m->Path().compare(model_path), 0);
+  EXPECT_EQ(m->GetKey().compare(model_path + "_" + "subnet0"), 0);
+#endif
 }
 
 }  // namespace infer_server

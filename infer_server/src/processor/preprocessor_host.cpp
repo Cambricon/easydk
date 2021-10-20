@@ -22,9 +22,8 @@
 #include <utility>
 #include <vector>
 
+#include "cnis/processor.h"
 #include "core/data_type.h"
-#include "device/mlu_context.h"
-#include "processor.h"
 #include "util/env.h"
 #include "util/thread_pool.h"
 
@@ -45,7 +44,9 @@ struct PreprocessorHostPrivate {
   PreprocessorHost::ProcessFunction process_func{nullptr};
 
   std::vector<std::unique_ptr<MluMemoryPool>> pools;
+  // cpu memory before copy to mlu
   std::vector<Buffer> dst;
+  // cpu memory before translayout
   std::vector<Buffer> dst_tmp;
   std::vector<Shape> shapes;
   std::vector<DataLayout> layouts;
@@ -77,9 +78,6 @@ PreprocessorHost::~PreprocessorHost() {
     uint32_t idle_num = priv_->tp->IdleNumber();
     if (idle_num > priv_->increased_tp) {
       if (priv_->increased_tp == priv_->tp->Size()) {
-        // if we resize to 0 threads here, segment fault will occur occasionally!
-        // but it won't happen under debug mode, so the bug cannot be located.
-        // simply avoid resize to 0 thread, as workaround.
         VLOG(3) << "Destroy preproc_host worker thread pool";
         // no any other preproc instance, ensure no task in pool
         priv_->tp->Stop(true);
@@ -118,8 +116,8 @@ Status PreprocessorHost::Init() noexcept {
 
   // no process function will just pass through
   if (priv_->process_func) {
-    // increased number of threads limited in [1, 8]
-    priv_->increased_tp = parallel > 0 ? (parallel < 8 ? parallel : 8) : 2;
+    // increased number of threads limited in [1, 16]
+    priv_->increased_tp = parallel > 0 ? (parallel < 16 ? parallel : 16) : 4;
     std::unique_lock<std::mutex> lk(priv_->tp_mutex);
     if (!priv_->tp) {
       VLOG(3) << "Create preproc_host worker thread pool";
@@ -145,7 +143,9 @@ Status PreprocessorHost::Init() noexcept {
       priv_->layouts.emplace_back(priv_->model->InputLayout(i_idx));
       size_t data_count = priv_->shapes[i_idx].BatchDataCount();
       priv_->dst_tmp.emplace_back(data_count * GetTypeSize(priv_->host_layout.dtype));
+      (void)priv_->dst_tmp[i_idx].MutableData();
       priv_->dst.emplace_back(data_count * GetTypeSize(priv_->layouts[i_idx].dtype));
+      (void)priv_->dst[i_idx].MutableData();
       priv_->pools.emplace_back(new MluMemoryPool(data_count * GetTypeSize(priv_->layouts[i_idx].dtype), 3, device_id));
     }
   }
@@ -206,14 +206,26 @@ Status PreprocessorHost::Process(PackagePtr pack) noexcept {
   input.buffers.reserve(i_num);
   input.shapes.reserve(i_num);
   for (size_t i_idx = 0; i_idx < i_num; ++i_idx) {
-    if (!detail::TransLayout(priv_->dst_tmp[i_idx].MutableData(), priv_->dst[i_idx].MutableData(),
-                             priv_->host_layout, priv_->layouts[i_idx], priv_->shapes[i_idx])) {
+    Shape s = priv_->layouts[i_idx].order == DimOrder::NCHW ? Shape(DimNCHW2NHWC(priv_->shapes[i_idx].Vectorize()))
+                                                            : priv_->shapes[i_idx];
+    // FIXME(dmh): assume that first element of shape is N
+    s[0] = batch_size;
+    input.shapes.emplace_back(priv_->shapes[i_idx]);
+    input.shapes[i_idx][0] = batch_size;
+    input.buffers.emplace_back(priv_->pools[i_idx]->Request());
+    if (priv_->host_layout.dtype == priv_->layouts[i_idx].dtype &&
+        priv_->host_layout.order == priv_->layouts[i_idx].order) {
+      (void)priv_->dst_tmp[i_idx].MutableData();
+      input.buffers[i_idx].CopyFrom(priv_->dst_tmp[i_idx],
+                                    input.shapes[i_idx].BatchDataCount() * GetTypeSize(priv_->layouts[i_idx].dtype));
+      continue;
+    }
+    if (!detail::TransLayout(priv_->dst_tmp[i_idx].MutableData(), priv_->dst[i_idx].MutableData(), priv_->host_layout,
+                             priv_->layouts[i_idx], s)) {
       return Status::ERROR_BACKEND;
     }
-    input.shapes.emplace_back(priv_->shapes[i_idx]);
-    input.buffers.emplace_back(priv_->pools[i_idx]->Request());
     input.buffers[i_idx].CopyFrom(priv_->dst[i_idx],
-                                  priv_->shapes[i_idx].BatchDataCount() * GetTypeSize(priv_->layouts[i_idx].dtype));
+                                  input.shapes[i_idx].BatchDataCount() * GetTypeSize(priv_->layouts[i_idx].dtype));
   }
   pack->predict_io.reset(new InferData);
   pack->predict_io->Set(std::move(input));
