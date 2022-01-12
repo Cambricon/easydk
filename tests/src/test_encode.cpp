@@ -6,8 +6,9 @@
 #include <memory>
 #include <mutex>
 #include <string>
+#include <vector>
 
-#include "../../src/easycodec/format_info.h"
+#include "cnrt.h"
 #include "device/mlu_context.h"
 #include "easycodec/easy_encode.h"
 #include "test_base.h"
@@ -114,6 +115,7 @@ static bool cvt_bgr_to_yuv420sp(const cv::Mat &bgr_image, uint32_t alignment, ed
 }
 
 void eos_callback() {
+  if (!g_encoder) return;
   try {
     edk::MluContext context;
     context.SetDeviceId(0);
@@ -140,6 +142,7 @@ void eos_callback() {
 }
 
 void packet_callback(const edk::CnPacket &packet) {
+  if (!g_encoder) return;
   char *output_file = NULL;
   char str[256] = {0};
   size_t written;
@@ -183,7 +186,7 @@ void packet_callback(const edk::CnPacket &packet) {
 }
 
 bool SendData(edk::EasyEncode *encoder, PixelFmt pixel_format, CodecType codec_type, bool end,
-              const std::string &image_path) {
+              const std::string &image_path, bool mlu_data) {
   edk::CnFrame frame;
   uint8_t *p_data_buffer = NULL;
   cv::Mat cv_image;
@@ -207,21 +210,33 @@ bool SendData(edk::EasyEncode *encoder, PixelFmt pixel_format, CodecType codec_t
       printf("ERROR: malloc buffer for input file failed\n");
       return false;
     }
-
     cvt_bgr_to_yuv420sp(cv_image, align, pixel_format, p_data_buffer);
 
-    frame.pformat = pixel_format;
-    frame.ptrs[0] = reinterpret_cast<void *>(p_data_buffer);
-    frame.ptrs[1] = reinterpret_cast<void *>(p_data_buffer + width * height);
-    frame.n_planes = 2;
-    if (pixel_format == PixelFmt::I420) {
-      frame.n_planes = 3;
-      frame.ptrs[2] = reinterpret_cast<void *>(p_data_buffer + width * height * 5 / 4);
+    if (!mlu_data) {
+      frame.pformat = pixel_format;
+      frame.ptrs[0] = reinterpret_cast<void *>(p_data_buffer);
+      frame.ptrs[1] = reinterpret_cast<void *>(p_data_buffer + width * height);
+      frame.n_planes = 2;
+      if (pixel_format == PixelFmt::I420) {
+        frame.n_planes = 3;
+        frame.ptrs[2] = reinterpret_cast<void *>(p_data_buffer + width * height * 5 / 4);
+      }
+      frame.frame_size = input_length;
+      frame.width = width;
+      frame.height = height;
+      frame.pts = frame_count++;
+      frame.device_id = -1;
+    } else {
+      encoder->RequestFrame(&frame);
+      cnrtMemcpy(frame.ptrs[0], p_data_buffer, width * height, CNRT_MEM_TRANS_DIR_HOST2DEV);
+      if (pixel_format == PixelFmt::NV21 || pixel_format == PixelFmt::NV12) {
+        cnrtMemcpy(frame.ptrs[1], p_data_buffer + width * height, width * height / 2, CNRT_MEM_TRANS_DIR_HOST2DEV);
+      } else {
+        cnrtMemcpy(frame.ptrs[1], p_data_buffer + width * height, width * height / 4, CNRT_MEM_TRANS_DIR_HOST2DEV);
+        cnrtMemcpy(frame.ptrs[2], p_data_buffer + width * height * 5 / 4, width * height / 4,
+                   CNRT_MEM_TRANS_DIR_HOST2DEV);
+      }
     }
-    frame.frame_size = input_length;
-    frame.width = width;
-    frame.height = height;
-    frame.pts = frame_count++;
   } else {
     printf("ERROR: Input pixel format(%d) invalid\n", static_cast<int>(pixel_format));
     return false;
@@ -235,7 +250,11 @@ bool SendData(edk::EasyEncode *encoder, PixelFmt pixel_format, CodecType codec_t
     printf("Set EOS flag to encoder\n");
     eos = true;
   }
-  ret = encoder->SendDataCPU(frame, eos);
+  if (!eos) {
+    ret = encoder->FeedData(frame);
+  } else {
+    ret = encoder->FeedEos();
+  }
 
   if (p_data_buffer) delete[] p_data_buffer;
 
@@ -243,7 +262,8 @@ bool SendData(edk::EasyEncode *encoder, PixelFmt pixel_format, CodecType codec_t
 }
 
 bool test_EasyEncode(const char *input_file, uint32_t w, uint32_t h, PixelFmt pixel_format, CodecType codec_type,
-                     bool vbr, bool mismatch_config = false, uint32_t max_mb_per_slice = 0, bool _abort = false) {
+                     bool mlu_data, int rc_mode, int preset = 0/*only for mlu370*/, int tune = 2/*only for mlu370*/,
+                     bool mismatch_config = false, uint32_t max_mb_per_slice = 0, bool _abort = false) {
   printf("\nTesting encode %s image to %s\n", pf_str(pixel_format), cc_str(codec_type));
 
   p_output_file = NULL;
@@ -252,11 +272,12 @@ bool test_EasyEncode(const char *input_file, uint32_t w, uint32_t h, PixelFmt pi
   std::string input_path = GetExePath() + input_file;
 
   is_eos = false;
-
+  edk::CoreVersion core_version;
   try {
     edk::MluContext context;
     context.SetDeviceId(0);
     context.BindDevice();
+    core_version = context.GetCoreVersion();
   } catch (edk::Exception &err) {
     printf("set mlu env failed\n");
     return false;
@@ -270,38 +291,71 @@ bool test_EasyEncode(const char *input_file, uint32_t w, uint32_t h, PixelFmt pi
   attr.pixel_format = pixel_format;
   attr.packet_callback = packet_callback;
   attr.eos_callback = eos_callback;
-  attr.input_buffer_num = 4;
-  attr.output_buffer_num = 4;
-  attr.rate_control.vbr = vbr;
-  attr.rate_control.gop = 20;
-  attr.rate_control.frame_rate_num = 30;
-  attr.rate_control.frame_rate_den = 1;
-  attr.rate_control.bit_rate = 1024;
-  attr.rate_control.max_bit_rate = 2048;
   attr.silent = false;
-  attr.jpeg_qfactor = 50;
-  // attr.ir_count = 5;
-  switch (codec_type) {
-    case CodecType::H264:
-      if (mismatch_config) {
-        attr.profile = VideoProfile::H265_MAIN;
-        attr.level = VideoLevel::H265_HIGH_41;
-      } else {
-        attr.profile = VideoProfile::H264_MAIN;
-        attr.level = VideoLevel::H264_41;
-      }
-      break;
-    case CodecType::H265:
-      if (mismatch_config) {
-        attr.profile = VideoProfile::H264_MAIN;
-        attr.level = VideoLevel::H264_41;
-      } else {
-        attr.profile = VideoProfile::H265_MAIN;
-        attr.level = VideoLevel::H265_HIGH_41;
-      }
-      break;
-    default:
-      break;
+  if (core_version == edk::CoreVersion::MLU370) {
+    attr.attr_mlu300.preset = static_cast<edk::EncodePreset>(preset);
+    attr.attr_mlu300.tune = static_cast<edk::EncodeTune>(tune);
+    attr.attr_mlu300.gop_size = 20;
+    attr.attr_mlu300.frame_rate_num = 30;
+    attr.attr_mlu300.frame_rate_den = 1;
+    attr.attr_mlu300.rate_control.rc_mode = static_cast<edk::RateControlModeMlu300>(rc_mode);
+    attr.attr_mlu300.rate_control.bit_rate = 1024 * 1024;
+    attr.attr_mlu300.jpeg_qfactor = 50;
+    switch (codec_type) {
+      case CodecType::H264:
+        if (mismatch_config) {
+          attr.attr_mlu300.profile = VideoProfile::H265_MAIN;
+          attr.attr_mlu300.level = VideoLevel::H265_HIGH_41;
+        } else {
+          attr.attr_mlu300.profile = VideoProfile::H264_MAIN;
+          attr.attr_mlu300.level = VideoLevel::H264_41;
+        }
+        break;
+      case CodecType::H265:
+        if (mismatch_config) {
+          attr.attr_mlu300.profile = VideoProfile::H264_MAIN;
+          attr.attr_mlu300.level = VideoLevel::H264_41;
+        } else {
+          attr.attr_mlu300.profile = VideoProfile::H265_MAIN;
+          attr.attr_mlu300.level = VideoLevel::H265_HIGH_41;
+        }
+        break;
+      default:
+        break;
+    }
+  } else if (core_version == edk::CoreVersion::MLU270 || core_version == edk::CoreVersion::MLU220) {
+    attr.attr_mlu200.rate_control.vbr = rc_mode;
+    attr.attr_mlu200.rate_control.gop = 20;
+    attr.attr_mlu200.rate_control.frame_rate_num = 30;
+    attr.attr_mlu200.rate_control.frame_rate_den = 1;
+    attr.attr_mlu200.rate_control.bit_rate = 1024;
+    attr.attr_mlu200.rate_control.max_bit_rate = 2048;
+    attr.attr_mlu200.jpeg_qfactor = 50;
+    switch (codec_type) {
+      case CodecType::H264:
+        if (mismatch_config) {
+          attr.attr_mlu200.profile = VideoProfile::H265_MAIN;
+          attr.attr_mlu200.level = VideoLevel::H265_HIGH_41;
+        } else {
+          attr.attr_mlu200.profile = VideoProfile::H264_MAIN;
+          attr.attr_mlu200.level = VideoLevel::H264_41;
+        }
+        break;
+      case CodecType::H265:
+        if (mismatch_config) {
+          attr.attr_mlu200.profile = VideoProfile::H264_MAIN;
+          attr.attr_mlu200.level = VideoLevel::H264_41;
+        } else {
+          attr.attr_mlu200.profile = VideoProfile::H265_MAIN;
+          attr.attr_mlu200.level = VideoLevel::H265_HIGH_41;
+        }
+        break;
+      default:
+        break;
+    }
+  } else {
+    THROW_EXCEPTION(edk::Exception::INTERNAL, "Not supported core version");
+    return false;
   }
 
   std::unique_ptr<edk::EasyEncode> encoder;
@@ -314,7 +368,7 @@ bool test_EasyEncode(const char *input_file, uint32_t w, uint32_t h, PixelFmt pi
       // encode multi frames for video encoder
       for (int i = 0; i < VIDEO_ENCODE_FRAME_COUNT; i++) {
         bool end = i < (VIDEO_ENCODE_FRAME_COUNT - 1) || _abort ? false : true;
-        ret = SendData(g_encoder, pixel_format, codec_type, end, input_path);
+        ret = SendData(g_encoder, pixel_format, codec_type, end, input_path, mlu_data);
         if (!ret) {
           break;
         }
@@ -341,80 +395,100 @@ bool test_EasyEncode(const char *input_file, uint32_t w, uint32_t h, PixelFmt pi
   return true;
 }
 
-bool test_PixelFmt(PixelFmt pixel_format, cncodecPixelFormat res) {
-  if (res == edk::FormatInfo::GetFormatInfo(pixel_format)->cncodec_fmt)
-    return true;
-  else
-    return false;
-}
-
-bool test_CodecType(CodecType codec_type, cncodecType res) {
-  if (res == CodecTypeCast(codec_type))
-    return true;
-  else
-    return false;
-}
-
 TEST(Codec, EncodeVideo) {
-  bool ret = false;
-  ret = test_EasyEncode(TEST_1080P_JPG, 1920, 1080, PixelFmt::NV12, CodecType::H264, true);
-  EXPECT_TRUE(ret);
-  ret = test_EasyEncode(TEST_1080P_JPG, 1920, 1080, PixelFmt::NV21, CodecType::H264, false);
-  EXPECT_TRUE(ret);
+  std::vector<bool> mlu_data_vec = {false, true};
+  edk::MluContext context;
+  edk::CoreVersion core_version = context.GetCoreVersion();
 
-  ret = test_EasyEncode(TEST_1080P_JPG, 1920, 1080, PixelFmt::NV12, CodecType::H265, true);
-  EXPECT_TRUE(ret);
-  ret = test_EasyEncode(TEST_1080P_JPG, 1920, 1080, PixelFmt::NV21, CodecType::H265, false);
-  EXPECT_TRUE(ret);
+  for (auto mlu_data : mlu_data_vec) {
+    bool ret = false;
+    ret = test_EasyEncode(TEST_1080P_JPG, 1920, 1080, PixelFmt::NV12, CodecType::H264, mlu_data, false);
+    EXPECT_TRUE(ret);
+    ret = test_EasyEncode(TEST_1080P_JPG, 1920, 1080, PixelFmt::NV21, CodecType::H264, mlu_data, false);
+    EXPECT_TRUE(ret);
 
-  ret = test_EasyEncode(TEST_500x500_JPG, 500, 500, PixelFmt::I420, CodecType::H264, true);
-  EXPECT_TRUE(ret);
-  ret = test_EasyEncode(TEST_500x500_JPG, 500, 500, PixelFmt::I420, CodecType::H265, true);
-  EXPECT_TRUE(ret);
-  ret = test_EasyEncode(TEST_500x500_JPG, 500, 500, PixelFmt::NV12, CodecType::H264, false);
-  EXPECT_TRUE(ret);
-  ret = test_EasyEncode(TEST_500x500_JPG, 500, 500, PixelFmt::NV21, CodecType::H264, false);
-  EXPECT_TRUE(ret);
+    ret = test_EasyEncode(TEST_1080P_JPG, 1920, 1080, PixelFmt::NV12, CodecType::H265, mlu_data, true);
+    EXPECT_TRUE(ret);
+    ret = test_EasyEncode(TEST_1080P_JPG, 1920, 1080, PixelFmt::NV21, CodecType::H265, mlu_data, false);
+    EXPECT_TRUE(ret);
 
-  // test mismatch profile and level
-  ret = test_EasyEncode(TEST_1080P_JPG, 1920, 1080, PixelFmt::NV21, CodecType::H264, true, true);
-  EXPECT_TRUE(ret);
-  ret = test_EasyEncode(TEST_1080P_JPG, 1920, 1080, PixelFmt::NV12, CodecType::H265, false, true);
-  EXPECT_TRUE(ret);
+    ret = test_EasyEncode(TEST_500x500_JPG, 500, 500, PixelFmt::I420, CodecType::H264, mlu_data, true);
+    EXPECT_TRUE(ret);
+    ret = test_EasyEncode(TEST_500x500_JPG, 500, 500, PixelFmt::I420, CodecType::H265, mlu_data, true);
+    EXPECT_TRUE(ret);
+    ret = test_EasyEncode(TEST_500x500_JPG, 500, 500, PixelFmt::NV12, CodecType::H264, mlu_data, false);
+    EXPECT_TRUE(ret);
+    ret = test_EasyEncode(TEST_500x500_JPG, 500, 500, PixelFmt::NV21, CodecType::H264, mlu_data, false);
+    EXPECT_TRUE(ret);
 
-  // test abort encoder
-  ret = test_EasyEncode(TEST_500x500_JPG, 500, 500, PixelFmt::NV12, CodecType::H264, false, false, true);
-  EXPECT_TRUE(ret);
+    // test mismatch profile and level
+    ret = test_EasyEncode(TEST_1080P_JPG, 1920, 1080, PixelFmt::NV21, CodecType::H264, mlu_data, true, 0, 2, true);
+    EXPECT_TRUE(ret);
+    ret = test_EasyEncode(TEST_1080P_JPG, 1920, 1080, PixelFmt::NV12, CodecType::H265, mlu_data, false, 0, 2, true);
+    EXPECT_TRUE(ret);
+
+    // test abort encoder
+    ret = test_EasyEncode(TEST_500x500_JPG, 500, 500, PixelFmt::NV12, CodecType::H264, mlu_data, false, 0, 2,
+                          false, true);
+    EXPECT_TRUE(ret);
+
+    if (core_version == edk::CoreVersion::MLU370) {
+      std::vector<int> rc_mode_vec = {0, 1, 2, 3, 4};
+      for (auto &rc_mode : rc_mode_vec) {
+        ret = test_EasyEncode(TEST_1080P_JPG, 1920, 1080, PixelFmt::NV12, CodecType::H264, mlu_data, rc_mode);
+        EXPECT_TRUE(ret);
+      }
+      std::vector<int> preset_vec = {0, 1, 2, 3, 4};
+      std::vector<int> tune_vec = {0, 1, 2, 3, 4};
+      for (auto &preset : preset_vec) {
+        for (auto &tune : tune_vec) {
+          ret = test_EasyEncode(TEST_1080P_JPG, 1920, 1080, PixelFmt::NV12, CodecType::H264, mlu_data, 0, preset, tune);
+          EXPECT_TRUE(ret);
+          ret = test_EasyEncode(TEST_1080P_JPG, 1920, 1080, PixelFmt::NV21, CodecType::H265, mlu_data, 0, preset, tune);
+          EXPECT_TRUE(ret);
+        }
+      }
+    }
+  }
 }
 
 TEST(Codec, EncodeJpeg) {
-  bool ret = false;
-  ret = test_EasyEncode(TEST_1080P_JPG, 1920, 1080, PixelFmt::NV21, CodecType::JPEG, false);
-  EXPECT_TRUE(ret);
-  ret = test_EasyEncode(TEST_1080P_JPG, 1920, 1080, PixelFmt::NV12, CodecType::JPEG, false);
-  EXPECT_TRUE(ret);
-  ret = test_EasyEncode(TEST_500x500_JPG, 500, 500, PixelFmt::NV21, CodecType::JPEG, false);
-  EXPECT_TRUE(ret);
-  ret = test_EasyEncode(TEST_500x500_JPG, 500, 500, PixelFmt::NV12, CodecType::JPEG, false);
-  EXPECT_TRUE(ret);
+  std::vector<bool> mlu_data_vec = {false, true};
+  for (auto mlu_data : mlu_data_vec) {
+    bool ret = false;
+    ret = test_EasyEncode(TEST_1080P_JPG, 1920, 1080, PixelFmt::NV21, CodecType::JPEG, mlu_data, false);
+    EXPECT_TRUE(ret);
+    ret = test_EasyEncode(TEST_1080P_JPG, 1920, 1080, PixelFmt::NV12, CodecType::JPEG, mlu_data, false);
+    EXPECT_TRUE(ret);
+    ret = test_EasyEncode(TEST_500x500_JPG, 500, 500, PixelFmt::NV21, CodecType::JPEG, mlu_data, false);
+    EXPECT_TRUE(ret);
+    ret = test_EasyEncode(TEST_500x500_JPG, 500, 500, PixelFmt::NV12, CodecType::JPEG, mlu_data, false);
+    EXPECT_TRUE(ret);
 
-  // test abort encoder
-  ret = test_EasyEncode(TEST_500x500_JPG, 500, 500, PixelFmt::NV12, CodecType::JPEG, false, false, true);
-  EXPECT_TRUE(ret);
+    // test abort encoder
+    ret = test_EasyEncode(TEST_500x500_JPG, 500, 500, PixelFmt::NV12, CodecType::JPEG, mlu_data, false, 0, 2,
+                          false, true);
+    EXPECT_TRUE(ret);
+  }
 }
 
 TEST(Codec, EncodeNoFrame) {
   {
+    edk::MluContext context;
+    edk::CoreVersion core_version = context.GetCoreVersion();
     edk::EasyEncode::Attr attr;
-    attr.frame_geometry.w = 1920;
-    attr.frame_geometry.h = 1080;
-    attr.codec_type = edk::CodecType::H264;
-    attr.pixel_format = edk::PixelFmt::NV21;
-    attr.packet_callback = nullptr;
-    attr.eos_callback = nullptr;
-    attr.silent = false;
-    std::unique_ptr<edk::EasyEncode> encode = nullptr;
-    encode = edk::EasyEncode::New(attr);
+    // TODO(gaoyujia) : fixed on cncodec_v3 version 0.9
+    if (core_version != edk::CoreVersion::MLU370) {
+      attr.frame_geometry.w = 1920;
+      attr.frame_geometry.h = 1080;
+      attr.codec_type = edk::CodecType::H264;
+      attr.pixel_format = edk::PixelFmt::NV21;
+      attr.packet_callback = nullptr;
+      attr.eos_callback = nullptr;
+      attr.silent = false;
+      std::unique_ptr<edk::EasyEncode> encode = nullptr;
+      encode = edk::EasyEncode::New(attr);
+    }
   }
   {
     edk::EasyEncode::Attr attr;
@@ -428,26 +502,4 @@ TEST(Codec, EncodeNoFrame) {
     std::unique_ptr<edk::EasyEncode> encode = nullptr;
     encode = edk::EasyEncode::New(attr);
   }
-}
-
-TEST(Codec, InfoFormat) {
-  EXPECT_TRUE(test_CodecType(CodecType::MPEG4, CNCODEC_MPEG4));
-  EXPECT_TRUE(test_CodecType(CodecType::VP8, CNCODEC_VP8));
-  EXPECT_TRUE(test_CodecType(CodecType::VP9, CNCODEC_VP9));
-  EXPECT_TRUE(test_CodecType(CodecType::AVS, CNCODEC_AVS));
-  EXPECT_TRUE(test_CodecType(CodecType::JPEG, CNCODEC_JPEG));
-  EXPECT_TRUE(test_PixelFmt(PixelFmt::YV12, CNCODEC_PIX_FMT_YV12));
-  EXPECT_TRUE(test_PixelFmt(PixelFmt::YUYV, CNCODEC_PIX_FMT_YUYV));
-  EXPECT_TRUE(test_PixelFmt(PixelFmt::UYVY, CNCODEC_PIX_FMT_UYVY));
-  EXPECT_TRUE(test_PixelFmt(PixelFmt::YVYU, CNCODEC_PIX_FMT_YVYU));
-  EXPECT_TRUE(test_PixelFmt(PixelFmt::VYUY, CNCODEC_PIX_FMT_VYUY));
-  EXPECT_TRUE(test_PixelFmt(PixelFmt::P010, CNCODEC_PIX_FMT_P010));
-  EXPECT_TRUE(test_PixelFmt(PixelFmt::YUV420_10BIT, CNCODEC_PIX_FMT_YUV420_10BIT));
-  EXPECT_TRUE(test_PixelFmt(PixelFmt::YUV444_10BIT, CNCODEC_PIX_FMT_YUV444_10BIT));
-  EXPECT_TRUE(test_PixelFmt(PixelFmt::ARGB, CNCODEC_PIX_FMT_ARGB));
-  EXPECT_TRUE(test_PixelFmt(PixelFmt::ABGR, CNCODEC_PIX_FMT_ABGR));
-  EXPECT_TRUE(test_PixelFmt(PixelFmt::BGRA, CNCODEC_PIX_FMT_BGRA));
-  EXPECT_TRUE(test_PixelFmt(PixelFmt::RGBA, CNCODEC_PIX_FMT_RGBA));
-  EXPECT_TRUE(test_PixelFmt(PixelFmt::AYUV, CNCODEC_PIX_FMT_AYUV));
-  EXPECT_TRUE(test_PixelFmt(PixelFmt::RGB565, CNCODEC_PIX_FMT_RGB565));
 }

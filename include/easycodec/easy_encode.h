@@ -37,29 +37,7 @@
 namespace edk {
 
 /**
- * @brief Rate control parameters
- */
-struct RateControl {
-  /// Using variable bit rate or constant bit rate
-  bool vbr{false};
-  /// The interval of ISLICE.
-  uint32_t gop{0};
-  /// The numerator of encode frame rate of the venc channel
-  uint32_t frame_rate_num{0};
-  /// The denominator of encode frame rate of the venc channel
-  uint32_t frame_rate_den{0};
-  /// Average bitrate in unit of kpbs, for cbr only.
-  uint32_t bit_rate{0};
-  /// The max bitrate in unit of kbps, for vbr only .
-  uint32_t max_bit_rate{0};
-  /// The max qp, range [min_qp, 51]
-  uint32_t max_qp{0};
-  /// The min qp, range [0, max_qp]
-  uint32_t min_qp{0};
-};
-
-/**
- * @brief Video profile enumaration.
+ * @brief Video profile enumeration.
  */
 enum class VideoProfile {
   H264_BASELINE = 0,
@@ -94,6 +72,10 @@ enum class VideoLevel {
   H264_42,
   H264_5,
   H264_51,
+  H264_52,  // Only for mlu300 encoder
+  H264_6,   // Only for mlu300 encoder
+  H264_61,  // Only for mlu300 encoder
+  H264_62,  // Only for mlu300 encoder
 
   H265_MAIN_1,
   H265_HIGH_1,
@@ -121,13 +103,166 @@ enum class VideoLevel {
   H265_HIGH_61,
   H265_MAIN_62,
   H265_HIGH_62,
+  AUTO_SELECT,  // Only for mlu300 encoder
   LEVEL_MAX
+};
+
+/// ----------------------------Mlu200------------------------
+/**
+ * @brief Rate control for Mlu200 parameters
+ */
+struct RateControlMlu200 {
+  /// Using variable bit rate or constant bit rate
+  bool vbr{false};
+  /// The interval of ISLICE.
+  uint32_t gop{0};
+  /// The numerator of encode frame rate of the venc channel
+  uint32_t frame_rate_num{0};
+  /// The denominator of encode frame rate of the venc channel
+  uint32_t frame_rate_den{0};
+  /// Average bitrate in unit of kpbs, for cbr only.
+  uint32_t bit_rate{0};
+  /// The max bitrate in unit of kbps, for vbr only .
+  uint32_t max_bit_rate{0};
+  /// The max qp, range [min_qp, 51]
+  uint32_t max_qp{0};
+  /// The min qp, range [0, max_qp]
+  uint32_t min_qp{0};
 };
 
 /*
  * @brief cncodec GOP type, see developer guide
  */
-enum class GopType { BIDIRECTIONAL, LOW_DELAY, PYRAMID };
+enum class GopTypeMlu200 {
+  BIDIRECTIONAL,
+  LOW_DELAY,
+  PYRAMID,
+  TYPE_MAX
+};
+
+/**
+ * @brief for Mlu200 encoding parameters
+ */
+struct EncodeAttrMlu200 {
+  /// Quality factor for jpeg encoder.
+  uint32_t jpeg_qfactor = 50;
+  /// Profile for video encoder.
+  VideoProfile profile = VideoProfile::H264_MAIN;
+  /// Video encode level
+  VideoLevel level = VideoLevel::H264_41;
+  /// The rate control parameters
+  RateControlMlu200 rate_control;
+  /// B frame number in gop when profile is above main, default 0
+  uint32_t b_frame_num = 0;
+  /// GOP type, @see edk::GopTypeMlu200
+  GopTypeMlu200 gop_type = GopTypeMlu200::BIDIRECTIONAL;
+  /// insert SPS/PPS before IDR,1, insert, 0 not
+  bool insert_spspps_when_idr = true;
+};
+
+/// ----------------------------Mlu300------------------------
+enum class EncodePreset {
+  VERY_FAST,
+  FAST,
+  MEDIUM,
+  SLOW,
+  VERY_SLOW
+};
+
+enum class EncodeTune {
+  DEFAULT,
+  HIGH_QUALITY,
+  LOW_LATENCY,
+  LOW_LATENCY_HIGH_QUALITY,
+  FAST_DECODE
+};
+
+/*
+ * @brief cncodec_v3 GOP type, see developer guide
+ */
+enum class GopTypeMlu300 {
+  BFRAME_REF_DISABLED,
+  BFRAME_REF_EACH,
+  BFRAME_REF_MIDDLE,
+  BFRAME_REF_HIERARCHICAL,
+  TYPE_MAX
+};
+
+/**
+ * @brief Rate control mode for Mlu300 enumeration.
+ *
+ * For more details, see cncodec_v3 developer guide.
+ */
+enum class RateControlModeMlu300 {
+  CBR,
+  VBR,
+  CVBR,
+  CRF,
+  FIXEDQP,
+  MODE_MAX
+};
+
+/**
+ * @brief Rate control for Mlu300 parameters
+ */
+struct RateControlMlu300 {
+  /// Rate control mode
+  RateControlModeMlu300 rc_mode{RateControlModeMlu300::MODE_MAX};
+  /// The target bit rate in bits/s range [10000, max_bitrate_in_level]
+  uint32_t bit_rate{0};
+  /// The rate control window, range [0, 300], 0 means calculating automatic
+  int32_t rc_windows{-1};
+  /// The lookahead depth in two pass modes, range 0 or [4, 40], for cbr, vbr, cvbr and crf. For crf must not be 0.
+  int32_t lookahead_depth{-1};
+  /// The max qp, range [min_qp, 51], for cvbr only. Not recommend greater than 45.
+  int32_t max_qp{-1};
+  /// The min qp, range [0, max_qp], for cvbr only. Not recommend lower than 10.
+  int32_t min_qp{-1};
+  /// The target quality range [0, 51], for crf only, the higher the value, the lower the encoding quality.
+  int32_t target_quality{-1};
+  /// The const qp for i frame, range [0, 51], for fixedqp only.
+  int32_t const_qp_i{-1};
+  /// The const qp for p frame, range [0, 51], for fixedqp only.
+  int32_t const_qp_p{-1};
+  /// The const qp for b frame, range [0, 51], for fixedqp only.
+  int32_t const_qp_b{-1};
+  /// The initial QP, range [-1, 51], for cbr, vbr, cvbr and crf. -1 means calculating automatic.
+  int32_t initial_qp{-2};
+};
+
+/**
+ * @brief for Mlu300 encoding parameters
+ */
+struct EncodeAttrMlu300 {
+  /// preset mode
+  EncodePreset preset = EncodePreset::VERY_FAST;
+  /// tune mode
+  EncodeTune tune = EncodeTune::LOW_LATENCY;
+
+  /// max width and max height
+  Geometry max_geometry;
+  /// Quality factor for jpeg encoder, range [1-100].
+  uint32_t jpeg_qfactor = 50;
+  /// Profile for video encoder.
+  VideoProfile profile = VideoProfile::PROFILE_MAX;
+  /// Video encode level
+  VideoLevel level = VideoLevel::LEVEL_MAX;
+  /// The interval of ISLICE.
+  uint32_t gop_size{0};
+  /// The numerator of encode frame rate.
+  uint32_t frame_rate_num{30};
+  /// The denominator of encode frame rate.
+  uint32_t frame_rate_den{1};
+  /// The rate control parameters
+  RateControlMlu300 rate_control;
+  /// Specifies the number of B frames between two P frames, e.g., 4 means 3 B frames and 1 P frame.
+  int32_t frame_interval_p = -1;
+  /// GOP type, @see edk::GopTypeMlu300
+  GopTypeMlu300 gop_type = GopTypeMlu300::TYPE_MAX;
+  /// insert SPS/PPS before IDR,1, insert, 0 not. -1, use preset value.
+  int insert_spspps_when_idr = -1;
+};
+
 
 /**
  * @brief Encode packet callback function type
@@ -138,19 +273,18 @@ using EncodePacketCallback = std::function<void(const CnPacket&)>;
 /// Encode EOS callback function type
 using EncodeEosCallback = std::function<void()>;
 
-class EncodeHandler;
+class Encoder;
 
 /**
  * @brief Easy encoder class, provide a fast and easy API to encode on MLU platform.
  */
 class EasyEncode {
  public:
-  friend class EncodeHandler;
   /**
    * @brief params for creating EasyEncode
    */
   struct Attr {
-    /// The maximum resolution that this endecoder can handle.
+    /// The maximum resolution that this encoder can handle.
     Geometry frame_geometry;
 
     /**
@@ -166,38 +300,11 @@ class EasyEncode {
      */
     CodecType codec_type = CodecType::H264;
 
-    /// Color space standard
-    ColorStd color_std = ColorStd::ITU_BT_709;
+    /// parameters for Mlu200.
+    EncodeAttrMlu200 attr_mlu200;
 
-    /// Qulity factor for jpeg encoder.
-    uint32_t jpeg_qfactor = 50;
-
-    /// Profile for video encoder.
-    VideoProfile profile = VideoProfile::H264_MAIN;
-
-    /// Video encode level
-    VideoLevel level = VideoLevel::H264_41;
-
-    /// Video rate control parameters.
-    RateControl rate_control;
-
-    /// Input buffer number
-    uint32_t input_buffer_num = 3;
-
-    /// Output buffer number
-    uint32_t output_buffer_num = 4;
-
-    /// P frame number in gop default 0
-    uint32_t p_frame_num = 0;
-
-    /// B frame number in gop when profile is above main, default 0
-    uint32_t b_frame_num = 0;
-
-    /// GOP type, @see edk::GopType
-    GopType gop_type = GopType::BIDIRECTIONAL;
-
-    /// insert SPS/PPS before IDR,1, insert, 0 not
-    bool insert_spspps_when_idr = true;
+    /// parameters for Mlu300.
+    EncodeAttrMlu300 attr_mlu300;
 
     /// Whether to print encoder attribute
     bool silent = false;
@@ -208,7 +315,7 @@ class EasyEncode {
     /// Callback for receive eos
     EncodeEosCallback eos_callback = NULL;
 
-    /// Indentification to specify device on which create encoder
+    /// Identification to specify device on which create encoder
     int dev_id = 0;
   };
 
@@ -237,10 +344,45 @@ class EasyEncode {
   ~EasyEncode();
 
   /**
+   * @brief Requests frame from encoder.
+   *
+   * @param frame Outputs the frame with mlu data. The mlu data is from encoder input buffers.
+   *
+   * @note If FeedData with mlu frame data, must use this function to get mlu data ``ptrs``
+   *
+   * @return Returns true if request data succeed, otherwise returns false.
+   */
+  bool RequestFrame(CnFrame* frame);
+
+  /**
+   * @brief Send data to encoder, block when STATUS is pause.
+   *        An Exception is thrown when send data failed.
+   *
+   * @param frame The frame data, will be sent to encoder.
+   *              Sets device_id to negative if data is on cpu. If data is on mlu, sets device_id to device id.
+   *
+   * @note If data is on mlu, must get mlu frame data by RequestFrame function to get encoder input buffer.
+   *
+   * @return Returns true if feed data succeed, otherwise returns false.
+   */
+  bool FeedData(const CnFrame& frame) noexcept(false);
+
+  /**
+   * @brief Send EOS to encoder, block when STATUS is pause.
+   *        An Exception is thrown when send EOS failed.
+   *
+   * @return Returns true if feed eos succeed, otherwise returns false.
+   */
+  bool FeedEos() noexcept(false);
+
+  /**
    * @brief send frame to encoder.
-   * @param frame CNframe
+   * @param frame frame data, will be sent to encoder
    * @param eos default false
-   * @return Return false if send data failed.
+   *
+   * @deprecated use EasyEncode::FeedData(const CnFrame&) and EasyEncode::FeedEos() instead.
+   *
+   * @return Returns false if send data failed, otherwise returns true.
    */
   bool SendDataCPU(const CnFrame& frame, bool eos = false);
 
@@ -253,12 +395,11 @@ class EasyEncode {
   void ReleaseBuffer(uint64_t buf_id);
 
  private:
-  EasyEncode();
-
-  EncodeHandler* handler_ = nullptr;
-
+  explicit EasyEncode(const Attr& attr);
   EasyEncode(const EasyEncode&) = delete;
   const EasyEncode& operator=(const EasyEncode&) = delete;
+
+  Encoder* handler_{nullptr};
 };  // class EasyEncode
 
 }  // namespace edk

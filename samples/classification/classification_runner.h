@@ -24,32 +24,26 @@
 #include <memory>
 #include <string>
 
+#include "cnis/infer_server.h"
 #include "cnosd.h"
-#include "cnpostproc.h"
 #include "device/mlu_context.h"
-#include "easybang/resize_and_colorcvt.h"
-#include "easyinfer/easy_infer.h"
-#include "easyinfer/mlu_memory_op.h"
-#include "easyinfer/model_loader.h"
 #include "runner.h"
 
 class ClassificationRunner : public StreamRunner {
  public:
-  ClassificationRunner(const std::string& model_path, const std::string& func_name, const std::string& label_path,
+  ClassificationRunner(const VideoDecoder::DecoderType& decode_type, int device_id,
+                       const std::string& model_path, const std::string& func_name, const std::string& label_path,
                        const std::string& data_path, bool show, bool save_video);
   ~ClassificationRunner();
 
   void Process(edk::CnFrame frame) override;
 
  private:
-  edk::MluMemoryOp mem_op_;
-  edk::EasyInfer infer_;
-  edk::MluResizeConvertOp rc_op_;
+  cv::Mat ConvertToMatAndReleaseBuf(edk::CnFrame* frame);
+  std::unique_ptr<infer_server::InferServer> infer_server_;
+  infer_server::Session_t session_;
   CnOsd osd_;
-  std::shared_ptr<edk::ModelLoader> model_{nullptr};
-  std::unique_ptr<edk::CnPostproc> postproc_{nullptr};
   std::unique_ptr<cv::VideoWriter> video_writer_{nullptr};
-  void **mlu_output_{nullptr}, **cpu_output_{nullptr}, **mlu_input_{nullptr};
 
   bool show_;
   bool save_video_;

@@ -5,13 +5,13 @@ pushd $CURRENT_DIR
 
 mkdir -p cache
 
-if [ ! -f "cache/resnet34_ssd.cambricon" ]; then
-  wget -O cache/resnet34_ssd.cambricon http://video.cambricon.com/models/MLU270/Primary_Detector/ssd/resnet34_ssd.cambricon
+if [ ! -f "cache/vgg16_ssd_b4c4_bgra_mlu270.cambricon" ]; then
+  wget -O cache/vgg16_ssd_b4c4_bgra_mlu270.cambricon http://video.cambricon.com/models/MLU270/Primary_Detector/ssd/vgg16_ssd_b4c4_bgra_mlu270.cambricon
 fi
 if [ ! -f "cache/label_voc.txt" ]; then
   wget -O cache/label_voc.txt http://video.cambricon.com/models/MLU270/Primary_Detector/ssd/label_voc.txt
 fi
-model_file="${CURRENT_DIR}/cache/resnet34_ssd.cambricon"
+model_file="${CURRENT_DIR}/cache/vgg16_ssd_b4c4_bgra_mlu270.cambricon"
 label_path="${CURRENT_DIR}/cache/label_voc.txt"
 data_path="${CURRENT_DIR}/../data/videos/cars.mp4"
 track_model_path="cpu"
@@ -25,5 +25,7 @@ track_model_path="cpu"
      --show=false \
      --save_video=true \
      --wait_time 0 \
-     --repeat_time 0
+     --repeat_time 0 \
+     --decode_type mlu \
+     --dev_id 0
 popd

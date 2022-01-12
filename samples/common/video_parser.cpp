@@ -42,8 +42,6 @@ extern "C" {
 #pragma GCC diagnostic ignored "-Wdeprecated-declarations"
 #endif
 
-#define FFMPEG_VERSION_3_1 AV_VERSION_INT(57, 40, 100)
-
 namespace detail {
 static int InterruptCallBack(void* ctx) {
   VideoParser* parser = reinterpret_cast<VideoParser*>(ctx);
@@ -132,6 +130,11 @@ bool VideoParser::Open(const char *url, bool save_file) {
   auto codec_id = vstream->codec->codec_id;
   int field_order = vstream->codec->field_order;
 #endif
+  info_.codec_id = codec_id;
+#if LIBAVFORMAT_VERSION_INT >= FFMPEG_VERSION_3_1
+  info_.codecpar = p_format_ctx_->streams[video_index_]->codecpar;
+#endif
+  info_.codec_ctx = p_format_ctx_->streams[video_index_]->codec;
   /*
    * At this moment, if the demuxer does not set this value (avctx->field_order == UNKNOWN),
    * the input stream will be assumed as progressive one.
@@ -159,28 +162,27 @@ bool VideoParser::Open(const char *url, bool save_file) {
 #endif
   info_.extra_data = std::vector<uint8_t>(extradata, extradata + extradata_size);
 
-  // bitstream filter
-  p_bsfc_ = nullptr;
   LOGI(SAMPLES) << p_format_ctx_->iformat->name;
   if (strstr(p_format_ctx_->iformat->name, "mp4") || strstr(p_format_ctx_->iformat->name, "flv") ||
       strstr(p_format_ctx_->iformat->name, "matroska") || strstr(p_format_ctx_->iformat->name, "h264") ||
       strstr(p_format_ctx_->iformat->name, "rtsp")) {
     if (AV_CODEC_ID_H264 == codec_id) {
-      p_bsfc_ = av_bitstream_filter_init("h264_mp4toannexb");
-      info_.codec_type = edk::CodecType::H264;
+      // info_.codec_type = edk::CodecType::H264;
       if (save_file) saver_.reset(new detail::FileSaver("out.h264"));
     } else if (AV_CODEC_ID_HEVC == codec_id) {
-      p_bsfc_ = av_bitstream_filter_init("hevc_mp4toannexb");
-      info_.codec_type = edk::CodecType::H265;
+      // info_.codec_type = edk::CodecType::H265;
       if (save_file) saver_.reset(new detail::FileSaver("out.h265"));
     } else {
       LOGE(SAMPLES) << "nonsupport codec id.";
       return false;
     }
   }
-
   have_video_source_.store(true);
   first_frame_ = true;
+
+  if (handler_ && !handler_->OnParseInfo(info_)) {
+      return false;
+  }
   return true;
 }
 
@@ -194,26 +196,12 @@ void VideoParser::Close() {
     p_format_ctx_ = nullptr;
     options_ = nullptr;
   }
-  if (p_bsfc_) {
-    av_bitstream_filter_close(p_bsfc_);
-    p_bsfc_ = nullptr;
-  }
   have_video_source_.store(false);
   frame_index_ = 0;
   saver_.reset();
 }
 
 int VideoParser::ParseLoop(uint32_t frame_interval) {
-  if (!info_.extra_data.empty()) {
-    edk::CnPacket pkt;
-    pkt.data = const_cast<void*>(reinterpret_cast<const void*>(info_.extra_data.data()));
-    pkt.length = info_.extra_data.size();
-    pkt.pts = 0;
-    if (!handler_->OnPacket(pkt)) {
-      THROW_EXCEPTION(edk::Exception::INTERNAL, "send stream extra data failed");
-    }
-  }
-
   auto now_time = std::chrono::steady_clock::now();
   auto last_time = std::chrono::steady_clock::now();
   std::chrono::duration<double, std::milli> dura;
@@ -252,35 +240,21 @@ int VideoParser::ParseLoop(uint32_t frame_interval) {
     }
 
     // parse data from packet
-    edk::CnPacket pkt;
     auto vstream = p_format_ctx_->streams[video_index_];
-    if (p_bsfc_) {
-      av_bitstream_filter_filter(p_bsfc_, vstream->codec, NULL, reinterpret_cast<uint8_t **>(&pkt.data),
-                                  reinterpret_cast<int *>(&pkt.length), packet_.data, packet_.size, 0);
-    } else {
-      pkt.data = packet_.data;
-      pkt.length = packet_.size;
-    }
-
     // find pts information
     if (AV_NOPTS_VALUE == packet_.pts) {
       LOGI(SAMPLES) << "Didn't find pts informations, use ordered numbers instead. ";
-      pkt.pts = frame_index_++;
+      packet_.pts = frame_index_++;
     } else if (AV_NOPTS_VALUE != packet_.pts) {
       packet_.pts = av_rescale_q(packet_.pts, vstream->time_base, {1, 90000});
-      pkt.pts = packet_.pts;
     }
 
     if (saver_) {
-      saver_->Write(reinterpret_cast<char *>(pkt.data), pkt.length);
+      saver_->Write(reinterpret_cast<char *>(packet_.data), packet_.size);
     }
 
-    if (!handler_->OnPacket(pkt)) return -1;
+    if (!handler_->OnPacket(&packet_)) return -1;
 
-    // free packet
-    if (p_bsfc_) {
-      av_freep(&pkt.data);
-    }
     av_packet_unref(&packet_);
 
     // frame rate control

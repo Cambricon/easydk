@@ -53,6 +53,7 @@ find_library(CNCODEC_LIBS
              NO_CMAKE_PATH
              NO_DEFAULT_PATH
              NO_CMAKE_SYSTEM_PATH)
+
 find_library(ION_LIBS
              NAMES ion
              PATHS ${NEUWARE_HOME}/lib64
@@ -62,6 +63,21 @@ find_library(ION_LIBS
              NO_CMAKE_SYSTEM_PATH)
 if(ION_LIBS)
   list(APPEND CNCODEC_LIBS ${ION_LIBS})
+endif()
+if (CNCODEC_LIBS)
+  message(STATUS "Found CNCODEC: ${CNCODEC_LIBS}")
+endif()
+
+# ---[ cncodecv3
+find_library(CNCODECV3_LIBS
+             NAMES cncodec_v3
+             PATHS ${NEUWARE_HOME}/lib64
+             NO_CMAKE_FIND_ROOT_PATH
+             NO_CMAKE_PATH
+             NO_DEFAULT_PATH
+             NO_CMAKE_SYSTEM_PATH)
+if (CNCODECV3_LIBS)
+  message(STATUS "Found CNCODE_V3: ${CNCODECV3_LIBS}")
 endif()
 
 # ---[ cncv

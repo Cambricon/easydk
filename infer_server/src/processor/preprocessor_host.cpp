@@ -181,7 +181,7 @@ Status PreprocessorHost::Process(PackagePtr pack) noexcept {
   res.reserve(batch_size);
   for (size_t batch_idx = 0; batch_idx < pack->data.size(); ++batch_idx) {
     res.emplace_back(priv_->tp->Push(0, priv_->process_func, &dst_tmp_batch[batch_idx],
-                                     std::ref(*(pack->data[batch_idx])), std::ref(*(priv_->model))));
+                                     std::ref(*(pack->data[batch_idx])), priv_->model.get()));
   }
 
   // wait for process finish

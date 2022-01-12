@@ -45,7 +45,7 @@ using DecodeFrameCallback = std::function<void(const CnFrame&)>;
 /// Decode EOS callback function type
 using DecodeEOSCallback = std::function<void()>;
 
-class DecodeHandler;
+class Decoder;
 
 /**
  * @brief Easy decode class, provide a fast and easy API to decode on MLU platform
@@ -65,12 +65,6 @@ class EasyDecode {
     /// The pixel format of output frames.
     PixelFmt pixel_format;
 
-    /// Color space standard
-    ColorStd color_std = ColorStd::ITU_BT_709;
-
-    /// The input buffer count
-    uint32_t input_buffer_num = 2;
-
     /// The output buffer count.
     uint32_t output_buffer_num = 3;
 
@@ -89,7 +83,7 @@ class EasyDecode {
     /// Create decoder on which device
     int dev_id = 0;
 
-    /// Set align value (2^n = 1,4,8...), MLU270: 1 -- MLU220 scalar: 128
+    /// Set align value (2^n = 1,4,8...), MLU270: 1 -- MLU220 scalar: 128 -- MLU370: 1
     /// @note only work on video decode, JPEG stride align is fixed to 64
     int stride_align = 1;
   };  // struct Attr
@@ -98,10 +92,11 @@ class EasyDecode {
    * @brief Decoder status enumeration
    */
   enum class Status {
-    RUNNING,  ///< running, SendData and Callback are active.
-    PAUSED,   ///< pause, SendData and Callback are blocked.
-    STOP,     ///< stopped, decoder was destroied.
-    EOS       ///< received eos.
+    RUNNING,  ///< Running, FeedData and Callback are active.
+    PAUSED,   ///< Paused, FeedData and Callback are blocked.
+    STOP,     ///< Stopped, decoder was destoried.
+    EOS,      ///< Received eos.
+    ERROR     ///< Error occurred, need abort
   };          // Enum Status
 
   /**
@@ -145,10 +140,9 @@ class EasyDecode {
    *        An Exception is thrown when send data failed.
    *
    * @param packet bytestream data
-   * @param integral_frame indicate whether packet contain an integral frame
+   * @param integral_frame (deprecated) indicate whether packet contain an integral frame
    *
-   * @retval true Feed data succeed
-   * @retval false otherwise
+   * @return Returns true if feed data succeed, otherwise returns false.
    */
   bool FeedData(const CnPacket& packet, bool integral_frame = true) noexcept(false);
 
@@ -156,8 +150,7 @@ class EasyDecode {
    * @brief Send EOS to decoder, block when STATUS is pause.
    *        An Exception is thrown when send EOS failed.
    *
-   * @retval false if an EOS has been sent
-   * @retval true otherwise.
+   * @return Returns true if feed eos succeed, otherwise returns false.
    */
   bool FeedEos() noexcept(false);
 
@@ -198,7 +191,8 @@ class EasyDecode {
   EasyDecode(EasyDecode&&) = delete;
   EasyDecode& operator=(EasyDecode&&) = delete;
 
-  DecodeHandler* handler_ = nullptr;
+  Decoder* handler_{nullptr};
+  Decoder* progressive_jpeg_handler_{nullptr};
 };  // class EasyDecode
 
 }  // namespace edk

@@ -30,6 +30,7 @@
 #include "cxxutil/log.h"
 #include "detection_runner.h"
 #include "device/mlu_context.h"
+#include "video_decoder.h"
 
 DEFINE_bool(show, false, "show image");
 DEFINE_bool(save_video, true, "save output to local video file");
@@ -42,6 +43,8 @@ DEFINE_string(track_model_path, "", "track model path");
 DEFINE_string(track_func_name, "subnet0", "track model function name");
 DEFINE_int32(wait_time, 0, "time of one test case");
 DEFINE_string(net_type, "", "neural network type, SSD or YOLOv3");
+DEFINE_int32(dev_id, 0, "run sample on which device");
+DEFINE_string(decode_type, "mlu", "decode type, choose from mlu/ffmpeg/ffmpeg-mlu.");
 
 std::shared_ptr<StreamRunner> g_runner;
 bool g_exit = false;
@@ -62,13 +65,22 @@ int main(int argc, char** argv) {
   CHECK(SAMPLES, FLAGS_func_name. size() != 0u);  // NOLINT
   CHECK(SAMPLES, FLAGS_label_path.size() != 0u);  // NOLINT
   CHECK(SAMPLES, FLAGS_net_type.  size() != 0u);  // NOLINT
-  CHECK(SAMPLES, FLAGS_wait_time >= 0);  // NOLINT
+  CHECK(SAMPLES, FLAGS_wait_time >= 0);    // NOLINT
   CHECK(SAMPLES, FLAGS_repeat_time >= 0);  // NOLINT
+  CHECK(SAMPLES, FLAGS_dev_id >= 0);       // NOLINT
 
+  VideoDecoder::DecoderType decode_type = VideoDecoder::EASY_DECODE;
+  if (FLAGS_decode_type == "ffmpeg" || FLAGS_decode_type == "FFmpeg") {
+    decode_type = VideoDecoder::FFMPEG;
+  } else if (FLAGS_decode_type == "ffmpeg_mlu" || FLAGS_decode_type == "ffmpeg-mlu") {
+    decode_type = VideoDecoder::FFMPEG_MLU;
+  }
   try {
-    g_runner = std::make_shared<DetectionRunner>(FLAGS_model_path, FLAGS_func_name, FLAGS_label_path,
-                                              FLAGS_track_model_path, FLAGS_track_func_name,
-                                              FLAGS_data_path, FLAGS_net_type, FLAGS_show, FLAGS_save_video);
+    g_runner = std::make_shared<DetectionRunner>(decode_type, FLAGS_dev_id,
+                                                 FLAGS_model_path, FLAGS_func_name, FLAGS_label_path,
+                                                 FLAGS_track_model_path, FLAGS_track_func_name,
+                                                 FLAGS_data_path, FLAGS_net_type,
+                                                 FLAGS_show, FLAGS_save_video);
   } catch (edk::Exception& e) {
     LOGE(SAMPLES) << "Create stream runner failed" << e.what();
     return -1;
@@ -83,7 +95,7 @@ int main(int argc, char** argv) {
 
   // set mlu environment
   edk::MluContext context;
-  context.SetDeviceId(0);
+  context.SetDeviceId(FLAGS_dev_id);
   context.BindDevice();
 
   g_runner->DemuxLoop(FLAGS_repeat_time);

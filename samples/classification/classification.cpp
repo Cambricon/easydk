@@ -39,6 +39,8 @@ DEFINE_string(model_path, "", "infer offline model path");
 DEFINE_string(label_path, "", "label path");
 DEFINE_string(func_name, "subnet0", "model function name");
 DEFINE_int32(wait_time, 0, "time of one test case");
+DEFINE_int32(dev_id, 0, "run sample on which device");
+DEFINE_string(decode_type, "mlu", "decode type, choose from mlu/ffmpeg/ffmpeg-mlu.");
 
 std::shared_ptr<StreamRunner> g_runner;
 bool g_exit = false;
@@ -58,11 +60,19 @@ int main(int argc, char** argv) {
   CHECK(SAMPLES, FLAGS_model_path.size() != 0u);  // NOLINT
   CHECK(SAMPLES, FLAGS_func_name.size() != 0u);  // NOLINT
   CHECK(SAMPLES, FLAGS_label_path.size() != 0u);  // NOLINT
-  CHECK(SAMPLES, FLAGS_wait_time >= 0);  // NOLINT
+  CHECK(SAMPLES, FLAGS_wait_time >= 0);    // NOLINT
   CHECK(SAMPLES, FLAGS_repeat_time >= 0);  // NOLINT
+  CHECK(SAMPLES, FLAGS_dev_id >= 0);       // NOLINT
 
+  VideoDecoder::DecoderType decode_type = VideoDecoder::EASY_DECODE;
+  if (FLAGS_decode_type == "ffmpeg" || FLAGS_decode_type == "FFmpeg") {
+    decode_type = VideoDecoder::FFMPEG;
+  } else if (FLAGS_decode_type == "ffmpeg_mlu" || FLAGS_decode_type == "ffmpeg-mlu") {
+    decode_type = VideoDecoder::FFMPEG_MLU;
+  }
   try {
-    g_runner = std::make_shared<ClassificationRunner>(FLAGS_model_path, FLAGS_func_name, FLAGS_label_path,
+    g_runner = std::make_shared<ClassificationRunner>(decode_type, FLAGS_dev_id,
+                                                      FLAGS_model_path, FLAGS_func_name, FLAGS_label_path,
                                                       FLAGS_data_path, FLAGS_show, FLAGS_save_video);
   } catch (edk::Exception& e) {
     LOGE(SAMPLES) << "Create stream runner failed" << e.what();
@@ -78,7 +88,7 @@ int main(int argc, char** argv) {
 
   // set mlu environment
   edk::MluContext context;
-  context.SetDeviceId(0);
+  context.SetDeviceId(FLAGS_dev_id);
   context.BindDevice();
 
   g_runner->DemuxLoop(FLAGS_repeat_time);
@@ -90,7 +100,7 @@ int main(int argc, char** argv) {
     return 1;
   }
 
-  LOGI(SAMPLES) << "run stream app SUCCEED!!!" << std::endl;
+  LOGI(SAMPLES) << "run classification SUCCEED!!!" << std::endl;
   edk::log::ShutdownLogging();
   return 0;
 }

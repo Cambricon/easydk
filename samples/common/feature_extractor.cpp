@@ -34,9 +34,11 @@
 #include <utility>
 #include <vector>
 
+#include "cnis/contrib/video_helper.h"
+#include "cnis/infer_server.h"
+#include "cnis/processor.h"
 #include "cxxutil/log.h"
-#include "device/mlu_context.h"
-#include "easyinfer/easy_infer.h"
+#include "easycodec/vformat.h"
 
 bool FeatureExtractor::Init(const std::string &model_path, const std::string &func_name, int dev_id) {
   if (model_path.empty() || func_name.empty()) {
@@ -45,37 +47,60 @@ bool FeatureExtractor::Init(const std::string &model_path, const std::string &fu
     extract_feature_mlu_ = false;
     return true;
   }
-  model_ = std::make_shared<edk::ModelLoader>(model_path, func_name);
   device_id_ = dev_id;
 
-  // 1. init runtime_lib and device
-  edk::MluContext context;
-  context.SetDeviceId(device_id_);
-  context.BindDevice();
+  infer_server_.reset(new infer_server::InferServer(device_id_));
+
+  infer_server::SessionDesc desc;
+  desc.strategy = infer_server::BatchStrategy::STATIC;
+  desc.engine_num = 1;
+  desc.priority = 0;
+  desc.show_perf = true;
+  desc.name = "Feature extract session";
+
+  // load offline model
+  desc.model = infer_server::InferServer::LoadModel(model_path, func_name);
+
+  // set preproc and postproc
+  desc.preproc = infer_server::video::PreprocessorMLU::Create();
+  desc.postproc = infer_server::Postprocessor::Create();
+
+#ifdef CNIS_USE_MAGICMIND
+  desc.preproc->SetParams("dst_format", infer_server::video::PixelFmt::RGB24,
+                          "src_format", infer_server::video::PixelFmt::NV12,
+                          "preprocess_type", infer_server::video::PreprocessType::CNCV_PREPROC,
+                          "keep_aspect_ratio", false,
+                          "mean", std::vector<float>({0.485, 0.456, 0.406}),
+                          "std", std::vector<float>({0.229, 0.224, 0.225}),
+                          "normalize", true);
+#else
+  desc.preproc->SetParams("dst_format", infer_server::video::PixelFmt::ARGB,
+                          "src_format", infer_server::video::PixelFmt::NV12,
+                          "keep_aspect_ratio", false,
+                          "preprocess_type", infer_server::video::PreprocessType::CNCV_PREPROC);
+#endif
+  auto postproc_func = [](infer_server::InferData* result, const infer_server::ModelIO& model_output,
+                          const infer_server::ModelInfo* model) {
+    const float* data = reinterpret_cast<const float*>(model_output.buffers[0].Data());
+    std::vector<float> features;
+    features.insert(features.end(), data, data + model_output.shapes[0].DataCount());
+    result->Set(std::move(features));
+    return true;
+  };
+  desc.postproc->SetParams("process_function", infer_server::Postprocessor::ProcessFunction(postproc_func));
+
+  session_ = infer_server_->CreateSyncSession(desc);
 
   // Check model I/O
-  if (model_->InputNum() != 1) {
+  if (desc.model->InputNum() != 1) {
     LOGE(SAMPLES) << "[FeatureExtractor] model should have exactly one input";
     return false;
   }
-  if (model_->OutputNum() != 2) {
+  if (desc.model->OutputNum() != 1) {
     LOGE(SAMPLES) << "[FeatureExtractor] model should have exactly two output";
     return false;
   }
-  if (model_->InputShape(0).C() != 3) {
-    LOGE(SAMPLES) << "[FeatureExtractor] feature extractor model wrong input shape!";
-    return false;
-  }
 
-  // prepare input and output memory
-  mem_op_.SetModel(model_);
-  input_cpu_ptr_ = mem_op_.AllocCpuInput();
-  input_mlu_ptr_ = mem_op_.AllocMluInput();
-  output_mlu_ptr_ = mem_op_.AllocMluOutput();
-  output_cpu_ptr_ = mem_op_.AllocCpuOutput();
-
-  // init Easyinfer
-  infer_.Init(model_, device_id_);
   LOGI(SAMPLES) << "[FeatureExtractor] to extract feature on MLU";
   extract_feature_mlu_ = true;
   return true;
@@ -84,13 +109,9 @@ bool FeatureExtractor::Init(const std::string &model_path, const std::string &fu
 FeatureExtractor::~FeatureExtractor() { Destroy(); }
 
 void FeatureExtractor::Destroy() {
-  if (extract_feature_mlu_) {
-    LOGI(SAMPLES) << "[FeatureExtractor] release resources";
-    if (input_mlu_ptr_) mem_op_.FreeMluInput(input_mlu_ptr_);
-    if (output_mlu_ptr_) mem_op_.FreeMluOutput(output_mlu_ptr_);
-    if (input_cpu_ptr_) mem_op_.FreeCpuInput(input_cpu_ptr_);
-    if (output_cpu_ptr_) mem_op_.FreeCpuOutput(output_cpu_ptr_);
-    input_mlu_ptr_ = output_mlu_ptr_ = input_cpu_ptr_ = output_cpu_ptr_ = nullptr;
+  if (extract_feature_mlu_ && infer_server_ && session_) {
+    LOGI(SAMPLES) << "[FeatureExtractor] destroy session";
+    infer_server_->DestroySession(session_);
   }
 }
 
@@ -105,62 +126,70 @@ static float CalcFeatureOfRow(cv::Mat img, int n) {
 
 constexpr int kFeatureSizeCpu = 512;
 
-std::vector<float> FeatureExtractor::ExtractFeature(const edk::TrackFrame &frame, const edk::DetectObject &obj) {
-  if (frame.format != edk::TrackFrame::ColorSpace::RGB24) {
-    LOGE(SAMPLES) << "[FeatureExtractor] input image has non-support pixel format";
-    return {};
-  }
+bool FeatureExtractor::ExtractFeatureOnMlu(const edk::CnFrame &frame,
+                                           std::vector<edk::DetectObject>* objs) {
+  if (objs->size()) {
+    infer_server::video::VideoFrame vframe;
+    vframe.width = frame.width;
+    vframe.height = frame.height;
+    vframe.stride[0] = frame.strides[0];
+    vframe.stride[1] = frame.strides[1];
+    size_t plane_0_size = frame.strides[0] * frame.height;
+    size_t plane_1_size = std::ceil(1.0 * frame.strides[1] * frame.height / 2);
+    vframe.plane[0] = infer_server::Buffer(const_cast<void*>(frame.ptrs[0]), plane_0_size, nullptr, device_id_);
+    vframe.plane[1] = infer_server::Buffer(const_cast<void*>(frame.ptrs[1]), plane_1_size, nullptr, device_id_);
+    vframe.format = infer_server::video::PixelFmt::NV12;
 
-  cv::Mat image(frame.height, frame.width, CV_8UC3, frame.data);
-  cv::Mat obj_img(image, cv::Rect(obj.bbox.x * frame.width, obj.bbox.y * frame.height, obj.bbox.width * frame.width,
-                                  obj.bbox.height * frame.height));
-
-  if (extract_feature_mlu_) {
-    std::lock_guard<std::mutex> lk(mlu_proc_mutex_);
-    Preprocess(obj_img);
-
-    mem_op_.MemcpyInputH2D(input_mlu_ptr_, input_cpu_ptr_);
-
-    infer_.Run(input_mlu_ptr_, output_mlu_ptr_);
-
-    mem_op_.MemcpyOutputD2H(output_cpu_ptr_, output_mlu_ptr_);
-
-    const float *begin = reinterpret_cast<float *>(output_cpu_ptr_[1]);
-    const float *end = begin + model_->OutputShape(1).BatchDataCount();
-    return std::vector<float>(begin, end);
-  } else {
-#if(CV_MAJOR_VERSION == 2)
-  cv::Ptr<cv::ORB> processer = new cv::ORB(kFeatureSizeCpu);
-#elif(CV_MAJOR_VERSION >= 3)
-  cv::Ptr<cv::ORB> processer = cv::ORB::create(kFeatureSizeCpu);
-#endif
-    std::vector<cv::KeyPoint> keypoints;
-    processer->detect(obj_img, keypoints);
-    cv::Mat desc;
-    processer->compute(obj_img, keypoints, desc);
-
-    std::vector<float> features(kFeatureSizeCpu);
-    for (int i = 0; i < kFeatureSizeCpu; i++) {
-      features[i] = i < desc.rows ? CalcFeatureOfRow(desc, i) : 0;
+    auto in = infer_server::Package::Create(objs->size());
+    auto out = infer_server::Package::Create(objs->size());
+    for (unsigned idx = 0; idx < objs->size(); ++idx) {
+      edk::DetectObject obj = (*objs)[idx];
+      infer_server::video::VideoFrame tmp = vframe;
+      tmp.roi.x = obj.bbox.x;
+      tmp.roi.y = obj.bbox.y;
+      tmp.roi.w = obj.bbox.width;
+      tmp.roi.h = obj.bbox.height;
+      in->data[idx]->Set(std::move(tmp));
     }
-    return features;
+    infer_server::Status status = infer_server::Status::SUCCESS;
+    bool ret = infer_server_->RequestSync(session_, std::move(in), &status, out);
+    if (!ret || status != infer_server::Status::SUCCESS) {
+      LOGE(SAMPLE) << "Request sending data to infer server failed. Status: "
+                   << std::to_string(static_cast<int>(status));
+      return false;
+    }
+
+    for (unsigned idx = 0; idx < objs->size(); ++idx) {
+      (*objs)[idx].feature = out->data[idx]->GetLref<std::vector<float>>();
+    }
   }
+  return true;
 }
 
-void FeatureExtractor::Preprocess(const cv::Mat &image) {
-  // resize image
-  const edk::ShapeEx& in_shape = model_->InputShape(0);
-  cv::Mat image_resized;
-  if (image.rows != static_cast<int>(in_shape.H()) || image.cols != static_cast<int>(in_shape.W())) {
-    cv::resize(image, image_resized, cv::Size(in_shape.W(), in_shape.H()));
-  } else {
-    image_resized = image;
+bool FeatureExtractor::ExtractFeatureOnCpu(const cv::Mat &frame,
+                                           std::vector<edk::DetectObject>* objs) {
+  if (objs->size()) {
+    int frame_width = frame.cols;
+    int frame_height = frame.rows;
+    for (auto& obj : (*objs)) {
+      cv::Mat obj_img(frame, cv::Rect(obj.bbox.x * frame_width, obj.bbox.y * frame_height, obj.bbox.width * frame_width,
+                                      obj.bbox.height * frame_height));
+  #if(CV_MAJOR_VERSION == 2)
+      cv::Ptr<cv::ORB> processer = new cv::ORB(kFeatureSizeCpu);
+  #elif(CV_MAJOR_VERSION >= 3)
+      cv::Ptr<cv::ORB> processer = cv::ORB::create(kFeatureSizeCpu);
+  #endif
+      std::vector<cv::KeyPoint> keypoints;
+      processer->detect(obj_img, keypoints);
+      cv::Mat desc;
+      processer->compute(obj_img, keypoints, desc);
+
+      std::vector<float> features(kFeatureSizeCpu);
+      for (int i = 0; i < kFeatureSizeCpu; i++) {
+        features[i] = i < desc.rows ? CalcFeatureOfRow(desc, i) : 0;
+      }
+      obj.feature = features;
+    }
   }
-
-  // convert data type to float 32
-  cv::Mat image_float;
-  image_resized.convertTo(image_float, CV_32FC3);
-
-  cv::Mat image_normalized(in_shape.H(), in_shape.W(), CV_32FC3, reinterpret_cast<float *>(input_cpu_ptr_[0]));
-  cv::divide(image_float, 255.0, image_normalized);
+  return true;
 }

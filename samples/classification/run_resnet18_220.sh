@@ -6,13 +6,13 @@ pushd $CURRENT_DIR
 mkdir -p cache
 
 # download 220 model and labels
-if [ ! -f "cache/resnet18_bs1_c1.cambricon" ]; then
-  wget -O cache/resnet18_bs1_c1.cambricon http://video.cambricon.com/models/MLU220/classification/resnet18/resnet18_bs1_c1.cambricon
+if [ ! -f "cache/resnet18_b4c4_bgra_mlu220.cambricon" ]; then
+  wget -O cache/resnet18_b4c4_bgra_mlu220.cambricon http://video.cambricon.com/models/MLU220/resnet18_b4c4_bgra_mlu220.cambricon
 fi
 if [ ! -f "cache/synset_words.txt" ]; then
   wget -O cache/synset_words.txt http://video.cambricon.com/models/MLU220/classification/resnet18/synset_words.txt
 fi
-model_file="${CURRENT_DIR}/cache/resnet18_bs1_c1.cambricon"
+model_file="${CURRENT_DIR}/cache/resnet18_b4c4_bgra_mlu220.cambricon"
 label_path="${CURRENT_DIR}/cache/synset_words.txt"
 data_path="${CURRENT_DIR}/../data/videos/cars.mp4"
 
@@ -23,5 +23,7 @@ data_path="${CURRENT_DIR}/../data/videos/cars.mp4"
      --show=false \
      --save_video=true \
      --wait_time 0 \
-     --repeat_time 0
+     --repeat_time 0 \
+     --decode_type mlu \
+     --dev_id 0
 popd

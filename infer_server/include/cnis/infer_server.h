@@ -34,10 +34,7 @@
 #include "shape.h"
 #include "util/any.h"
 #include "util/base_object.h"
-#include "config.h"
-
-#define CNIS_GET_VERSION(major, minor, patch) (((major) << 20) | ((minor) << 10) | (patch))
-#define CNIS_VERSION CNIS_GET_VERSION(CNIS_VERSION_MAJOR, CNIS_VERSION_MINOR, CNIS_VERSION_PATCH)
+#include "edk_config.h"
 
 namespace infer_server {
 
@@ -76,7 +73,7 @@ enum class Status {
   ERROR_MEMORY = 2,     ///< Memory error, such as out of memory, memcpy failed
   INVALID_PARAM = 3,    ///< Invalid parameters
   WRONG_TYPE = 4,       ///< Invalid data type in `any`
-  ERROR_BACKEND = 5,    ///< Error occured in processor
+  ERROR_BACKEND = 5,    ///< Error occurred in processor
   NOT_IMPLEMENTED = 6,  ///< Function not implemented
   TIMEOUT = 7,          ///< Time expired
   STATUS_COUNT = 8,     ///< Number of status
@@ -108,19 +105,6 @@ std::string ToString(BatchStrategy strategy) noexcept;
  * @return std::ostream& ostream
  */
 inline std::ostream& operator<<(std::ostream& os, BatchStrategy s) { return os << ToString(s); }
-
-/**
- * @brief Get CNIS version string
- *
- * @return std::string version string
- */
-inline std::string Version() {
-  // clang-format off
-  return std::to_string(CNIS_VERSION_MAJOR) + "." +
-         std::to_string(CNIS_VERSION_MINOR) + "." +
-         std::to_string(CNIS_VERSION_PATCH);
-  // clang-format on
-}
 
 /**
  * @brief Set current deivce for this thread
@@ -173,6 +157,12 @@ class ModelInfo {
    * @return const Shape& shape of specified output
    */
   virtual const Shape& OutputShape(int index) const noexcept = 0;
+  /**
+   * @brief Check if output shapes are fixed
+   *
+   * @return Returns true if all output shapes are fixed, otherwise returns false.
+   */
+  virtual bool FixedOutputShape() noexcept = 0;
 
   /**
    * @brief Get input layout on MLU

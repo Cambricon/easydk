@@ -42,7 +42,6 @@
 #include <vector>
 #include <utility>
 
-#include "backward.hpp"
 #include "cxxutil/edk_attribute.h"
 #include "cxxutil/log.h"
 #include "cxxutil/noncopy.h"
@@ -63,11 +62,16 @@ static bool g_log_to_stderr = true;
 static bool g_log_to_file = false;
 static uint32_t g_flush_interval = 30;
 
-static bool g_handle_signals = EnvToBool("EDK_HANDLE_SIGNALS", false);
 static const char* g_log_filter = EnvToString("EDK_LOG_FILTER", "");
+
+#ifdef HAVE_BACKWARD
+#include "backward.hpp"
+
+static bool g_handle_signals = EnvToBool("EDK_HANDLE_SIGNALS", false);
 // A simple helper class that registers for you the most common signals
 // and other callbacks to segfault, hardware exception, un-handled exception etc.
 static std::unique_ptr<backward::SignalHandling> sh{g_handle_signals ? (new backward::SignalHandling) : nullptr};
+#endif
 
 static inline bool IsInitLogging() {
   return g_init_logging;
@@ -658,6 +662,7 @@ void LogMessage::SendToLog() {
   LogDestination::LogToFile(data_->message_buf_, data_->num_chars_to_log_, false);
 
   if (EDK_UNLIKELY(data_->severity_ == LOG_FATAL)) {
+    #ifdef HAVE_BACKWARD
     if (!g_handle_signals) {
       backward::StackTrace st;
       st.load_here();
@@ -667,6 +672,7 @@ void LogMessage::SendToLog() {
       p.object = true;
       p.print(st);
     }
+    #endif
     LogDestination::LogToFile("", 0, true);  // force flush
     abort();
   }

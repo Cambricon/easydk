@@ -32,7 +32,8 @@ add_sanitizers(cnis_demo)
 target_include_directories(cnis_demo PRIVATE 
                            ${Samples_INCLUDE_DIRS}
                            ${CMAKE_CURRENT_SOURCE_DIR}/../include
+                           ${CMAKE_CURRENT_SOURCE_DIR}/../../include
                            ${CMAKE_CURRENT_SOURCE_DIR})
-target_link_libraries(cnis_demo cnis ${Samples_LINK_LIBS})
+target_link_libraries(cnis_demo easydk ${Samples_LINK_LIBS})
 
 install(TARGETS cnis_demo RUNTIME DESTINATION bin)

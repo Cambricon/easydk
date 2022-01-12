@@ -212,7 +212,7 @@ Status Postprocessor::Process(PackagePtr pack) noexcept {
     outputs.shapes = out_shapes;
     if (priv_->process_func) {
       res.emplace_back(priv_->tp->Push(0, priv_->process_func, pack->data[batch_idx].get(), std::move(outputs),
-                                       std::ref(*(priv_->model))));
+                                       priv_->model.get()));
     } else {
       VLOG(5) << "do not have process_function, output ModelIO directly";
       pack->data[batch_idx]->Set(std::move(outputs));

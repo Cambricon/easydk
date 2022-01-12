@@ -101,7 +101,7 @@ class PreprocessorHost : public ProcessorForkable<PreprocessorHost> {
   /**
    * @brief Preprocess function on single data, set by user
    */
-  using ProcessFunction = std::function<bool(ModelIO*, const InferData&, const ModelInfo&)>;
+  using ProcessFunction = std::function<bool(ModelIO*, const InferData&, const ModelInfo*)>;
 
   /**
    * @brief Construct a new PreprocessorHost object
@@ -126,7 +126,7 @@ class PreprocessorHost : public ProcessorForkable<PreprocessorHost> {
    * @brief Initialize PreprocessorHost
    *
    * @retval Status::SUCCESS Init succeeded
-   * @retval Status::INVALID_PARAM Preprocessor donot have enough params or get wrong params, @see BaseObject::SetParam
+   * @retval Status::INVALID_PARAM Preprocessor not have enough params or get wrong params, @see BaseObject::SetParam
    * @retval Status::WRONG_TYPE Preprocessor get params of wrong type (bad_any_cast)
    */
   Status Init() noexcept override;
@@ -135,6 +135,52 @@ class PreprocessorHost : public ProcessorForkable<PreprocessorHost> {
   PreprocessorHostPrivate* priv_;
 };  // class PreprocessorHost
 // -------------------- PreprocessorHost END --------------------
+
+
+// -------------------- Preprocessor --------------------
+struct PreprocessorPrivate;
+/**
+ * @brief Preprocessor processor
+ */
+class Preprocessor : public ProcessorForkable<Preprocessor> {
+ public:
+  /**
+   * @brief Preprocess function on batch data, set by user
+   */
+  using ProcessFunction = std::function<bool(ModelIO*, const BatchData&, const ModelInfo*)>;
+
+  /**
+   * @brief Construct a new Preprocessor object
+   */
+  Preprocessor() noexcept;
+
+  /**
+   * @brief Destroy the Preprocessor object
+   */
+  ~Preprocessor();
+
+  /**
+   * @brief Perform preprocess on host
+   *
+   * @param data processed data
+   * @retval Status::SUCCESS Succeeded
+   * @retval Status::ERROR_BACKEND Preprocess failed in transform layout or process_function set by user
+   */
+  Status Process(PackagePtr data) noexcept override;
+
+  /**
+   * @brief Initialize Preprocessor
+   *
+   * @retval Status::SUCCESS Init succeeded
+   * @retval Status::INVALID_PARAM Preprocessor not have enough params or get wrong params, @see BaseObject::SetParam
+   * @retval Status::WRONG_TYPE Preprocessor get params of wrong type (bad_any_cast)
+   */
+  Status Init() noexcept override;
+
+ private:
+  PreprocessorPrivate* priv_;
+};  // class Preprocessor
+// -------------------- Preprocessor END --------------------
 
 // -------------------- Postprocessor --------------------
 struct PostprocessorPrivate;
@@ -146,7 +192,7 @@ class Postprocessor : public ProcessorForkable<Postprocessor> {
   /**
    * @brief Postprocess function on single data, set by user
    */
-  using ProcessFunction = std::function<bool(InferData*, const ModelIO&, const ModelInfo&)>;
+  using ProcessFunction = std::function<bool(InferData*, const ModelIO&, const ModelInfo*)>;
 
   /**
    * @brief Construct a new Postprocessor object
@@ -180,8 +226,8 @@ class Postprocessor : public ProcessorForkable<Postprocessor> {
 
  private:
   PostprocessorPrivate* priv_;
-};  // class PreprocessorHost
-// -------------------- PostprocessorHost END --------------------
+};  // class Postprocessor
+// -------------------- Postprocessor END --------------------
 
 }  // namespace infer_server
 

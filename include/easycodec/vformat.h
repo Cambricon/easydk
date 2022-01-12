@@ -29,6 +29,8 @@
 
 #include <cstdint>
 
+#include "cxxutil/log.h"
+
 #define CN_MAXIMUM_PLANE 3
 
 namespace edk {
@@ -37,8 +39,8 @@ namespace edk {
  * @brief Structure to describe resolution of video or image.
  */
 struct Geometry {
-  unsigned int w;  ///< width in pixel
-  unsigned int h;  ///< height in pixel
+  unsigned int w{0};  ///< width in pixel
+  unsigned int h{0};  ///< height in pixel
 };
 
 /**
@@ -63,6 +65,10 @@ enum class PixelFmt {
   AYUV,
   RGB565,
   RAW,  ///< No format
+  BGR24,
+  RGB24,
+  I010,
+  MONOCHROME,
   TOTAL_COUNT
 };
 
@@ -80,15 +86,6 @@ enum class CodecType {
   AVS,
   MJPEG,  ///< Motion JPEG video codec standard
   JPEG    ///< JPEG image format
-};
-
-enum class ColorStd {
-  ITU_BT_709 = 0,  ///< ITU BT 709 color standard
-  ITU_BT_601,      ///< ITU BT.601 color standard
-  ITU_BT_2020,     ///< ITU BT 2020 color standard
-  ITU_BT_601_ER,   ///< ITU BT 601 color standard extend range
-  ITU_BT_709_ER,   ///< ITU BT 709 color standard extend range
-  COLOR_STANDARD_INVALID,
 };
 
 /**
@@ -111,26 +108,38 @@ struct CnFrame {
   uint64_t frame_size{0};
   /// Frame color space, @see edk::PixelFmt
   PixelFmt pformat{PixelFmt::NV12};
-  /// Color standard
-  ColorStd color_std{ColorStd::ITU_BT_709};
-  /// MLU device identification
-  int device_id{0};
+  /// MLU device identification, -1 means data is on cpu
+  int device_id{-1};
   /// MLU channel in which memory stored
   int channel_id{0};
-  /// If use cpu decode
-  bool cpu_decode{false};
   /// Plane count for this frame
   uint32_t n_planes{0};
   /// Frame strides for each plane
   uint32_t strides[CN_MAXIMUM_PLANE]{0, 0, 0};
   /// Frame data pointer
   void* ptrs[CN_MAXIMUM_PLANE]{nullptr, nullptr, nullptr};
+  /// get user data passed to codec, only support on Mlu300 decoder
+  void* user_data{nullptr};
+  uint32_t GetPlaneSize(uint32_t plane) const {
+    if (plane >= CN_MAXIMUM_PLANE) {
+      LOGE(CODEC) << "Plane index out of range, " << plane << " vs " << CN_MAXIMUM_PLANE;
+      return 0;
+    }
+    uint32_t plane_size = 0;
+    if (pformat == PixelFmt::NV12 || pformat == PixelFmt::NV21 || pformat == PixelFmt::I420 ||
+        pformat == PixelFmt::YV12 || pformat == PixelFmt::P010) {
+      plane_size = plane == 0 ? (strides[plane] * height) : (strides[plane] * (height >> 1));
+    } else {
+      plane_size = strides[plane] * height;
+    }
+    return plane_size;
+  }
 };
 
 /**
  * @brief Encode bitstream slice type.
  */
-enum class BitStreamSliceType { SPS_PPS, FRAME };
+enum class BitStreamSliceType { SPS_PPS, FRAME, KEY_FRAME};
 
 /**
  * @brief Structure contains encoded data and informations
@@ -152,8 +161,11 @@ struct CnPacket {
   CodecType codec_type{CodecType::H264};
   /// Bitstream slice type, only used in EasyEncode, @see edk::BitStreamSliceType
   BitStreamSliceType slice_type{BitStreamSliceType::FRAME};
+  /// pass user data to codec, only support on Mlu300 decoder
+  void* user_data{nullptr};
 };
 
 }  // namespace edk
 
 #endif  // EASYCODEC_VFORMAT_H_
+
