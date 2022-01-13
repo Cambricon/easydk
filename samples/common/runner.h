@@ -28,14 +28,16 @@
 #include <queue>
 #include <string>
 
-#include "cxxutil/log.h"
 #include "device/mlu_context.h"
 #include "easycodec/easy_decode.h"
+#include "video_decoder.h"
 #include "video_parser.h"
 
-class StreamRunner {
+class StreamRunner : public IDecodeEventHandle {
  public:
-  explicit StreamRunner(const std::string& data_path);
+  explicit StreamRunner(const std::string& data_path,
+                        const VideoDecoder::DecoderType decode_type = VideoDecoder::EASY_DECODE,
+                        int dev_id = 0);
   virtual ~StreamRunner();
   void Start() { running_.store(true); }
   void Stop() {
@@ -47,43 +49,27 @@ class StreamRunner {
   virtual void Process(edk::CnFrame frame) = 0;
   void DemuxLoop(const uint32_t repeat_time);
 
-  void ReceiveEos() { receive_eos_ = true; }
-  void ReceiveFrame(const edk::CnFrame& info) {
+  void OnEos() override { receive_eos_ = true; }
+  void OnDecodeFrame(const edk::CnFrame& info) override {
     std::unique_lock<std::mutex> lk(mut_);
     frames_.push(info);
     cond_.notify_one();
   }
+  int GetDeviceId() { return device_id_; }
 
-  bool Running() { return running_.load(); }
+  bool Running() const { return running_.load(); }
 
  protected:
   void WaitForRunLoopExit() {
     while (in_loop_.load()) {}
   }
   edk::MluContext env_;
-  std::unique_ptr<edk::EasyDecode> decode_{nullptr};
+  std::unique_ptr<VideoDecoder> decoder_;
 
  private:
   StreamRunner() = delete;
-  class DemuxEventHandle : public IDemuxEventHandle {
-   public:
-    explicit DemuxEventHandle(StreamRunner* runner): runner_(runner) {}
-    bool OnPacket(const edk::CnPacket& packet) override { return runner_->decode_->FeedData(packet, true); }
-    void OnEos() override { LOGI(SAMPLES) << "capture EOS"; }
-    void SendEos() {
-      if (!send_eos_) {
-        runner_->decode_->FeedEos();
-        send_eos_ = true;
-      }
-    }
-    bool Running() override {
-      return runner_->Running();
-    }
-   private:
-    StreamRunner* runner_;
-    bool send_eos_{false};
-  } demux_event_handle_;
 
+  int device_id_ {0};
   std::unique_ptr<VideoParser> parser_;
   std::queue<edk::CnFrame> frames_;
   std::mutex mut_;

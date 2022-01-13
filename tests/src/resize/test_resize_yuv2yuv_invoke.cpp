@@ -8,6 +8,7 @@
 #include "device/mlu_context.h"
 #include "easybang/resize.h"
 #include "gtest/gtest.h"
+#include "internal/cnrt_wrap.h"
 #include "opencv2/opencv.hpp"
 #include "test_base.h"
 
@@ -121,17 +122,15 @@ static void InvokeResizeYuv2Yuv(char* mlu_input, char* mlu_output, TestResizePar
   std::chrono::time_point<std::chrono::high_resolution_clock> end_time;
   int src_img_size = param.src_w * param.src_h * 3 / 2;
   // set context
-  edk::MluContext context;
-  context.SetDeviceId(0);
-  context.SetChannelId(channel_id % 2);
+  edk::MluContext context(0);
   context.BindDevice();
   // create notifier
   if (print_hardware_time) {
-    if (CNRT_RET_SUCCESS != cnrtCreateNotifier(&eventBegin)) {
-      std::cout << "cnrtCreateNotifier eventBegin failed" << std::endl;
+    if (CNRT_RET_SUCCESS != cnrt::NotifierCreate(&eventBegin)) {
+      std::cout << "cnrt::NotifierCreate eventBegin failed" << std::endl;
     }
-    if (CNRT_RET_SUCCESS != cnrtCreateNotifier(&eventEnd)) {
-      std::cout << "cnrtCreateNotifier eventEnd failed" << std::endl;
+    if (CNRT_RET_SUCCESS != cnrt::NotifierCreate(&eventEnd)) {
+      std::cout << "cnrt::NotifierCreate eventEnd failed" << std::endl;
     }
   }
 
@@ -169,18 +168,18 @@ static void InvokeResizeYuv2Yuv(char* mlu_input, char* mlu_output, TestResizePar
       resize->BatchingUp(src_y_mlu_in_cpu[i], src_uv_mlu_in_cpu[i]);
     }
     if (print_hardware_time) {
-      cnrtPlaceNotifier(eventBegin, resize->GetMluQueue());
+      cnrt::PlaceNotifier(eventBegin, resize->GetMluQueue());
     }
     start_time = std::chrono::high_resolution_clock::now();
     // invoke kernel
     bool success = resize->SyncOneOutput(mlu_output, mlu_output + param.dst_w * param.dst_h);
     if (print_hardware_time) {
-      cnrtPlaceNotifier(eventEnd, resize->GetMluQueue());
+      cnrt::PlaceNotifier(eventEnd, resize->GetMluQueue());
       // sync queue
-      if (CNRT_RET_SUCCESS != cnrtSyncQueue(resize->GetMluQueue())) {
-        std::cout << "cnrtSyncQueue failed" << std::endl;
+      if (CNRT_RET_SUCCESS != cnrt::QueueSync(resize->GetMluQueue())) {
+        std::cout << "cnrt::QueueSync failed" << std::endl;
       }
-      cnrtNotifierDuration(eventBegin, eventEnd, &total_hardware_time);
+      cnrt::NotifierDuration(eventBegin, eventEnd, &total_hardware_time);
     }
     end_time = std::chrono::high_resolution_clock::now();
     std::chrono::duration<double, std::milli> diff = end_time - start_time;
@@ -217,14 +216,14 @@ static void InvokeResizeYuv2Yuv(char* mlu_input, char* mlu_output, TestResizePar
     delete resize;
   }
   if (print_hardware_time) {
-    if (eventBegin) cnrtDestroyNotifier(&eventBegin);
-    if (eventEnd) cnrtDestroyNotifier(&eventEnd);
+    if (eventBegin) cnrt::NotifierDestroy(eventBegin);
+    if (eventEnd) cnrt::NotifierDestroy(eventEnd);
   }
 }
 
 static void Process(const TestResizeParam& param, std::vector<std::string> image_name, uint32_t thread_num,
                     int batch_num, bool print_hw_time, bool print_time) {
-  edk::MluContext context;
+  edk::MluContext context(0);
   std::chrono::time_point<std::chrono::high_resolution_clock> start_time;
   std::chrono::time_point<std::chrono::high_resolution_clock> end_time;
   char *cpu_input = nullptr, *cpu_output = nullptr;
@@ -233,7 +232,6 @@ static void Process(const TestResizeParam& param, std::vector<std::string> image
   mlu_outputs.clear();
   for (uint32_t th_i = 0; th_i < thread_num; ++th_i) {
     // set context
-    context.SetChannelId(th_i % 2);
     context.BindDevice();
     mlu_inputs.push_back(nullptr);
     mlu_outputs.push_back(nullptr);
@@ -268,7 +266,6 @@ static void Process(const TestResizeParam& param, std::vector<std::string> image
 #endif
   for (uint32_t th_i = 0; th_i < thread_num; ++th_i) {
     // set context
-    context.SetChannelId(th_i % 2);
     context.BindDevice();
     cnrtFree(mlu_inputs[th_i]);
     cnrtFree(mlu_outputs[th_i]);

@@ -28,6 +28,7 @@ static uint8_t* g_data_buffer;
 void frame_callback(bool* condv, std::condition_variable* cond, const edk::CnFrame& frame) {
   EXPECT_EQ(static_cast<uint32_t>(1080), frame.height);
   EXPECT_EQ(static_cast<uint32_t>(1920), frame.width);
+  if (!g_decode) return;
 
   try {
     edk::MluContext context;
@@ -114,16 +115,6 @@ void eos_callback(bool* condv, std::condition_variable* cond) {
   cond->notify_one();
 }
 
-#if 0
-void perf_callback(const edk::DecodePerfInfo& perf) {
-  std::cout << "----------- Decode Performance Info -----------" << std::endl;
-  std::cout << "total us: " << perf.total_us << "us" << std::endl;
-  std::cout << "decode us: " << perf.decode_us << "us" << std::endl;
-  std::cout << "transfer us: " << perf.transfer_us << "us" << std::endl;
-  std::cout << "----------- END ------------" << std::endl;
-}
-#endif
-
 bool SendData(edk::EasyDecode* decode, bool _abort = false) {
   edk::CnPacket packet;
   FILE* fid;
@@ -192,12 +183,12 @@ bool test_decode(edk::CodecType ctype, edk::PixelFmt pf, uint32_t frame_w, uint3
   try {
     bool ret;
     decode = edk::EasyDecode::New(attr);
+    g_decode = decode.get();
     auto _attr = decode->GetAttr();
     EXPECT_EQ(_attr.codec_type, ctype);
     EXPECT_EQ(_attr.pixel_format, pf);
     EXPECT_EQ(_attr.frame_geometry.w, attr.frame_geometry.w);
     EXPECT_EQ(_attr.frame_geometry.h, attr.frame_geometry.h);
-    g_decode = decode.get();
     decode->Pause();
     EXPECT_EQ(decode->GetStatus(), edk::EasyDecode::Status::PAUSED);
     decode->Resume();
@@ -217,7 +208,7 @@ bool test_decode(edk::CodecType ctype, edk::PixelFmt pf, uint32_t frame_w, uint3
         cond.wait(lk, []() -> bool { return rec; });
         EXPECT_EQ(decode->GetStatus(), edk::EasyDecode::Status::EOS);
         if (ctype == edk::CodecType::H264) {
-          EXPECT_EQ(1, decode->GetMinimumOutputBufferCount());
+          EXPECT_TRUE(decode->GetMinimumOutputBufferCount());
         }
       }
     }

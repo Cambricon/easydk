@@ -9,8 +9,8 @@ endif()
 # ---[ easydk project
 project(easydk C CXX)
 
-set(EDK_VERSION_MAJOR 2)
-set(EDK_VERSION_MINOR 6)
+set(EDK_VERSION_MAJOR 3)
+set(EDK_VERSION_MINOR 0)
 set(EDK_VERSION_PATCH 0)
 set(EDK_VERSION "${EDK_VERSION_MAJOR}.${EDK_VERSION_MINOR}.${EDK_VERSION_PATCH}")
 
@@ -26,9 +26,15 @@ option(WITH_INFER "Build easy infer" ON)
 option(WITH_TRACKER "Build easy tracker" ON)
 option(WITH_BANG "Build easy Bang" ON)
 option(ENABLE_KCF "Build with KCF track" OFF)
+option(WITH_BACKWARD "Build with Backward" ON)
+option(WITH_TURBOJPEG "Build Turbo Jpeg" OFF)
 
 option(WITH_INFER_SERVER "Build infer server" ON)
-option(WITH_TURBOJPEG "Build Turbo Jpeg" OFF)
+option(CNIS_RECORD_PERF "Enable record performance" ON)
+option(CNIS_WITH_CONTRIB "Build contrib content" ON)
+option(CNIS_WITH_CURL "Build infer server with curl" ON)
+option(CNIS_USE_MAGICMIND "Build infer server with magicmind" OFF)
+option(CNIS_WITH_PYTHON_API "Build python api" OFF)
 
 option(SANITIZE_MEMORY "Enable MemorySanitizer for sanitized targets." OFF)
 option(SANITIZE_ADDRESS "Enable AddressSanitizer for sanitized targets." OFF)
@@ -45,7 +51,7 @@ if(CODE_COVERAGE_TEST)
   set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fprofile-arcs -ftest-coverage")
 endif()
 
-set(CMAKE_INSTALL_DEFAULT_PREFIX "${PROJECT_SOURCE_DIR}/dist")
+set(CMAKE_INSTALL_DEFAULT_PREFIX "/usr/local/neuware")
 if(CMAKE_INSTALL_PREFIX_INITIALIZED_TO_DEFAULT)
   set(CMAKE_INSTALL_PREFIX "${CMAKE_INSTALL_DEFAULT_PREFIX}" CACHE PATH
     "Directory into which to install ${CMAKE_PROJECT_NAME} (default: ${CMAKE_INSTALL_DEFAULT_PREFIX})"
@@ -73,12 +79,14 @@ find_package(MLU)
 
 # set runtime path
 set(CMAKE_BUILD_RPATH "$ORIGIN;${NEUWARE_HOME}/lib64;")
-set(CMAKE_INSTALL_RPATH "$ORIGIN;${CMAKE_INSTALL_PREFIX}/lib;${NEUWARE_HOME}/lib64;")
+set(CMAKE_INSTALL_RPATH "$ORIGIN;${CMAKE_INSTALL_PREFIX}/lib64;${NEUWARE_HOME}/lib64;")
+set(LIBRARY_OUTPUT_PATH ${PROJECT_SOURCE_DIR}/lib)
 
 # ------------------- Sources -----------------------
 
-configure_file(${PROJECT_SOURCE_DIR}/config.h.in
-               ${PROJECT_SOURCE_DIR}/include/device/config.h)
+configure_file(${PROJECT_SOURCE_DIR}/edk_config.h.in
+               ${PROJECT_SOURCE_DIR}/include/edk_config.h)
+install(FILES include/edk_config.h DESTINATION include)
 
 file(GLOB cxxutil_srcs ${CMAKE_CURRENT_SOURCE_DIR}/src/cxxutil/*.cpp)
 file(GLOB device_srcs ${CMAKE_CURRENT_SOURCE_DIR}/src/device/*.cpp)
@@ -120,6 +128,23 @@ if(WITH_BANG)
   endif()
 endif()
 
+if (WITH_INFER_SERVER)
+  message(STATUS "Build with InferServer")
+  # ---[ Google-glog
+  find_package(Glog)
+  find_package(Gflags)
+
+  if (CNIS_WITH_CONTRIB)
+    file(GLOB_RECURSE infer_server_contrib_srcs ${CMAKE_CURRENT_SOURCE_DIR}/infer_server/src/contrib/*.cpp)
+  endif()
+
+  file(GLOB_RECURSE infer_server_srcs ${CMAKE_CURRENT_SOURCE_DIR}/infer_server/src/core/*.cpp
+                                      ${CMAKE_CURRENT_SOURCE_DIR}/infer_server/src/model/*.cpp
+                                      ${CMAKE_CURRENT_SOURCE_DIR}/infer_server/src/processor/*.cpp
+                                      ${CMAKE_CURRENT_SOURCE_DIR}/infer_server/src/util/*.cpp)
+  install(DIRECTORY infer_server/include/cnis DESTINATION include)
+endif()
+
 message(STATUS "@@@@@@@@@@@ Target : easydk")
 add_library(easydk SHARED
             ${cxxutil_srcs}
@@ -128,7 +153,9 @@ add_library(easydk SHARED
             ${codec_srcs}
             ${resize_srcs}
             ${resize_and_convert_srcs}
-            ${track_srcs})
+            ${track_srcs}
+            ${infer_server_srcs}
+            ${infer_server_contrib_srcs})
 
 target_include_directories(easydk PRIVATE
                            ${NEUWARE_INCLUDE_DIR}
@@ -140,7 +167,14 @@ target_link_libraries(easydk PUBLIC
                       ${KCF_LIBS})
 
 if(WITH_CODEC)
-  target_link_libraries(easydk PUBLIC ${CNCODEC_LIBS})
+  if (CNCODEC_LIBS)
+    target_link_libraries(easydk PUBLIC ${CNCODEC_LIBS})
+    list(APPEND EDK_DEFINITIONS "ENABLE_MLU200_CODEC")
+  endif()
+  if (CNCODECV3_LIBS)
+    target_link_libraries(easydk PUBLIC ${CNCODECV3_LIBS})
+    list(APPEND EDK_DEFINITIONS "ENABLE_MLU300_CODEC")
+  endif()
 
   # turbojpeg and libyuv
   if(WITH_TURBOJPEG)
@@ -160,23 +194,67 @@ if(WITH_CODEC)
   endif()
 endif()
 
+if (WITH_BANG)
+  target_compile_definitions(easydk PRIVATE HAVE_BANG)
+endif()
+
+# ---[ cncv
+if (CNCV_LIBS)
+  target_compile_definitions(easydk PRIVATE HAVE_CNCV)
+  target_link_libraries(easydk PUBLIC ${CNCV_LIBS})
+endif()
+
+if (WITH_INFER_SERVER)
+  if (CNIS_WITH_CURL)
+    find_package(CURL REQUIRED)
+    target_compile_definitions(easydk PRIVATE CNIS_HAVE_CURL)
+    target_include_directories(easydk PRIVATE ${CURL_INCLUDE_DIR})
+    target_link_libraries(easydk PUBLIC ${CURL_LIBRARIES})
+  endif()
+
+  if (CNIS_USE_MAGICMIND)
+    target_link_libraries(easydk PUBLIC ${MAGICMIND_RUNTIME_LIBS})
+  endif()
+
+  if (CNIS_RECORD_PERF)
+    target_compile_definitions(easydk PRIVATE CNIS_RECORD_PERF)
+  endif()
+
+  target_include_directories(easydk PRIVATE
+                             ${CMAKE_CURRENT_SOURCE_DIR}/infer_server/include
+                             ${CMAKE_CURRENT_SOURCE_DIR}/infer_server/src
+                             ${GLOG_INCLUDE_DIRS}
+                             ${GFLAGS_INCLUDE_DIRS})
+  target_link_libraries(easydk PUBLIC ${GLOG_LIBRARIES} ${GFLAGS_LIBRARIES})
+
+  if(BUILD_SAMPLES)
+    add_subdirectory(infer_server/samples)
+  endif()
+  if(BUILD_TESTS)
+    add_subdirectory(infer_server/tests)
+  endif()
+endif()
+
 # backward
-include(${PROJECT_SOURCE_DIR}/3rdparty/backward/BackwardConfig.cmake)
-target_include_directories(easydk PRIVATE ${BACKWARD_INCLUDE_DIRS})
-target_link_libraries(easydk PUBLIC ${BACKWARD_LIBRARIES})
-target_compile_definitions(easydk PRIVATE ${EDK_DEFINITIONS} ${BACKWARD_DEFINITIONS})
+if (WITH_BACKWARD)
+  include(${PROJECT_SOURCE_DIR}/3rdparty/backward/BackwardConfig.cmake)
+  target_include_directories(easydk PRIVATE ${BACKWARD_INCLUDE_DIRS})
+  target_link_libraries(easydk PUBLIC ${BACKWARD_LIBRARIES})
+  list(APPEND EDK_DEFINITIONS ${BACKWARD_DEFINITIONS} HAVE_BACKWARD)
+endif()
+
+target_compile_definitions(easydk PRIVATE ${EDK_DEFINITIONS})
 
 set_target_properties(easydk PROPERTIES VERSION ${EDK_VERSION})
 set_target_properties(easydk PROPERTIES SOVERSION ${EDK_VERSION_MAJOR})
 
-install(TARGETS easydk LIBRARY DESTINATION lib)
+install(TARGETS easydk LIBRARY DESTINATION lib64)
 
-if (WITH_INFER_SERVER)
-  add_subdirectory(infer_server)
-endif()
-
-if(BUILD_SAMPLES AND WITH_INFER AND WITH_CODEC AND WITH_TRACKER AND WITH_BANG)
+if(BUILD_SAMPLES AND WITH_INFER AND WITH_CODEC AND WITH_TRACKER AND WITH_INFER_SERVER)
   message(STATUS "---------------- Build samples -----------------")
+  if(NOT WITH_TURBOJPEG)
+    add_subdirectory(3rdparty/libyuv)
+  endif()
   add_subdirectory(samples)
 endif()
 
@@ -184,5 +262,10 @@ if(BUILD_TESTS)
   message(STATUS "----------------- Build tests ------------------")
   add_subdirectory(3rdparty/googletest)
   add_subdirectory(tests)
+endif()
+
+if(CNIS_WITH_PYTHON_API)
+  message(STATUS "----------------- Build cnis python api ------------------")
+  add_subdirectory(infer_server/python)
 endif()
 

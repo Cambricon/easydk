@@ -32,7 +32,7 @@
 
 namespace infer_server {
 
-auto g_empty_preproc_func = [](ModelIO*, const InferData&, const ModelInfo&) { return true; };
+auto g_empty_preproc_func = [](ModelIO*, const InferData&, const ModelInfo*) { return true; };
 
 class Executor;
 using Executor_t = Executor*;

@@ -71,7 +71,7 @@ struct OpencvPreproc {
     mean_std_ = (!mean_.empty()) && (!std_.empty());
   }
 
-  bool operator()(ModelIO* model_input, const InferData& in, const ModelInfo& m) {
+  bool operator()(ModelIO* model_input, const InferData& in, const ModelInfo* m) {
     const auto& frame = in.GetLref<OpencvFrame>();
     cv::Mat tmp_cvt;
     auto src_fmt = frame.fmt;
@@ -105,8 +105,8 @@ struct OpencvPreproc {
     auto src_width = tmp_transpose.cols;
     auto src_height = tmp_transpose.rows;
 
-    DimOrder input_order = m.InputLayout(0).order;
-    auto s = m.InputShape(0);
+    DimOrder input_order = m->InputLayout(0).order;
+    auto s = m->InputShape(0);
     int dst_width, dst_height;
     if (input_order == DimOrder::NCHW) {
       dst_width = s[3];
@@ -146,7 +146,7 @@ struct OpencvPreproc {
       std::cerr << "unsupport fmt for model input." << std::endl;
       return false;
     }
-    DataType dst_dtype = m.InputLayout(0).dtype;
+    DataType dst_dtype = m->InputLayout(0).dtype;
     int cv_code = CV_MAKETYPE(dst_dtype == DataType::UINT8 ? CV_8U : CV_32F, channel_num);
     cv::Mat dst(dst_height, dst_width, cv_code, b.MutableData());
     if (mean_std_) {

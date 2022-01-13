@@ -30,6 +30,11 @@
 #include <vector>
 
 #include "cxxutil/log.h"
+#include "cnis/contrib/video_helper.h"
+#include "cnis/infer_server.h"
+#include "cnis/processor.h"
+
+#include "postprocess/postproc.h"
 
 #if CV_VERSION_EPOCH == 2
 #define OPENCV_MAJOR_VERSION 2
@@ -39,35 +44,41 @@
 
 static const cv::Size g_out_video_size = cv::Size(1280, 720);
 
-ClassificationRunner::ClassificationRunner(const std::string& model_path, const std::string& func_name,
-                                           const std::string& label_path, const std::string& data_path, bool show,
-                                           bool save_video)
-    : StreamRunner(data_path), show_(show), save_video_(save_video) {
+ClassificationRunner::ClassificationRunner(const VideoDecoder::DecoderType& decode_type, int device_id,
+                                           const std::string& model_path, const std::string& func_name,
+                                           const std::string& label_path, const std::string& data_path,
+                                           bool show, bool save_video)
+    : StreamRunner(data_path, decode_type, device_id), show_(show), save_video_(save_video) {
+  infer_server_.reset(new infer_server::InferServer(device_id));
+  infer_server::SessionDesc desc;
+  desc.strategy = infer_server::BatchStrategy::STATIC;
+  desc.engine_num = 1;
+  desc.priority = 0;
+  desc.show_perf = true;
+  desc.name = "classification session";
+
   // load offline model
-  model_ = std::make_shared<edk::ModelLoader>(model_path.c_str(), func_name.c_str());
+  desc.model = infer_server::InferServer::LoadModel(model_path, func_name);
+  // set preproc and postproc
+  desc.preproc = infer_server::video::PreprocessorMLU::Create();
+  desc.postproc = infer_server::Postprocessor::Create();
 
-  // prepare mlu memory operator and memory
-  mem_op_.SetModel(model_);
+#ifdef CNIS_USE_MAGICMIND
+  desc.preproc->SetParams("preprocess_type", infer_server::video::PreprocessType::CNCV_PREPROC,
+                          "src_format", infer_server::video::PixelFmt::NV12,
+                          "dst_format", infer_server::video::PixelFmt::RGB24,
+                          "normalize", false,
+                          "mean", std::vector<float>({104, 117, 123}),
+                          "std", std::vector<float>({1, 1, 1}));
+#else
+desc.preproc->SetParams("preprocess_type", infer_server::video::PreprocessType::CNCV_PREPROC,
+                        "src_format", infer_server::video::PixelFmt::NV12,
+                        "dst_format", infer_server::video::PixelFmt::BGRA);
+#endif
+  desc.postproc->SetParams("process_function",
+                           infer_server::Postprocessor::ProcessFunction(PostprocClassification(0.2)));
 
-  // init easy_infer
-  infer_.Init(model_, 0);
-
-  // create mlu resize and convert operator
-  auto& in_shape = model_->InputShape(0);
-  edk::MluResizeConvertOp::Attr rc_attr;
-  rc_attr.dst_h = in_shape.H();
-  rc_attr.dst_w = in_shape.W();
-  rc_attr.batch_size = 1;
-  rc_attr.core_version = env_.GetCoreVersion();
-  rc_op_.SetMluQueue(infer_.GetMluQueue());
-  if (!rc_op_.Init(rc_attr)) {
-    THROW_EXCEPTION(edk::Exception::INTERNAL, rc_op_.GetLastError());
-  }
-
-  // init postproc
-  postproc_.reset(new edk::ClassificationPostproc);
-  postproc_->set_threshold(0.2);
-  CHECK(SAMPLES, postproc_);
+  session_ = infer_server_->CreateSyncSession(desc);
 
   // init osd
   osd_.LoadLabels(label_path);
@@ -85,63 +96,79 @@ ClassificationRunner::ClassificationRunner(const std::string& model_path, const 
     }
   }
 
-  mlu_input_ = mem_op_.AllocMluInput();
-  mlu_output_ = mem_op_.AllocMluOutput();
-  cpu_output_ = mem_op_.AllocCpuOutput();
-
   Start();
 }
 
 ClassificationRunner::~ClassificationRunner() {
   Stop();
-  if (nullptr != mlu_output_) mem_op_.FreeMluOutput(mlu_output_);
-  if (nullptr != cpu_output_) mem_op_.FreeCpuOutput(cpu_output_);
-  if (nullptr != mlu_input_) mem_op_.FreeMluInput(mlu_input_);
+  if (infer_server_ && session_) {
+    infer_server_->DestroySession(session_);
+  }
 }
 
-void ClassificationRunner::Process(edk::CnFrame frame) {
-  // run resize and convert
-  void* rc_output = mlu_input_[0];
-  edk::MluResizeConvertOp::InputData input;
-  input.planes[0] = frame.ptrs[0];
-  input.planes[1] = frame.ptrs[1];
-  input.src_w = frame.width;
-  input.src_h = frame.height;
-  input.src_stride = frame.strides[0];
-  rc_op_.BatchingUp(input);
-  if (!rc_op_.SyncOneOutput(rc_output)) {
-    decode_->ReleaseBuffer(frame.buf_id);
-    THROW_EXCEPTION(edk::Exception::INTERNAL, rc_op_.GetLastError());
-  }
-
-  // run inference
-  infer_.Run(mlu_input_, mlu_output_);
-  mem_op_.MemcpyOutputD2H(cpu_output_, mlu_output_);
-
+cv::Mat ClassificationRunner::ConvertToMatAndReleaseBuf(edk::CnFrame* frame) {
   // alloc memory to store image
-  auto img_data = new uint8_t[frame.strides[0] * frame.height * 3 / 2];
-
+  auto img_data = new uint8_t[frame->strides[0] * frame->height * 3 / 2];
   // copy out frame
-  decode_->CopyFrameD2H(img_data, frame);
-
+  decoder_->CopyFrameD2H(img_data, *frame);
+  uint32_t frame_h = frame->height;
+  uint32_t frame_stride = frame->strides[0];
   // release codec buffer
-  decode_->ReleaseBuffer(frame.buf_id);
+  decoder_->ReleaseFrame(std::move(*frame));
+
   // yuv to bgr
-  cv::Mat yuv(frame.height * 3 / 2, frame.strides[0], CV_8UC1, img_data);
+  cv::Mat yuv(frame_h * 3 / 2, frame_stride, CV_8UC1, img_data);
   cv::Mat img;
-  cv::cvtColor(yuv, img, cv::COLOR_YUV2BGR_NV21);
+  if (frame->pformat == edk::PixelFmt::NV12) {
+    cv::cvtColor(yuv, img, cv::COLOR_YUV2BGR_NV12);
+  } else if (frame->pformat == edk::PixelFmt::NV21) {
+    cv::cvtColor(yuv, img, cv::COLOR_YUV2BGR_NV12);
+  } else {
+    LOGE(SAMPLE) << "unsupported pixel format";
+  }
   delete[] img_data;
 
   // resize to show
   cv::resize(img, img, cv::Size(1280, 720));
+  return img;
+}
 
-  // post process
+void ClassificationRunner::Process(edk::CnFrame frame) {
+  // prepare input
+  infer_server::video::VideoFrame vframe;
+  vframe.plane_num = frame.n_planes;
+  vframe.format = infer_server::video::PixelFmt::NV12;
+  vframe.width = frame.width;
+  vframe.height = frame.height;
+
+  for (size_t plane_idx = 0; plane_idx < vframe.plane_num; ++plane_idx) {
+    vframe.stride[plane_idx] = frame.strides[plane_idx];
+    uint32_t plane_bytes = vframe.height * vframe.stride[plane_idx];
+    if (plane_idx == 1) plane_bytes = std::ceil(1.0 * plane_bytes / 2);
+    infer_server::Buffer mlu_buffer(frame.ptrs[plane_idx], plane_bytes, nullptr, GetDeviceId());
+    vframe.plane[plane_idx] = mlu_buffer;
+  }
+  infer_server::PackagePtr in = infer_server::Package::Create(1);
+  in->data[0]->Set(std::move(vframe));
+  infer_server::PackagePtr out = infer_server::Package::Create(1);
+  infer_server::Status status = infer_server::Status::SUCCESS;
+  bool ret = infer_server_->RequestSync(session_, std::move(in), &status, out);
+  if (!ret || status != infer_server::Status::SUCCESS) {
+    decoder_->ReleaseFrame(std::move(frame));
+    THROW_EXCEPTION(edk::Exception::INTERNAL,
+        "Request sending data to infer server failed. Status: " + std::to_string(static_cast<int>(status)));
+  }
+
+  cv::Mat img = ConvertToMatAndReleaseBuf(&frame);
+  const std::vector<DetectObject>& postproc_results = out->data[0]->GetLref<std::vector<DetectObject>>();
   std::vector<edk::DetectObject> detect_result;
-  std::vector<std::pair<float*, uint64_t>> postproc_param;
-  postproc_param.push_back(
-      std::make_pair(reinterpret_cast<float*>(cpu_output_[0]), model_->OutputShape(0).DataCount()));
-  detect_result = postproc_->Execute(postproc_param);
-
+  detect_result.reserve(postproc_results.size());
+  for (auto &obj : postproc_results) {
+    edk::DetectObject detect_obj;
+    detect_obj.label = obj.label;
+    detect_obj.score = obj.score;
+    detect_result.emplace_back(std::move(detect_obj));
+  }
   std::cout << "----- Classification Result:\n";
   int show_number = 2;
   for (auto& obj : detect_result) {

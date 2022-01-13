@@ -115,11 +115,20 @@ Status Predictor::Init() noexcept {
 
   size_t o_num = priv_->model->OutputNum();
   priv_->layouts.reserve(o_num);
-  for (size_t i = 0; i < o_num; ++i) {
-    priv_->layouts.emplace_back(priv_->model->OutputLayout(i));
-    // FIXME(dmh): 3 buffer?
-    priv_->output_pools.emplace_back(new MluMemoryPool(
-        priv_->model->OutputShape(i).BatchDataCount() * GetTypeSize(priv_->layouts[i].dtype), 3, device_id));
+
+  // Create output memory pool only if it is possible to get model output shape before execute the model.
+  if (priv_->model->FixedOutputShape()) {
+    for (size_t i = 0; i < o_num; ++i) {
+      priv_->layouts.emplace_back(priv_->model->OutputLayout(i));
+      // FIXME(dmh): 3 buffer?
+      priv_->output_pools.emplace_back(new MluMemoryPool(
+          priv_->model->OutputShape(i).BatchDataCount() * GetTypeSize(priv_->layouts[i].dtype), 3, device_id));
+    }
+#ifndef CNIS_USE_MAGICMIND
+  } else {
+    LOG(ERROR) << "The output shapes of the model are not fixed.";
+    return Status::INVALID_PARAM;
+#endif
   }
 
   return Status::SUCCESS;
@@ -136,32 +145,36 @@ Status Predictor::Process(PackagePtr pack) noexcept {
   InferDataPtr& cdata = pack->predict_io;
 
   ModelIO out_mlu;
+  out_mlu.buffers.reserve(priv_->model->OutputNum());
+  out_mlu.shapes.reserve(priv_->model->OutputNum());
   Status s = Status::SUCCESS;
   try {
     ModelIO& in_mlu = cdata->GetLref<ModelIO>();
+    if (priv_->runner->CanInferOutputShape() && priv_->model->FixedOutputShape()) {
 #ifdef CNIS_INFER_SHAPE_MUTABLE
-    out_mlu.shapes = priv_->runner->InferOutputShape(in_mlu.shapes);
-    if (out_mlu.shapes.empty()) {
-      LOG(ERROR) << "Invalid shapes: " << in_mlu.shapes;
-      return Status::ERROR_BACKEND;
-    }
-    size_t need_size;
-    for (size_t idx = 0; idx < priv_->output_pools.size(); ++idx) {
-      need_size = out_mlu.shapes[idx].BatchDataCount() * GetTypeSize(priv_->layouts[idx].dtype);
-      if (need_size > priv_->output_pools[idx]->MemorySize()) {
-        LOG(INFO) << "size larger than mem pool, malloc buffer instantly";
-        out_mlu.buffers.emplace_back(need_size, priv_->output_pools[idx]->DeviceId());
-      } else {
-        out_mlu.buffers.emplace_back(priv_->output_pools[idx]->Request());
+      out_mlu.shapes = priv_->runner->InferOutputShape(in_mlu.shapes);
+      if (out_mlu.shapes.empty()) {
+        LOG(ERROR) << "Invalid shapes: " << in_mlu.shapes;
+        return Status::ERROR_BACKEND;
       }
-    }
+      size_t need_size;
+      for (size_t idx = 0; idx < priv_->output_pools.size(); ++idx) {
+        need_size = out_mlu.shapes[idx].BatchDataCount() * GetTypeSize(priv_->layouts[idx].dtype);
+        if (need_size > priv_->output_pools[idx]->MemorySize()) {
+          LOG(INFO) << "size larger than mem pool, malloc buffer instantly";
+          out_mlu.buffers.emplace_back(need_size, priv_->output_pools[idx]->DeviceId());
+        } else {
+          out_mlu.buffers.emplace_back(priv_->output_pools[idx]->Request());
+        }
+      }
 #else
-    for (size_t idx = 0; idx < priv_->output_pools.size(); ++idx) {
-      out_mlu.buffers.emplace_back(priv_->output_pools[idx]->Request());
-      out_mlu.shapes.emplace_back(priv_->model->OutputShape(idx));
-    }
+      for (size_t idx = 0; idx < priv_->output_pools.size(); ++idx) {
+        out_mlu.buffers.emplace_back(priv_->output_pools[idx]->Request());
+        out_mlu.shapes.emplace_back(priv_->model->OutputShape(idx));
+      }
 #endif
-    s = priv_->runner->Run(in_mlu.buffers, out_mlu.buffers);
+    }
+    s = priv_->runner->Run(&in_mlu, &out_mlu);
   } catch (bad_any_cast&) {
     LOG(ERROR) << "predictor received unsupported data type";
     return Status::WRONG_TYPE;

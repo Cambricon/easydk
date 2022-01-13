@@ -31,7 +31,9 @@
 namespace infer_server {
 namespace video {
 
+#ifdef ENABLE_MLU200_CODEC
 std::map<int, std::unique_ptr<Buffer>> detail::Scaler::buffers_map_;
+#endif
 
 struct PreprocessorMLUPrivate {
   std::unique_ptr<detail::PreprocessBase> executor{nullptr};
@@ -74,7 +76,7 @@ Status PreprocessorMLU::Init() noexcept {
     if (!SetCurrentDevice(dev_id)) return Status::ERROR_BACKEND;
 
     switch (type) {
-#ifndef CNIS_USE_MAGICMIND
+#if !defined(CNIS_USE_MAGICMIND) && defined(HAVE_BANG)
       case PreprocessType::RESIZE_CONVERT:
         try {
           int core_number = model->BatchSize();
@@ -91,10 +93,12 @@ Status PreprocessorMLU::Init() noexcept {
           return Status::ERROR_BACKEND;
         }
 #endif
+#ifdef ENABLE_MLU200_CODEC
       case PreprocessType::SCALER:
         priv_->executor.reset(new detail::Scaler(model->InputShape(0), dev_id, dst_fmt, keep_aspect_ratio));
         break;
-#ifdef CNIS_HAVE_CNCV
+#endif
+#ifdef HAVE_CNCV
       case PreprocessType::CNCV_PREPROC: {
         bool normalize = false;
         if (HaveParam("normalize")) {

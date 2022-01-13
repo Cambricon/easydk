@@ -18,7 +18,6 @@ if(CMAKE_SYSTEM_PROCESSOR STREQUAL x86_64)
   list(APPEND test_srcs ${CMAKE_CURRENT_SOURCE_DIR}/src/resize/test_resize_yuv2yuv_invoke.cpp)
 endif()
 
-set(EXECUTABLE_OUTPUT_PATH ${CMAKE_CURRENT_SOURCE_DIR}/bin/)
 message(STATUS "@@@@@@@@@@@ Target : test_edk")
 add_executable(tests_edk ${test_srcs})
 add_sanitizers(tests_edk)

@@ -23,6 +23,7 @@
 
 #include <cnrt.h>
 #include <glog/logging.h>
+#include <algorithm>
 #include <map>
 #include <memory>
 #include <mutex>
@@ -32,6 +33,7 @@
 
 #include "cnis/buffer.h"
 #include "cnis/infer_server.h"
+#include "cnis/processor.h"
 #include "cnis/shape.h"
 
 #ifdef CNIS_USE_MAGICMIND
@@ -54,11 +56,13 @@ class ModelRunner {
 #ifdef CNIS_USE_MAGICMIND
   bool Init(MModel* model, mm_unique_ptr<MContext> ctx) noexcept;
   std::vector<Shape> InferOutputShape(const std::vector<Shape>& input) noexcept;
+  bool CanInferOutputShape() noexcept { return !outputs_.empty(); }
 #else
   bool Init(Model* model) noexcept;
   bool ForkFrom(const ModelRunner& other) noexcept;
+  bool CanInferOutputShape() noexcept { return true; }
 #endif
-  Status Run(std::vector<Buffer>& input, std::vector<Buffer>& output) noexcept;  // NOLINT
+  Status Run(ModelIO* input, ModelIO* output) noexcept;  // NOLINT
 
  private:
 #ifdef CNIS_USE_MAGICMIND
@@ -113,6 +117,16 @@ class Model : public ModelInfo {
   uint32_t InputNum() const noexcept override { return i_num_; }
   uint32_t OutputNum() const noexcept override { return o_num_; }
   uint32_t BatchSize() const noexcept override { return model_batch_size_; }
+
+  bool FixedOutputShape() noexcept {
+    for (auto &shape : output_shapes_) {
+      auto vectorized_shape = shape.Vectorize();
+      if (!std::all_of(vectorized_shape.begin(), vectorized_shape.end(), [](int64_t v) { return v > 0; })) {
+        return false;
+      }
+    }
+    return !output_shapes_.empty();
+  }
 
 #ifdef CNIS_USE_MAGICMIND
   std::shared_ptr<ModelRunner> GetRunner(int device_id) noexcept {

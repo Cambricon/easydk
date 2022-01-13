@@ -28,6 +28,7 @@
 
 #include "cnrt.h"
 #include "core/data_type.h"
+#include "internal/cnrt_wrap.h"
 
 using std::string;
 using std::vector;
@@ -64,22 +65,26 @@ bool ModelRunner::Init(MModel* model, mm_unique_ptr<MContext> ctx) noexcept {
   MM_SAFECALL(mm::CreateInputTensors(ctx_.get(), &inputs_), false);
   MM_SAFECALL(mm::CreateOutputTensors(ctx_.get(), &outputs_), false);
 
-#ifndef CNIS_INFER_SHAPE_MUTABLE
   auto dims2shape = [](const mm::Dims& d) { return Shape(d.GetDims()); };
   std::vector<mm::Dims> in_dims = model->GetInputDimensions();
   std::vector<Shape> in_shapes;
   std::transform(in_dims.begin(), in_dims.end(), std::back_inserter(in_shapes), dims2shape);
-  InferOutputShape(in_shapes);
-#endif
+  auto out_shape = InferOutputShape(in_shapes);
+  if (out_shape.empty()) {
+    for (auto tensor : outputs_) {
+      tensor->Destroy();
+    }
+    outputs_.clear();
+  }
 
   VLOG(3) << "Create cnrt queue";
-  cnrtRet_t ret = cnrtQueueCreate(&task_queue_);
+  cnrtRet_t ret = cnrt::QueueCreate(&task_queue_);
   CHECK_CNRT_RET(ret, "Create Queue failed", false);
 #ifdef PERF_HARDWARE_TIME
   // create notifier for hardware time
-  ret = cnrtNotifierCreate(&notifier_start_);
+  ret = cnrt::NotifierCreate(&notifier_start_);
   CHECK_CNRT_RET(ret, "Create notifier failed", false);
-  ret = cnrtNotifierCreate(&notifier_end_);
+  ret = cnrt::NotifierCreate(&notifier_end_);
   CHECK_CNRT_RET(ret, "Create notifier failed", false);
 #endif
   return true;
@@ -88,7 +93,7 @@ bool ModelRunner::Init(MModel* model, mm_unique_ptr<MContext> ctx) noexcept {
 ModelRunner::~ModelRunner() {
   SetCurrentDevice(device_id_);
   if (task_queue_) {
-    cnrtDestroyQueue(task_queue_);
+    cnrt::QueueDestroy(task_queue_);
     task_queue_ = nullptr;
   }
 
@@ -100,11 +105,11 @@ ModelRunner::~ModelRunner() {
   }
 #ifdef PERF_HARDWARE_TIME
   if (notifier_start_) {
-    cnrtNotifierDestroy(&notifier_start_);
+    cnrt::NotifierDestroy(&notifier_start_);
     notifier_start_ = nullptr;
   }
   if (notifier_end_) {
-    cnrtNotifierDestroy(&notifier_end_);
+    cnrt::NotifierDestroy(&notifier_end_);
     notifier_end_ = nullptr;
   }
 #endif
@@ -135,36 +140,54 @@ std::vector<Shape> ModelRunner::InferOutputShape(const std::vector<Shape>& input
   return o_shapes_;
 }
 
-Status ModelRunner::Run(vector<Buffer>& input, vector<Buffer>& output) noexcept {  // NOLINT
+Status ModelRunner::Run(ModelIO* in, ModelIO* out) noexcept {  // NOLINT
+  auto& input = in->buffers;
+  auto& output = out->buffers;
   CHECK_EQ(input_num_, input.size());
-  CHECK_EQ(output_num_, output.size());
 
   VLOG(6) << "Process inference once, input num: " << input_num_ << " output num: " << output_num_;
 
   for (uint32_t i_idx = 0; i_idx < input_num_; ++i_idx) {
     inputs_[i_idx]->SetData(input[i_idx].MutableData());
   }
-  for (uint32_t o_idx = 0; o_idx < output_num_; ++o_idx) {
-    outputs_[o_idx]->SetData(output[o_idx].MutableData());
+  if (!output.empty()) {
+    CHECK_EQ(output_num_, output.size());
+    for (uint32_t o_idx = 0; o_idx < output_num_; ++o_idx) {
+      outputs_[o_idx]->SetData(output[o_idx].MutableData());
+    }
   }
 
 #ifdef PERF_HARDWARE_TIME
   // place start event
-  CALL_CNRT_FUNC(cnrtPlaceNotifier(notifier_start_, task_queue_), "Place event failed");
+  CALL_CNRT_FUNC(cnrt::PlaceNotifier(notifier_start_, task_queue_), "Place event failed");
 #endif
 
-  MM_SAFECALL(ctx_->Enqueue(inputs_, outputs_, task_queue_), Status::ERROR_BACKEND);
+  if (output.empty()) {
+    // buffer is managed by magicmind, pass empty vector as output
+    MM_SAFECALL(ctx_->Enqueue(inputs_, &outputs_, task_queue_), Status::ERROR_BACKEND);
+  } else {
+    MM_SAFECALL(ctx_->Enqueue(inputs_, outputs_, task_queue_), Status::ERROR_BACKEND);
+  }
 
 #ifdef PERF_HARDWARE_TIME
   // place end event
-  CALL_CNRT_FUNC(cnrtPlaceNotifier(notifier_end_, task_queue_), "Place event failed");
+  CALL_CNRT_FUNC(cnrt::PlaceNotifier(notifier_end_, task_queue_), "Place event failed");
 #endif
 
-  CALL_CNRT_FUNC(cnrtQueueSync(task_queue_), "Sync queue failed.");
+  CALL_CNRT_FUNC(cnrt::QueueSync(task_queue_), "Sync queue failed.");
+
+  if (output.empty()) {
+    for (MTensor* tensor : outputs_) {
+      output.emplace_back(tensor->GetMutableData(), tensor->GetSize(),
+                          [tensor](void* mem, int dev_id) { tensor->Destroy(); }, device_id_);
+      out->shapes.emplace_back(tensor->GetDimensions().GetDims());
+    }
+    outputs_.clear();
+  }
 
 #ifdef PERF_HARDWARE_TIME
   float hw_time{0};
-  CALL_CNRT_FUNC(cnrtNotifierDuration(notifier_start_, notifier_end_, &hw_time), "Calculate elapsed time failed.");
+  CALL_CNRT_FUNC(cnrt::NotifierDuration(notifier_start_, notifier_end_, &hw_time), "Calculate elapsed time failed.");
   hw_time /= 1000.0f;
   VLOG(3) << "Inference hardware time " << hw_time << " ms";
 #endif

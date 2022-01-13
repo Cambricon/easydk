@@ -31,7 +31,7 @@
 
 namespace infer_server {
 
-auto g_empty_preproc_func = [](ModelIO*, const InferData&, const ModelInfo&) { return true; };
+auto g_empty_preproc_func = [](ModelIO*, const InferData&, const ModelInfo*) { return true; };
 
 constexpr int device_id = 0;
 

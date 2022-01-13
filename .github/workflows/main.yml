@@ -6,21 +6,41 @@ on:
 
 jobs:
   build_and_test:
-    runs-on: self-hosted
+    runs-on: easydk-video
 
     steps:
       - uses: actions/checkout@v2
       - name: Lintgit Check
-        run: ./tools/lintgit master $PWD
+        run: ./tools/lintgit master
 
       - uses: actions/checkout@v2
       - name: Run Test
         run: |
           mkdir build
           pushd build
-          cmake -DBUILD_TESTS=ON -DBUILD_SAMPLES=ON -DCODE_COVERAGE_TEST=ON -DENABLE_KCF=OFF ..
-          make -j8
-          pushd ../tests
-          EDK_LOG_LEVEL=6 ./test.sh
+            cmake -DBUILD_TESTS=ON -DBUILD_SAMPLES=ON -DCODE_COVERAGE_TEST=ON -DCNIS_WITH_PYTHON_API=ON ..
+            make -j8
+            EDK_LOG_LEVEL=6 ./tests/tests_edk
+            GLOG_minloglevel=0 ./infer_server/tests/apitest_cnis
+            GLOG_minloglevel=0 ./infer_server/tests/unittest_cnis
+            ./../infer_server/python/test/run_pytest.sh
           popd
+          pushd samples/classification
+            ./run_resnet50_270.sh
+          popd
+          pushd samples/stream-app
+            ./run_ssd_270.sh
+            ./run_yolov3_270.sh
+            ./run_yolov5_270.sh
+          popd
+          pushd samples/transcode
+            ./run_transcode.sh
+          popd
+          pushd infer_server/samples/bin
+            ./cnis_demo ../../../samples/data/videos/cars.mp4
+          popd
+          pushd infer_server/python/samples/
+            python cnis_async_demo.py
+            python cnis_sync_demo.py
+            python cnis_infer_only_demo.py
           popd

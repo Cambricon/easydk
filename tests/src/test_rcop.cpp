@@ -389,6 +389,11 @@ bool CompareData(const ImgInfo &cpu_data, const ImgInfo &mlu_data,
 }
 
 bool TestFunc(const std::vector<ImgInfo> &src_imgs, const OperatorParams &op_params) {
+  edk::MluContext context;
+  context.SetDeviceId(0);
+  context.BindDevice();
+  auto version = context.GetCoreVersion();
+  if (version == edk::CoreVersion::MLU370) return true;
   bool ret = true;
 
   int batchsize = static_cast<int>(src_imgs.size());
@@ -431,6 +436,11 @@ class ResizeConvertTestParam
     : public testing::TestWithParam<std::tuple<cv::Size, cv::Size, Fmt, Fmt, int, bool>> {};
 
 TEST_P(ResizeConvertTestParam, Execute) {
+  edk::MluContext context;
+  context.SetDeviceId(0);
+  context.BindDevice();
+  auto version = context.GetCoreVersion();
+  if (version == edk::CoreVersion::MLU370) return;
   auto params = GetParam();
   cv::Size src_size = std::get<0>(params);
   cv::Size dst_size = std::get<1>(params);
@@ -457,6 +467,11 @@ class ResizeConvertCoreSplitTestParam
     : public testing::TestWithParam<std::tuple<std::vector<cv::Size>, cv::Size, Fmt, Fmt, int, bool>> {};
 
 TEST_P(ResizeConvertCoreSplitTestParam, Execute) {
+  edk::MluContext context;
+  context.SetDeviceId(0);
+  context.BindDevice();
+  auto version = context.GetCoreVersion();
+  if (version == edk::CoreVersion::MLU370) return;
   auto params = GetParam();
   std::vector<cv::Size> src_sizes = std::get<0>(params);
   cv::Size dst_size = std::get<1>(params);
@@ -487,6 +502,11 @@ class ResizeConvertRoiCoreSplitTestParam
     : public testing::TestWithParam<std::tuple<cv::Size, std::vector<cv::Rect>, cv::Size, Fmt, Fmt, int, bool>> {};
 
 TEST_P(ResizeConvertRoiCoreSplitTestParam, Execute) {
+  edk::MluContext context;
+  context.SetDeviceId(0);
+  context.BindDevice();
+  auto version = context.GetCoreVersion();
+  if (version == edk::CoreVersion::MLU370) return;
   auto params = GetParam();
   cv::Size src_size = std::get<0>(params);
   std::vector<cv::Rect> src_rois = std::get<1>(params);
@@ -631,6 +651,8 @@ TEST(Bang, RCOpRunAfterCoreDump) {
   edk::MluContext context;
   context.SetDeviceId(0);
   context.BindDevice();
+  auto version = context.GetCoreVersion();
+  if (version == edk::CoreVersion::MLU370) return;
 
   edk::MluMemoryOp mem_op;
   edk::MluResizeConvertOp op;
@@ -673,6 +695,8 @@ TEST(Bang, RCOpBatchNotFull) {
   edk::MluContext context;
   context.SetDeviceId(0);
   context.BindDevice();
+  auto version = context.GetCoreVersion();
+  if (version == edk::CoreVersion::MLU370) return;
 
   edk::MluMemoryOp mem_op;
   edk::MluResizeConvertOp op;

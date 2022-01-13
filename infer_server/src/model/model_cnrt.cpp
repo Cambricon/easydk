@@ -28,6 +28,7 @@
 
 #include "cnrt.h"
 #include "core/data_type.h"
+#include "internal/cnrt_wrap.h"
 
 using std::string;
 using std::vector;
@@ -71,9 +72,9 @@ bool ModelRunner::Init(Model* model) noexcept {
   params_ = new void*[input_num_ + output_num_];
 #ifdef PERF_HARDWARE_TIME
   // create notifier for hardware time
-  ret = cnrtCreateNotifier(&notifier_start_);
+  ret = cnrt::NotifierCreate(&notifier_start_);
   CHECK_CNRT_RET(ret, "Create notifier failed", false);
-  ret = cnrtCreateNotifier(&notifier_end_);
+  ret = cnrt::NotifierCreate(&notifier_end_);
   CHECK_CNRT_RET(ret, "Create notifier failed", false);
 #endif
   return true;
@@ -93,9 +94,9 @@ bool ModelRunner::ForkFrom(const ModelRunner& other) noexcept {
   params_ = new void*[input_num_ + output_num_];
 #ifdef PERF_HARDWARE_TIME
   // create notifier for hardware time
-  ret = cnrtCreateNotifier(&notifier_start_);
+  ret = cnrt::NotifierCreate(&notifier_start_);
   CHECK_CNRT_RET(ret, "Create notifier failed", false);
-  ret = cnrtCreateNotifier(&notifier_end_);
+  ret = cnrt::NotifierCreate(&notifier_end_);
   CHECK_CNRT_RET(ret, "Create notifier failed", false);
 #endif
   return true;
@@ -104,7 +105,7 @@ bool ModelRunner::ForkFrom(const ModelRunner& other) noexcept {
 ModelRunner::~ModelRunner() {
   SetCurrentDevice(device_id_);
   if (task_queue_) {
-    cnrtDestroyQueue(task_queue_);
+    cnrt::QueueDestroy(task_queue_);
     task_queue_ = nullptr;
   }
   if (ctx_) {
@@ -113,11 +114,11 @@ ModelRunner::~ModelRunner() {
   }
 #ifdef PERF_HARDWARE_TIME
   if (notifier_start_) {
-    cnrtDestroyNotifier(&notifier_start_);
+    cnrt::NotifierDestroy(&notifier_start_);
     notifier_start_ = nullptr;
   }
   if (notifier_end_) {
-    cnrtDestroyNotifier(&notifier_end_);
+    cnrt::NotifierDestroy(&notifier_end_);
     notifier_end_ = nullptr;
   }
 #endif
@@ -127,7 +128,9 @@ ModelRunner::~ModelRunner() {
   }
 }
 
-Status ModelRunner::Run(vector<Buffer>& input, vector<Buffer>& output) noexcept {  // NOLINT
+Status ModelRunner::Run(ModelIO* in, ModelIO* out) noexcept {  // NOLINT
+  auto& input = in->buffers;
+  auto& output = out->buffers;
   CHECK_EQ(input_num_, input.size());
   CHECK_EQ(output_num_, output.size());
 
@@ -142,21 +145,21 @@ Status ModelRunner::Run(vector<Buffer>& input, vector<Buffer>& output) noexcept 
 
 #ifdef PERF_HARDWARE_TIME
   // place start event
-  CALL_CNRT_FUNC(cnrtPlaceNotifier(notifier_start_, task_queue_), "Place event failed");
+  CALL_CNRT_FUNC(cnrt::PlaceNotifier(notifier_start_, task_queue_), "Place event failed");
 #endif
 
   CALL_CNRT_FUNC(cnrtInvokeRuntimeContext(ctx_, params_, task_queue_, NULL), "Invoke Runtime Context failed");
 
 #ifdef PERF_HARDWARE_TIME
   // place end event
-  CALL_CNRT_FUNC(cnrtPlaceNotifier(notifier_end_, task_queue_), "Place event failed");
+  CALL_CNRT_FUNC(cnrt::PlaceNotifier(notifier_end_, task_queue_), "Place event failed");
 #endif
 
-  CALL_CNRT_FUNC(cnrtSyncQueue(task_queue_), "Sync queue failed.");
+  CALL_CNRT_FUNC(cnrt::QueueSync(task_queue_), "Sync queue failed.");
 
 #ifdef PERF_HARDWARE_TIME
   float hw_time{0};
-  CALL_CNRT_FUNC(cnrtNotifierDuration(notifier_start_, notifier_end_, &hw_time), "Calculate elapsed time failed.");
+  CALL_CNRT_FUNC(cnrt::NotifierDuration(notifier_start_, notifier_end_, &hw_time), "Calculate elapsed time failed.");
   hw_time /= 1000.0f;
   VLOG(3) << "Inference hardware time " << hw_time << " ms";
 #endif

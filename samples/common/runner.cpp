@@ -30,31 +30,16 @@
 
 #include "cxxutil/log.h"
 
-StreamRunner::StreamRunner(const std::string& data_path) : demux_event_handle_(this), data_path_(data_path) {
-  parser_.reset(new VideoParser(&demux_event_handle_));
+StreamRunner::StreamRunner(const std::string& data_path, const VideoDecoder::DecoderType decode_type, int dev_id)
+    : decoder_(new VideoDecoder(this, decode_type, dev_id)), device_id_(dev_id), data_path_(data_path) {
+  parser_.reset(new VideoParser(decoder_.get()));
   if (!parser_->Open(data_path.c_str())) {
     THROW_EXCEPTION(edk::Exception::INIT_FAILED, "Open video source failed");
   }
 
   // set mlu environment
-  env_.SetDeviceId(0);
+  env_.SetDeviceId(dev_id);
   env_.BindDevice();
-
-  const VideoInfo& info = parser_->GetVideoInfo();
-  // create decoder
-  edk::EasyDecode::Attr attr;
-  attr.frame_geometry.w = info.width;
-  attr.frame_geometry.h = info.height;
-  attr.codec_type = info.codec_type;
-  // attr.interlaced = info.progressive ? false : true;
-  attr.pixel_format = edk::PixelFmt::NV21;
-  attr.dev_id = 0;
-  attr.frame_callback = std::bind(&StreamRunner::ReceiveFrame, this, std::placeholders::_1);
-  attr.eos_callback = std::bind(&StreamRunner::ReceiveEos, this);
-  attr.silent = false;
-  attr.input_buffer_num = 6;
-  attr.output_buffer_num = 6;
-  decode_ = edk::EasyDecode::New(attr);
 }
 
 StreamRunner::~StreamRunner() {
@@ -63,6 +48,9 @@ StreamRunner::~StreamRunner() {
 }
 
 void StreamRunner::DemuxLoop(const uint32_t repeat_time) {
+  // set mlu environment
+  env_.SetDeviceId(device_id_);
+  env_.BindDevice();
   bool is_rtsp = parser_->IsRtsp();
   uint32_t loop_time = 0;
 
@@ -84,7 +72,7 @@ void StreamRunner::DemuxLoop(const uint32_t repeat_time) {
           std::cout << "Loop..." << std::endl;
           continue;
         } else {
-          demux_event_handle_.SendEos();
+          decoder_->SendEos();
           std::cout << "End Of Stream" << std::endl;
           break;
         }
@@ -94,7 +82,7 @@ void StreamRunner::DemuxLoop(const uint32_t repeat_time) {
     LOGE(SAMPLES) << e.what();
     Stop();
   }
-  if (Running()) demux_event_handle_.SendEos();
+  if (Running()) decoder_->SendEos();
   parser_->Close();
   std::this_thread::sleep_for(std::chrono::duration<float, std::milli>(1000));
 
@@ -103,6 +91,9 @@ void StreamRunner::DemuxLoop(const uint32_t repeat_time) {
 }
 
 bool StreamRunner::RunLoop() {
+  // set mlu environment
+  env_.SetDeviceId(device_id_);
+  env_.BindDevice();
   in_loop_.store(true);
 
   try {

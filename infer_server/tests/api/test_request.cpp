@@ -119,8 +119,8 @@ class TestObserver : public Observer {
   bool first_response_{true};
 };
 
-auto g_empty_postproc_func = [](InferData*, const ModelIO&, const ModelInfo& m) { return true; };
-auto g_empty_preproc_func = [](ModelIO*, const InferData&, const ModelInfo&) { return true; };
+auto g_empty_postproc_func = [](InferData*, const ModelIO&, const ModelInfo* m) { return true; };
+auto g_empty_preproc_func = [](ModelIO*, const InferData&, const ModelInfo*) { return true; };
 
 class InferServerRequestTest : public InferServerTestAPI {
  protected:
@@ -643,7 +643,7 @@ TEST_F(InferServerRequestTest, MultiThreadProcessDynamic) {
   delete[] img_nv12;
 }
 
-#ifdef CNIS_HAVE_CNCV
+#ifdef HAVE_CNCV
 TEST_F(InferServerRequestTest, DynamicBatch_CNCV) {
   Session_t session =
       PrepareSession("dynamic batch process", preproc_mlu_, postproc_, 5, BatchStrategy::DYNAMIC, observer_, true);
@@ -701,7 +701,7 @@ TEST_F(InferServerRequestTest, DynamicBatchSyncTimeout_CNCV) {
   EXPECT_EQ(status, Status::TIMEOUT);
   server_->DestroySession(session);
 }
-#endif  // CNIS_HAVE_CNCV
+#endif  // HAVE_CNCV
 
 }  // namespace infer_server
 #endif  // CNIS_WITH_CONTRIB

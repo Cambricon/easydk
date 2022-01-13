@@ -52,7 +52,7 @@ TEST(InferServerCore, TaskNode) {
   input->data[0]->index = 0;
   input->data[1]->ctrl = ctrl.get();
   input->data[1]->index = 1;
-  ASSERT_NO_THROW(task_node(input));
+  ASSERT_NO_THROW(task_node.Execute(input));
 
   auto tasknode_notify_ret = tasknode_notify_flag.get_future().wait_for(std::chrono::seconds(1));
   ASSERT_EQ(std::future_status::ready, tasknode_notify_ret);

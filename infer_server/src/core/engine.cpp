@@ -33,7 +33,7 @@
 
 namespace infer_server {
 
-void TaskNode::operator()(PackagePtr pack) noexcept {
+void TaskNode::Execute(PackagePtr pack) {
   Status s;
 #if defined(CNIS_RECORD_PERF) && (!defined(NDEBUG))
   auto before_lock = Clock::Now();
@@ -69,7 +69,7 @@ void TaskNode::Transmit(PackagePtr&& pack) noexcept {
     // start next processor
     pack->priority = Priority::Next(pack->priority);
     // TODO(dmh): copy TaskNode for each task transmit?
-    tp_->VoidPush(pack->priority, *downnode_, std::forward<PackagePtr>(pack));
+    tp_->VoidPush(pack->priority, &TaskNode::Execute, downnode_, std::forward<PackagePtr>(pack));
   } else {
     std::map<std::string, float> perf{};
 #ifdef CNIS_RECORD_PERF

@@ -47,7 +47,7 @@ class TaskNode {
     return TaskNode(std::move(fork_proc), std::forward<Notifier>(done_notifier), tp_);
   }
 
-  void operator()(PackagePtr pack) noexcept;
+  void Execute(PackagePtr pack);
 
   void Transmit(PackagePtr&& data) noexcept;
 
@@ -76,7 +76,7 @@ class Engine {
 
   void Run(PackagePtr&& package) noexcept {
     ++task_num_;
-    tp_->VoidPush(package->priority, nodes_[0], std::forward<PackagePtr>(package));
+    tp_->VoidPush(package->priority, &TaskNode::Execute, &nodes_[0], std::forward<PackagePtr>(package));
   }
 
   bool IsIdle() noexcept { return task_num_.load() < nodes_.size(); }

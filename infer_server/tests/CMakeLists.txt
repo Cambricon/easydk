@@ -12,7 +12,7 @@ if(imgcodecs_FOUND)
   list(APPEND OpenCV_LIBS ${imgcodecs_libs})
 endif()
 
-list(APPEND LINK_LIBS dl pthread gtest gtest_main ${OpenCV_LIBS} easydk cnis)
+list(APPEND LINK_LIBS dl pthread gtest gtest_main ${OpenCV_LIBS} easydk)
 
 # ---[ api tests
 file(GLOB apitest_srcs ${CMAKE_CURRENT_SOURCE_DIR}/api/*.cpp)
@@ -21,8 +21,8 @@ add_sanitizers(apitest_cnis)
 
 if (CNIS_WITH_CONTRIB)
   target_compile_definitions(apitest_cnis PRIVATE CNIS_WITH_CONTRIB)
-  if (CNIS_WITH_CNCV)
-    target_compile_definitions(apitest_cnis PRIVATE CNIS_HAVE_CNCV)
+  if (CNCV_LIBS)
+    target_compile_definitions(apitest_cnis PRIVATE HAVE_CNCV)
   endif()
 endif()
 

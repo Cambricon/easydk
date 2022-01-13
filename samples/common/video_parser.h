@@ -42,6 +42,9 @@ extern "C" {
 }
 #endif
 
+#define FFMPEG_VERSION_3_1 AV_VERSION_INT(57, 40, 100)
+#define FFMPEG_VERSION_4_2_2 AV_VERSION_INT(58, 29, 100)
+
 namespace detail {
 struct BeginWith {
   explicit BeginWith(const std::string& str) noexcept : s(str) {}
@@ -73,7 +76,11 @@ class FileSaver {
 inline bool IsRtsp(const std::string& url) { return detail::BeginWith(url)("rtsp://"); }
 
 struct VideoInfo {
-  edk::CodecType codec_type;
+  AVCodecID codec_id;
+#if LIBAVFORMAT_VERSION_INT >= FFMPEG_VERSION_3_1
+  AVCodecParameters* codecpar;
+#endif
+  AVCodecContext* codec_ctx;
   std::vector<uint8_t> extra_data;
   int width, height;
   int progressive;
@@ -81,7 +88,8 @@ struct VideoInfo {
 
 class IDemuxEventHandle {
  public:
-  virtual bool OnPacket(const edk::CnPacket& frame) = 0;
+  virtual bool OnParseInfo(const VideoInfo& info) = 0;
+  virtual bool OnPacket(const AVPacket* frame) = 0;
   virtual void OnEos() = 0;
   virtual bool Running() = 0;
 };
@@ -103,7 +111,6 @@ class VideoParser {
   static constexpr uint32_t max_receive_timeout_{3000};
 
   AVFormatContext* p_format_ctx_;
-  AVBitStreamFilterContext* p_bsfc_;
   AVPacket packet_;
   AVDictionary* options_{nullptr};
 

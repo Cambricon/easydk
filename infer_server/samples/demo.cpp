@@ -51,7 +51,7 @@ struct PostprocSSD {
   inline float Clip(float x) { return x < 0 ? 0 : (x > 1 ? 1 : x); }
 
   bool operator()(infer_server::InferData* result, const infer_server::ModelIO& model_output,
-                  const infer_server::ModelInfo& model) {
+                  const infer_server::ModelInfo* model) {
     std::vector<DetectObject> objs;
     const float* data = reinterpret_cast<const float*>(model_output.buffers[0].Data());
     int box_num = data[0];

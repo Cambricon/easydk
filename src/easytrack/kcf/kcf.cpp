@@ -28,7 +28,7 @@
 #include <cstdio>
 #include <cstdlib>
 
-#include "cnrt.h"
+#include "internal/cnrt_wrap.h"
 #include "kcf.h"
 #include "kcf_macro.h"
 
@@ -292,7 +292,7 @@ void kcf_initKernel(KCFHandle* handle, half* frame, half* rois_mlu, __Rect* out_
   CNRT_CHECK(cnrtKernelParamsBufferAddParam(params, &handle->scale, sizeof(half*)));
 
   CNRT_CHECK(cnrtInvokeKernel_V2(reinterpret_cast<void*>(&initKernel), dim, params, c, pQueue));
-  CNRT_CHECK(cnrtSyncQueue(pQueue));
+  CNRT_CHECK(cnrt::QueueSync(pQueue));
   CNRT_CHECK(cnrtDestroyKernelParamsBuffer(params));
 
   int* cpu_buffer = handle->cpu_buffer;
@@ -343,7 +343,7 @@ void kcf_updateKernel(KCFHandle* handle, half* frame, __Rect* out_roi, int roi_n
 
   CNRT_CHECK(cnrtInvokeKernel_V2(reinterpret_cast<void*>(&updateKernel), dim, params, c, pQueue));
   // FIXME(dingminghui): do not sync?
-  CNRT_CHECK(cnrtSyncQueue(pQueue));
+  CNRT_CHECK(cnrt::QueueSync(pQueue));
   CNRT_CHECK(cnrtDestroyKernelParamsBuffer(params));
 
   int* cpu_buffer = handle->cpu_buffer;

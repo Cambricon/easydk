@@ -21,7 +21,6 @@
 #ifndef INFER_SERVER_PREPROCESS_IMPL_H_
 #define INFER_SERVER_PREPROCESS_IMPL_H_
 
-#include <cn_codec_common.h>
 #include <cnrt.h>
 #include <glog/logging.h>
 
@@ -37,13 +36,17 @@
 #include "cnis/infer_server.h"
 #include "cnis/processor.h"
 #include "cnis/shape.h"
+#include "internal/cnrt_wrap.h"
 #include "model/model.h"
 #include "util/threadsafe_queue.h"
 
-#ifdef CNIS_HAVE_CNCV
+#ifdef ENABLE_MLU200_CODEC
+#include "cn_codec_common.h"
+#endif
+#ifdef HAVE_CNCV
 #include "cncv.h"
 #endif
-#ifndef CNIS_USE_MAGICMIND
+#if !defined(CNIS_USE_MAGICMIND) && defined(HAVE_BANG)
 #include "easybang/resize_and_colorcvt.h"
 #endif
 
@@ -60,7 +63,7 @@ class PreprocessBase {
   virtual bool Execute(Package* pack, Buffer* output) = 0;
 };  // class PreprocessBase
 
-#ifndef CNIS_USE_MAGICMIND
+#if !defined(CNIS_USE_MAGICMIND) && defined(HAVE_BANG)
 class ResizeConvert : virtual public PreprocessBase {
  public:
   ResizeConvert(ModelPtr model, int dev_id, PixelFmt dst_fmt, edk::CoreVersion core_version, int core_number,
@@ -179,8 +182,9 @@ bool ResizeConvert::Execute(Package* pack, Buffer* model_input) {
   return true;
 }
 
-#endif  // CNIS_USE_MAGICMIND
+#endif  // !CNIS_USE_MAGICMIND && HAVE_BANG
 
+#ifdef ENABLE_MLU200_CODEC
 class ScalerWorker {
  public:
   static ScalerWorker* GetInstance(int device_id) noexcept {
@@ -441,8 +445,9 @@ bool Scaler::Execute(Package* pack, Buffer* model_input) {
 
   return ret;
 }
+#endif  // ENABLE_MLU200_CODEC
 
-#ifdef CNIS_HAVE_CNCV
+#ifdef HAVE_CNCV
 #define CNRT_SAFE_CALL(func, val)                                 \
   do {                                                            \
     cnrtRet_t ret = (func);                                       \
@@ -867,10 +872,7 @@ bool CncvMeanStd::Execute(Package* pack, Buffer* output) {
     workspace_ = Buffer(workspace_size_, dev_id_);
   }
 
-  // cncv 0.4.0 bug: std will be changed to 1.f / std in cncvMeanStd
-  float mean[4], std[4];
-  memcpy(mean, mean_.data(), mean_.size() * sizeof(float));
-  memcpy(std, std_.data(), std_.size() * sizeof(float));
+  float *mean = mean_.data(), *std = std_.data();
 
   // compute
   CNCV_SAFE_CALL(
@@ -910,10 +912,7 @@ bool CncvMeanStd::Execute(Buffer* input, Buffer* output, size_t batch_size) {
     workspace_ = Buffer(workspace_size_, dev_id_);
   }
 
-  // cncv 0.4.0 bug: std will be changed to 1.f / std in cncvMeanStd
-  float mean[4], std[4];
-  memcpy(mean, mean_.data(), mean_.size() * sizeof(float));
-  memcpy(std, std_.data(), std_.size() * sizeof(float));
+  float *mean = mean_.data(), *std = std_.data();
   // compute
   CNCV_SAFE_CALL(
       cncvMeanStd(handle_, batch_size, src_desc_, reinterpret_cast<void**>(mlu_input_ptr), mean, std, dst_desc_,
@@ -959,7 +958,7 @@ class PreprocessCNCV : public PreprocessBase {
   }
 
   bool Init() override {
-    if (CNRT_RET_SUCCESS != cnrtCreateQueue(&queue_)) {
+    if (CNRT_RET_SUCCESS != cnrt::QueueCreate(&queue_)) {
       LOG(ERROR) << "Create cnrtQueue failed";
       return false;
     }
@@ -985,8 +984,8 @@ class PreprocessCNCV : public PreprocessBase {
       if (ret != CNCV_STATUS_SUCCESS) LOG(ERROR) << "cncvDestroy failed, error code: " << ret;
     }
     if (queue_) {
-      cnrtRet_t ret = cnrtDestroyQueue(queue_);
-      if (ret != CNRT_RET_SUCCESS) LOG(ERROR) << "cnrtDestroyQueue failed, error code: " << ret;
+      cnrtRet_t ret = cnrt::QueueDestroy(queue_);
+      if (ret != CNRT_RET_SUCCESS) LOG(ERROR) << "cnrt::QueueDestroy failed, error code: " << ret;
     }
   }
   bool Execute(Package* pack, Buffer* output) override;
@@ -1031,11 +1030,11 @@ bool PreprocessCNCV::Execute(Package* pack, Buffer* output) {
     LOG(ERROR) << "unsupport preprocess";
     return false;
   }
-  CNRT_SAFE_CALL(cnrtSyncQueue(queue_), false);
+  CNRT_SAFE_CALL(cnrt::QueueSync(queue_), false);
   return ret;
 }
 
-#endif  // CNIS_HAVE_CNCV
+#endif  // HAVE_CNCV
 
 }  // namespace detail
 }  // namespace video

@@ -40,8 +40,11 @@ namespace edk {
  * @brief Enumeration to describe MLU core version
  */
 enum class CoreVersion {
-  MLU220 = 1,  ///< MLU220 platform
-  MLU270 = 2,  ///< MLU270 platform
+  INVALID = 0,  ///< Invalid platform
+  MLU220 = 1,   ///< MLU220 platform
+  MLU270 = 2,   ///< MLU270 platform
+  MLU370 = 3,   ///< MLU370 platform
+  CE3226 = 4,   ///< CE3226 platform
 };
 
 struct MluTaskQueuePrivate;
@@ -198,22 +201,6 @@ class MluContext {
   static bool CheckDeviceId(int id);
 
   /**
-   * @brief Get the MLU channel id
-   * @deprecated
-   *
-   * @return MLU Channel id
-   */
-  attribute_deprecated inline int ChannelId() const { return channel_id_; }
-
-  /**
-   * @brief Set the MLU channel id in range [0, 3]
-   * @deprecated
-   *
-   * @param id MLU channel id
-   */
-  attribute_deprecated inline void SetChannelId(int id) { channel_id_ = id; }
-
-  /**
    * @brief Bind MLU device
    * @note Any process on MLU need to bind MLU device
    */
@@ -228,7 +215,6 @@ class MluContext {
 
  private:
   int dev_id_ = 0;
-  int channel_id_ = -1;
 };  // class MluContext
 
 }  // namespace edk

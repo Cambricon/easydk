@@ -18,6 +18,9 @@ constexpr const char *gmodel_path_270 = "../../tests/data/resnet50_270.cambricon
 using MluTaskQueue_t = std::shared_ptr<edk::MluTaskQueue>;
 
 TEST(Easyinfer, Shape) {
+  edk::MluContext context;
+  auto version = context.GetCoreVersion();
+  if (version == edk::CoreVersion::MLU370) return;
   uint32_t n = 1, c = 3, h = 124, w = 82, stride = 128;
   edk::Shape shape(n, h, w, c, stride);
   EXPECT_EQ(n, shape.n);
@@ -48,6 +51,9 @@ TEST(Easyinfer, Shape) {
 }
 
 TEST(Easyinfer, ShapeEx) {
+  edk::MluContext context;
+  auto version = context.GetCoreVersion();
+  if (version == edk::CoreVersion::MLU370) return;
   edk::ShapeEx::value_type n = 1, c = 3, h = 124, w = 82;
   edk::ShapeEx shape({n, h, w, c});
   EXPECT_EQ(n, shape.N());
@@ -69,6 +75,7 @@ TEST(Easyinfer, ModelLoader) {
   context.SetDeviceId(0);
   context.BindDevice();
   auto version = context.GetCoreVersion();
+  if (version == edk::CoreVersion::MLU370) return;
   std::string model_path = GetExePath();
   if (version == edk::CoreVersion::MLU220) {
     std::cout << "220 model" << std::endl;
@@ -165,6 +172,9 @@ TEST(Easyinfer, ModelLoader) {
 }
 
 TEST(Easyinfer, MluMemoryOp) {
+  edk::MluContext context;
+  auto version = context.GetCoreVersion();
+  if (version == edk::CoreVersion::MLU370) return;
   int times = 100;
   void *mlu_ptr = nullptr, *mlu_dst = nullptr;
   edk::MluMemoryOp mem_op;
@@ -253,6 +263,9 @@ void TestInfer(bool async_launch = false) {
 }
 
 TEST(Easyinfer, Infer) {
+  edk::MluContext context;
+  auto version = context.GetCoreVersion();
+  if (version == edk::CoreVersion::MLU370) return;
   TestInfer();
   TestInfer(true);
 }
