@@ -4,7 +4,7 @@
 
 EasyDK(Cambricon<sup>®</sup> Neuware Easy Development Kit)提供了一套面向 
 MLU(Machine Learning Unit,寒武纪机器学习单元)设备的高级别的接口（C++11标准），
-用于面向MLU平台（MLU270，MLU220）快速开发和部署深度学习应用。
+用于面向MLU平台（MLU270，MLU220，MLU370）快速开发和部署深度学习应用。
 
 EasyDK共包含如下6个模块:
 
@@ -33,7 +33,7 @@ EasyDK还包含推理服务组件：提供了一套面向MLU（Machine Learning 
 
 ### 配置要求 ###
 
-寒武纪EasyDK仅支持在寒武纪MLU270和MLU220平台上运行。
+寒武纪EasyDK仅支持在寒武纪MLU270，MLU220和MLU370平台上运行。
 
 #### **构建和运行环境依赖** ####
 
