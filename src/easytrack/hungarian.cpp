@@ -6,7 +6,7 @@
  * mex-functions for use in MATLAB, found here:
  * http://www.mathworks.com/matlabcentral/fileexchange/6543-functions-for-the-rectangular-assignment-problem
  *
- * Both this code and the orignal code are published under the BSD license.
+ * Both this code and the original code are published under the BSD license.
  * by Cong Ma, 2016
  ************************************************************************/
 
@@ -30,8 +30,9 @@ float HungarianAlgorithm::Solve(const edk::Matrix &DistMatrix,
   float *distMatrixIn = workspace;
   workspace += nRows * nCols;
   // sizeof(assignment) = nRows * sizeof(int)
-  int *assignment = reinterpret_cast<int*>(workspace);
+  int *assignment = reinterpret_cast<int*>(reinterpret_cast<void*>(workspace));
   workspace += nRows;
+
 
   float cost = 0.0;
 
@@ -48,7 +49,7 @@ float HungarianAlgorithm::Solve(const edk::Matrix &DistMatrix,
   }
 
   // call solving function
-  assignmentoptimal(assignment, &cost, distMatrixIn, nRows, nCols, workspace);
+  assignmentoptimal(assignment, &cost, distMatrixIn, nRows, nCols, reinterpret_cast<float*> (workspace));
   Assignment->clear();
   Assignment->reserve(nRows);
   for (unsigned int r = 0; r < nRows; r++) {
@@ -76,19 +77,15 @@ void HungarianAlgorithm::assignmentoptimal(int *assignment, float *cost, float *
   /* generate working copy of distance Matrix */
   /* check if all matrix elements are positive */
   nOfElements = nOfRows * nOfColumns;
-  // sizeof(distMatrix) = nOfElements * sizeof(float)
   distMatrix = reinterpret_cast<float*>(workspace);
   distMatrixEnd = distMatrix + nOfElements;
 
-  // for (row = 0; row < nOfElements; row++) {
-  //   if (distMatrixIn[row] < 0) std::cerr << "All matrix elements have to be non-negative." << std::endl;
-  // }
   mempcpy(distMatrix, distMatrixIn, nOfElements * sizeof(float));
 
   /* memory allocation */
   memset(distMatrixEnd, 0, nOfElements * 3 + nOfColumns + nOfRows);
   // sizeof(starMatrix) = nOfElements * sizeof(bool)
-  starMatrix = reinterpret_cast<bool*>(distMatrixEnd);
+  starMatrix = reinterpret_cast<bool *>(reinterpret_cast<void *>(distMatrixEnd));
   // sizeof(primeMatrix) = nOfElements * sizeof(bool)
   primeMatrix = starMatrix + nOfElements;
   // sizeof(newStarMatrix) = nOfElements * sizeof(bool)

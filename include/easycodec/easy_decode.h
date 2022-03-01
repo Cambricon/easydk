@@ -94,7 +94,7 @@ class EasyDecode {
   enum class Status {
     RUNNING,  ///< Running, FeedData and Callback are active.
     PAUSED,   ///< Paused, FeedData and Callback are blocked.
-    STOP,     ///< Stopped, decoder was destoried.
+    STOP,     ///< Stopped, decoder was destroyed.
     EOS,      ///< Received eos.
     ERROR     ///< Error occurred, need abort
   };          // Enum Status

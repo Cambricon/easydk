@@ -53,7 +53,7 @@ struct KcfTrackObject {
   int kcf_out_idx;
 };
 
-class KcfTrackPrivate {
+class KcfTrackPrivate : public NonCopyable {
  public:
   ~KcfTrackPrivate();
 
@@ -213,7 +213,7 @@ void KcfTrackPrivate::KcfUpdate(void *mlu_gray, uint32_t frame_index, uint32_t f
     obj.score = track_obj.confidence;
     obj.bbox = Rect2BoundingBox(track_obj.rect);
     tracks->push_back(obj);
-    printf("[%lu] {%d %d %0.2f (%0.2f,%0.2f,%0.2f,%0.2f)}\n", i, obj.label, obj.track_id, obj.score, obj.bbox.x,
+    printf("[%zu] {%d %d %0.2f (%0.2f,%0.2f,%0.2f,%0.2f)}\n", i, obj.label, obj.track_id, obj.score, obj.bbox.x,
            obj.bbox.y, obj.bbox.width, obj.bbox.height);
   }
 }

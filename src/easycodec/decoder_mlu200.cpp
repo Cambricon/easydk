@@ -163,7 +163,7 @@ Mlu200Decoder::Mlu200Decoder(const EasyDecode::Attr& attr) : Decoder(attr) {
 
 Mlu200Decoder::~Mlu200Decoder() {
   if (status_.load() == EasyDecode::Status::ERROR && handle_) {
-    AbortDecoder();
+    Mlu200Decoder::AbortDecoder();
   }
   /**
    * Decode destroied. status set to STOP.
@@ -179,7 +179,7 @@ Mlu200Decoder::~Mlu200Decoder() {
   try {
     if (!got_eos_.load() && !send_eos_.load()) {
       LOGI(DECODE) << "Send EOS in destruct";
-      FeedEos();
+      Mlu200Decoder::FeedEos();
     }
 
     if (!got_eos_.load()) {
@@ -237,7 +237,7 @@ bool Mlu200Decoder::FeedData(const CnPacket& packet) {
 
 bool Mlu200Decoder::FeedEos() {
   if (status_.load() == EasyDecode::Status::ERROR) {
-    LOGW(DECODE) << "Error had occured, EOS won't be sent";
+    LOGW(DECODE) << "Error had occurred, EOS won't be sent";
     return false;
   }
   if (send_eos_.load()) {

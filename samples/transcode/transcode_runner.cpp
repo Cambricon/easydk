@@ -118,8 +118,12 @@ void TranscodeRunner::PacketCallback(const edk::CnPacket &packet) {
       file_.close();
     }
   }
-  frame_count_++;
-  std::cout << "encode frame count: " << frame_count_<< ", pts: " << packet.pts << std::endl;
+  if (packet.slice_type == edk::BitStreamSliceType::FRAME || packet.slice_type == edk::BitStreamSliceType::KEY_FRAME) {
+    frame_count_++;
+    std::cout << "encode frame count: " << frame_count_<< ", pts: " << packet.pts << std::endl;
+  } else {
+    std::cout << "encode head sps/pps" << std::endl;
+  }
   encode_->ReleaseBuffer(packet.buf_id);
 }
 

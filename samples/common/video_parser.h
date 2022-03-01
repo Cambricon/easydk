@@ -76,14 +76,15 @@ class FileSaver {
 inline bool IsRtsp(const std::string& url) { return detail::BeginWith(url)("rtsp://"); }
 
 struct VideoInfo {
-  AVCodecID codec_id;
+  AVCodecID codec_id = AV_CODEC_ID_NONE;
 #if LIBAVFORMAT_VERSION_INT >= FFMPEG_VERSION_3_1
-  AVCodecParameters* codecpar;
+  AVCodecParameters* codecpar = nullptr;
 #endif
-  AVCodecContext* codec_ctx;
-  std::vector<uint8_t> extra_data;
-  int width, height;
-  int progressive;
+  AVCodecContext* codec_ctx = nullptr;
+  std::vector<uint8_t> extra_data{};
+  int width = 0;
+  int height = 0;
+  int progressive = 0;
 };
 
 class IDemuxEventHandle {
@@ -110,7 +111,7 @@ class VideoParser {
  private:
   static constexpr uint32_t max_receive_timeout_{3000};
 
-  AVFormatContext* p_format_ctx_;
+  AVFormatContext* p_format_ctx_ = nullptr;
   AVPacket packet_;
   AVDictionary* options_{nullptr};
 
@@ -120,7 +121,7 @@ class VideoParser {
   std::chrono::time_point<std::chrono::steady_clock> last_receive_frame_time_{};
 
   uint64_t frame_index_{0};
-  int32_t video_index_;
+  int32_t video_index_{0};
   std::atomic<bool> have_video_source_{false};
   bool first_frame_{true};
   bool is_rtsp_{false};

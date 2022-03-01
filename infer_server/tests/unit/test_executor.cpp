@@ -39,7 +39,7 @@ using Executor_t = Executor*;
 class InferServerPrivate;
 
 #ifdef CNIS_USE_MAGICMIND
-static const char* model_url = "http://video.cambricon.com/models/MLU370/resnet50_nhwc_tfu_0.5_int8_fp16.model";
+static const char* model_url = "http://video.cambricon.com/models/MLU370/resnet50_nhwc_tfu_0.8.2_uint8_int8_fp16.model";
 #else
 static const char* model_url = "http://video.cambricon.com/models/MLU270/Primary_Detector/ssd/resnet34_ssd.cambricon";
 #endif
@@ -69,25 +69,31 @@ static SessionDesc ReturnSessionDesc(const std::string& name, std::shared_ptr<Pr
 
 TEST(InferServerCoreDeathTest, InitExecutorFail) {
   PriorityThreadPool tp(nullptr);
-  SessionDesc desc =
-      ReturnSessionDesc("test executor", std::make_shared<PreprocessorHost>(), 5, BatchStrategy::DYNAMIC, 1);
-
-  // fail init, threadpool == nullptr
-  ASSERT_DEATH(new Executor(desc, nullptr, 0), "");
-  // fail init, device_id < 0
-  ASSERT_DEATH(new Executor(desc, &tp, -1), "");
-  // fail init, engine_num == 0
-  ASSERT_DEATH(new Executor(ReturnSessionDesc("test executor", std::make_shared<PreprocessorHost>(), 5,
-                                              BatchStrategy::DYNAMIC, 0),
-                            &tp, 0),
+  pid_t pid = fork();
+  if (pid == 0) {
+    SessionDesc desc =
+        ReturnSessionDesc("test executor", std::make_shared<PreprocessorHost>(), 5, BatchStrategy::DYNAMIC, 1);
+    // fail init, threadpool == nullptr
+    ASSERT_DEATH(new Executor(desc, nullptr, 0), "");
+    // fail init, device_id < 0
+    ASSERT_DEATH(new Executor(desc, &tp, -1), "");
+    // fail init, engine_num == 0
+    ASSERT_DEATH(new Executor(ReturnSessionDesc("test executor", std::make_shared<PreprocessorHost>(), 5,
+                                                BatchStrategy::DYNAMIC, 0),
+                              &tp, 0),
+                "");
+    // fail init, preproc == nullptr
+    ASSERT_DEATH(new Executor(ReturnSessionDesc("test executor", nullptr, 5, BatchStrategy::DYNAMIC, 1), &tp, 0), "");
+    _exit(0);
+  } else {
+    // fail init, batchstrategy unsupported
+    ASSERT_DEATH(new Executor(ReturnSessionDesc("test executor", std::make_shared<PreprocessorHost>(), 5,
+                                                BatchStrategy::SEQUENCE, 1),
+                              &tp, 0),
                "");
-  // fail init, preproc == nullptr
-  ASSERT_DEATH(new Executor(ReturnSessionDesc("test executor", nullptr, 5, BatchStrategy::DYNAMIC, 1), &tp, 0), "");
-  // fail init, batchstrategy unsupported
-  ASSERT_DEATH(new Executor(ReturnSessionDesc("test executor", std::make_shared<PreprocessorHost>(), 5,
-                                              BatchStrategy::SEQUENCE, 1),
-                            &tp, 0),
-               "");
+    int status;
+    wait(&status);
+  }
   InferServer::ClearModelCache();
 }
 

@@ -41,10 +41,9 @@
   } while (0)
 #endif
 
-PreprocSSD::PreprocSSD(infer_server::ModelPtr model, int dev_id, edk::PixelFmt dst_fmt) {
+PreprocSSD::PreprocSSD(infer_server::ModelPtr model, int dev_id, edk::PixelFmt dst_fmt)
+    : dev_id_(dev_id), model_(model) {
 #ifdef HAVE_CNCV
-  model_ = model;
-  dev_id_ = dev_id;
   size_t batch_size = model->BatchSize();
   dst_descs_.resize(batch_size);
   src_descs_.resize(batch_size);

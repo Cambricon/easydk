@@ -115,7 +115,6 @@ static bool cvt_bgr_to_yuv420sp(const cv::Mat &bgr_image, uint32_t alignment, ed
 }
 
 void eos_callback() {
-  if (!g_encoder) return;
   try {
     edk::MluContext context;
     context.SetDeviceId(0);
@@ -142,7 +141,6 @@ void eos_callback() {
 }
 
 void packet_callback(const edk::CnPacket &packet) {
-  if (!g_encoder) return;
   char *output_file = NULL;
   char str[256] = {0};
   size_t written;
@@ -364,6 +362,7 @@ bool test_EasyEncode(const char *input_file, uint32_t w, uint32_t h, PixelFmt pi
     encoder = edk::EasyEncode::New(attr);
     if (!encoder) THROW_EXCEPTION(edk::Exception::INTERNAL, "Create EasyEncode failed");
     g_encoder = encoder.get();
+
     if (codec_type == CodecType::H264 || codec_type == CodecType::H265 || codec_type == CodecType::JPEG) {
       // encode multi frames for video encoder
       for (int i = 0; i < VIDEO_ENCODE_FRAME_COUNT; i++) {

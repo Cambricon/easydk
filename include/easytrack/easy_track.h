@@ -224,7 +224,7 @@ class KcfTrack : public EasyTrack {
  * @brief Insert DetectObject into the ostream
  *
  * @param os output stream to insert data to
- * @param obj reference to an DetectObjec to insert
+ * @param obj reference to an DetectObject to insert
  *
  * @return reference to output stream
  */

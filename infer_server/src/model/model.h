@@ -54,7 +54,7 @@ class ModelRunner {
   ~ModelRunner();
 
 #ifdef CNIS_USE_MAGICMIND
-  bool Init(MModel* model, mm_unique_ptr<MContext> ctx) noexcept;
+  bool Init(MModel* model, mm_unique_ptr<MContext> ctx, const std::vector<Shape>& in_shape = {}) noexcept;
   std::vector<Shape> InferOutputShape(const std::vector<Shape>& input) noexcept;
   bool CanInferOutputShape() noexcept { return !outputs_.empty(); }
 #else
@@ -66,11 +66,27 @@ class ModelRunner {
 
  private:
 #ifdef CNIS_USE_MAGICMIND
+  bool FixedShape(const std::vector<Shape>& shapes) noexcept {
+    for (auto &shape : shapes) {
+      auto vectorized_shape = shape.Vectorize();
+      if (!std::all_of(vectorized_shape.begin(), vectorized_shape.end(), [](int64_t v) { return v > 0; })) {
+        return false;
+      }
+    }
+    return !shapes.empty();
+  }
+#endif
+
+ private:
+#ifdef CNIS_USE_MAGICMIND
   mm_unique_ptr<MContext> ctx_{nullptr};
   std::vector<MTensor*> inputs_;
   std::vector<MTensor*> outputs_;
   std::vector<Shape> i_shapes_;
   std::vector<Shape> o_shapes_;
+  std::vector<DataLayout> i_layouts_;
+  std::vector<DataLayout> o_layouts_;
+  bool fixed_input_shape_{true};
 #else
   cnrtRuntimeContext_t ctx_{nullptr};
   void** params_{nullptr};
@@ -88,8 +104,8 @@ class Model : public ModelInfo {
  public:
   Model() = default;
 #ifdef CNIS_USE_MAGICMIND
-  bool Init(void* mem_ptr, size_t size) noexcept;
-  bool Init(const std::string& model_path) noexcept;
+  bool Init(void* mem_ptr, size_t size, const std::vector<Shape>& i_shape = {}) noexcept;
+  bool Init(const std::string& model_path, const std::vector<Shape>& i_shape = {}) noexcept;
 #else
   bool Init(const std::string& model_path, const std::string& func_name) noexcept;
   bool Init(void* mem_ptr, const std::string& func_name) noexcept;
@@ -118,18 +134,10 @@ class Model : public ModelInfo {
   uint32_t OutputNum() const noexcept override { return o_num_; }
   uint32_t BatchSize() const noexcept override { return model_batch_size_; }
 
-  bool FixedOutputShape() noexcept {
-    for (auto &shape : output_shapes_) {
-      auto vectorized_shape = shape.Vectorize();
-      if (!std::all_of(vectorized_shape.begin(), vectorized_shape.end(), [](int64_t v) { return v > 0; })) {
-        return false;
-      }
-    }
-    return !output_shapes_.empty();
-  }
+  bool FixedOutputShape() noexcept { return FixedShape(output_shapes_); }
 
 #ifdef CNIS_USE_MAGICMIND
-  std::shared_ptr<ModelRunner> GetRunner(int device_id) noexcept {
+  MEngine* GetEngine(int device_id) noexcept {
     MEngine* engine{nullptr};
     std::unique_lock<std::mutex> lk(engine_map_mutex_);
     auto iter = engine_map_.find(device_id);
@@ -143,9 +151,13 @@ class Model : public ModelInfo {
     } else {
       engine = iter->second.get();
     }
+    return engine;
+  }
+  std::shared_ptr<ModelRunner> GetRunner(int device_id) noexcept {
+    MEngine* engine = GetEngine(device_id);
     auto runner = std::make_shared<ModelRunner>(device_id);
     MContext* ctx = engine->CreateIContext();
-    if (!ctx || !runner->Init(model_.get(), mm_unique_ptr<MContext>(ctx))) return nullptr;
+    if (!ctx || !runner->Init(model_.get(), mm_unique_ptr<MContext>(ctx), input_shapes_)) return nullptr;
     return runner;
   }
   MModel* GetModel() noexcept { return model_.get(); }
@@ -178,8 +190,19 @@ class Model : public ModelInfo {
  private:
 #ifndef CNIS_USE_MAGICMIND
   bool LoadFunction(const std::string& func_name) noexcept;
-#endif
   bool GetModelInfo() noexcept;
+#else
+  bool GetModelInfo(const std::vector<Shape>& in_shape) noexcept;
+#endif
+  bool FixedShape(const std::vector<Shape>& shapes) noexcept {
+    for (auto &shape : shapes) {
+      auto vectorized_shape = shape.Vectorize();
+      if (!std::all_of(vectorized_shape.begin(), vectorized_shape.end(), [](int64_t v) { return v > 0; })) {
+        return false;
+      }
+    }
+    return !shapes.empty();
+  }
   Model(const Model&) = delete;
   Model& operator=(const Model&) = delete;
 
@@ -212,8 +235,8 @@ class ModelManager {
   void SetModelDir(const std::string& model_dir) noexcept { model_dir_ = model_dir; }
 
 #ifdef CNIS_USE_MAGICMIND
-  ModelPtr Load(const std::string& model_file) noexcept;
-  ModelPtr Load(void* mem_cache, size_t size) noexcept;
+  ModelPtr Load(const std::string& model_file, const std::vector<Shape>& in_shape = {}) noexcept;
+  ModelPtr Load(void* mem_cache, size_t size, const std::vector<Shape>& in_shape = {}) noexcept;
 #else
   ModelPtr Load(const std::string& model_path, const std::string& func_name) noexcept;
   ModelPtr Load(void* mem_cache, const std::string& func_name) noexcept;

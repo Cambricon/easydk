@@ -178,7 +178,7 @@ enum class EncodeTune {
 };
 
 /*
- * @brief cncodec_v3 GOP type, see developer guide
+ * @brief cncodec_v3 GOP type, see developer guide.
  */
 enum class GopTypeMlu300 {
   BFRAME_REF_DISABLED,

@@ -190,15 +190,16 @@ class Executor {
   PriorityThreadPool* GetThreadPool() const noexcept { return tp_; }
   /* ----------------- Observer END ------------------- */
 
+  void ReleaseCount(uint32_t data_num) {
+    processing_unit_.fetch_sub(data_num);
+    processing_req_.fetch_sub(1);
+    limit_cond_.notify_one();
+  }
+
   bool Upload(PackagePtr&& pack, RequestControl* ctrl) noexcept {
     uint32_t data_num = pack->data.size();
     processing_unit_.fetch_add(data_num);
     processing_req_.fetch_add(1);
-    ctrl->SetResponseDoneCallback([this, data_num]() {
-      processing_unit_.fetch_sub(data_num);
-      processing_req_.fetch_sub(1);
-      limit_cond_.notify_one();
-    });
     return cache_->Push(std::forward<PackagePtr>(pack));
   }
 

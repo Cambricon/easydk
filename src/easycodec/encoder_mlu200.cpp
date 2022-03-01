@@ -454,7 +454,7 @@ Mlu200Encoder::~Mlu200Encoder() {
       if (!send_eos_ && handle_) {
         eos_lk.unlock();
         LOGI(ENCODE) << "Send EOS in destruct";
-        FeedEos();
+        Mlu200Encoder::FeedEos();
       } else {
         if (!handle_) got_eos_ = true;
       }
@@ -655,7 +655,6 @@ bool Mlu200Encoder::RequestFrame(CnFrame* frame) {
       return false;
     }
   }
-  memset(frame, 0, sizeof(CnFrame));
   frame->width = cn_frame->width;
   frame->height = cn_frame->height;
   frame->ptrs[0] = reinterpret_cast<uint8_t *>(cn_frame->plane[0].addr);

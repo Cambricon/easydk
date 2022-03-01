@@ -410,7 +410,7 @@ void LogFile::WriteFileLoop() {
       fwrite(msg.data(), 1, msg.size(), file_);
       if (EDK_UNLIKELY(errno == ENOSPC)) {  // disk full
         perror("Disk is full, log stop output to the log file");
-        fprintf(stderr, "Disk is full, log stop output to the log file until %ld seconds!\n", sleep_time_);
+        fprintf(stderr, "Disk is full, log stop output to the log file until %zu seconds!\n", sleep_time_);
         stop_writing_.store(true);  // disk full, stop writing to disk, until wake up
         std::unique_lock<std::mutex> lk(sleep_mutex_);
         wake_up_cond_.wait_for(lk, std::chrono::seconds(sleep_time_), [this]() { return thread_exit_; });

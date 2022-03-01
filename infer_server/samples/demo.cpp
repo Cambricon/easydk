@@ -28,53 +28,15 @@
 #include "cnis/contrib/video_helper.h"
 #include "cnis/infer_server.h"
 #include "cnis/processor.h"
+#include "postproc.h"
 
 #ifdef CNIS_USE_MAGICMIND
 constexpr const char* g_model_path =
-    "http://video.cambricon.com/models/MLU370/yolov3_nhwc_tfu_0.5_int8_fp16.model";
+    "http://video.cambricon.com/models/MLU370/yolov3_nhwc_tfu_0.8.2_uint8_int8_fp16.model";
 #else
 constexpr const char* g_model_path =
     "http://video.cambricon.com/models/MLU270/Primary_Detector/ssd/resnet34_ssd.cambricon";
 #endif
-
-struct DetectObject {
-  int label;
-  float score;
-  infer_server::video::BoundingBox bbox;
-};
-
-struct PostprocSSD {
-  float threshold;
-
-  explicit PostprocSSD(float _threshold) : threshold(_threshold) {}
-
-  inline float Clip(float x) { return x < 0 ? 0 : (x > 1 ? 1 : x); }
-
-  bool operator()(infer_server::InferData* result, const infer_server::ModelIO& model_output,
-                  const infer_server::ModelInfo* model) {
-    std::vector<DetectObject> objs;
-    const float* data = reinterpret_cast<const float*>(model_output.buffers[0].Data());
-    int box_num = data[0];
-    data += 64;
-
-    for (int bi = 0; bi < box_num; ++bi) {
-      DetectObject obj;
-      if (data[1] == 0) continue;
-      obj.label = data[1] - 1;
-      obj.score = data[2];
-      if (threshold > 0 && obj.score < threshold) continue;
-      obj.bbox.x = Clip(data[3]);
-      obj.bbox.y = Clip(data[4]);
-      obj.bbox.w = Clip(data[5]) - obj.bbox.x;
-      obj.bbox.h = Clip(data[6]) - obj.bbox.y;
-      objs.emplace_back(std::move(obj));
-      data += 7;
-    }
-
-    result->Set(std::move(objs));
-    return true;
-  }
-};
 
 class PrintResult : public infer_server::Observer {
   void Response(infer_server::Status status, infer_server::PackagePtr out, infer_server::any user_data) noexcept {
@@ -100,6 +62,7 @@ class PrintResult : public infer_server::Observer {
     }
   }
 };
+
 
 int main(int argc, char** argv) {
   if (argc != 2) {
@@ -128,29 +91,42 @@ int main(int argc, char** argv) {
   #ifdef CNIS_USE_MAGICMIND
   // load model
   desc.model = infer_server::InferServer::LoadModel(g_model_path);
+  desc.host_input_layout = {infer_server::DataType::UINT8, infer_server::DimOrder::NHWC};
   desc.preproc->SetParams("process_function",
                           infer_server::video::OpencvPreproc::GetFunction(infer_server::video::PixelFmt::RGB24,
-                                                                          {}, {}, true, true));
+                                                                          {}, {}, false, true));
+  desc.postproc->SetParams("process_function", infer_server::Postprocessor::ProcessFunction(PostprocYolov3MM(0.5)));
   #else
   desc.model = infer_server::InferServer::LoadModel(g_model_path);
   desc.preproc->SetParams("process_function",
                           infer_server::video::OpencvPreproc::GetFunction(infer_server::video::PixelFmt::RGBA));
-  #endif
   desc.postproc->SetParams("process_function", infer_server::Postprocessor::ProcessFunction(PostprocSSD(0.5)));
+  #endif
 
   infer_server::Session_t session = server.CreateSession(desc, std::make_shared<PrintResult>());
 
   cv::Mat frame;
   constexpr const char* tag = "opencv_stream0";
   int frame_index = 0;
+#ifdef CNIS_USE_MAGICMIND
+  int frame_width = 0;
+  int frame_height = 0;
+#endif
   // read frame to infer
   while (source.read(frame)) {
+#ifdef CNIS_USE_MAGICMIND
+    frame_width = static_cast<int>(frame.cols);
+    frame_height = static_cast<int>(frame.rows);
+#endif
     infer_server::video::OpencvFrame cv_frame;
     cv_frame.img = std::move(frame);
     cv_frame.fmt = infer_server::video::PixelFmt::BGR24;
     infer_server::PackagePtr input = std::make_shared<infer_server::Package>();
     input->data.emplace_back(new infer_server::InferData);
     input->data[0]->Set(std::move(cv_frame));
+#ifdef CNIS_USE_MAGICMIND
+    input->data[0]->SetUserData(FrameSize{frame_width, frame_height});
+#endif
     input->tag = tag;
     if (!server.Request(session, input, frame_index++)) {
       std::cerr << "request failed" << std::endl;

@@ -64,7 +64,11 @@ DetectionRunner::DetectionRunner(const VideoDecoder::DecoderType& decode_type, i
   desc.name = "detection session";
 
   // load offline model
+#ifdef CNIS_USE_MAGICMIND
+  desc.model = infer_server::InferServer::LoadModel(model_path);
+#else
   desc.model = infer_server::InferServer::LoadModel(model_path, func_name);
+#endif
   // set preproc and postproc
   desc.preproc = infer_server::video::PreprocessorMLU::Create();
   desc.postproc = infer_server::Postprocessor::Create();
@@ -74,7 +78,6 @@ DetectionRunner::DetectionRunner(const VideoDecoder::DecoderType& decode_type, i
     desc.preproc->SetParams("preprocess_type", infer_server::video::PreprocessType::CNCV_PREPROC,
                             "src_format", infer_server::video::PixelFmt::NV12,
                             "dst_format", infer_server::video::PixelFmt::RGB24,
-                            "normalize", true,
                             "keep_aspect_ratio", true);
     desc.postproc->SetParams("process_function", infer_server::Postprocessor::ProcessFunction(PostprocYolov3MM(0.5)));
   } else {

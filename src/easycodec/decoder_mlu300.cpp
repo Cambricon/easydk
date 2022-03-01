@@ -130,11 +130,11 @@ Mlu300Decoder::Mlu300Decoder(const EasyDecode::Attr& attr) : Decoder(attr) {
 
 Mlu300Decoder::~Mlu300Decoder() {
   if (status_.load() == EasyDecode::Status::ERROR && handle_) {
-    AbortDecoder();
+    Mlu300Decoder::AbortDecoder();
     return;
   }
   /**
-   * Decode destoried. status set to STOP.
+   * Decode destroyed. status set to STOP.
    */
   status_.store(EasyDecode::Status::STOP);
   /**
@@ -147,7 +147,7 @@ Mlu300Decoder::~Mlu300Decoder() {
   try {
     if (!got_eos_.load() && !send_eos_.load()) {
       LOGI(DECODE) << "Send EOS in destruct";
-      FeedEos();
+      Mlu300Decoder::FeedEos();
     }
 
     if (!got_eos_.load()) {

@@ -1,50 +1,72 @@
+"""Async inference demo
+
+This module demonstrates how to run asynchronous inference by using cnis python api.
+
+First of all, we need an InferServer object. And secondly create an asynchronous Session with cncv preprocess,
+inference (yolov3 network) and postprocess (written in c++ code).
+Each frame is sent to InferServer by the request API, and after it is processed, the MyObserver::response_func API
+will be called.
+After all frames are sent to InferServer, call the wait_task_done API to wait all done.
+The wait_task_done API will block until all frames are processed.
+At last do not forget to destroy Session.
+
+To run this script, on MLU270:
+    python cnis_async_demo.py -p mlu270
+, on MLU220:
+    python cnis_async_demo.py -p mlu220
+
+"""
+
 import os, sys, time
 import argparse
-import numpy as np
 import cv2
 
-sys.path.append(os.path.split(os.path.realpath(__file__))[0] + "/../lib")
-from cnis import *
-
 cur_file_dir = os.path.split(os.path.realpath(__file__))[0]
+sys.path.append(cur_file_dir + "/../lib")
+import cnis
+
 tag = "stream_0"
 yolov3_mlu270_model_dir = "http://video.cambricon.com/models/MLU270/yolov3_b4c4_argb_mlu270.cambricon"
 yolov3_mlu220_model_dir = "http://video.cambricon.com/models/MLU220/yolov3_b4c4_argb_mlu220.cambricon"
 
 
 def cncv_preproc(session_desc):
-  session_desc.preproc = VideoPreprocessorMLU()
-  session_desc.set_preproc_params(VideoPixelFmt.ARGB, VideoPreprocessType.CNCV_PREPROC, keep_aspect_ratio=True)
+  """Set CNCV preproc to session description"""
+  session_desc.preproc = cnis.VideoPreprocessorMLU()
+  session_desc.set_preproc_params(cnis.VideoPixelFmt.ARGB, cnis.VideoPreprocessType.CNCV_PREPROC,
+                                  keep_aspect_ratio=True)
 
 
 def cpp_postproc(session_desc):
-  session_desc.postproc = Postprocessor()
-  session_desc.set_postproc_func(PostprocYolov3(0.5).execute)
+  """Set Yolov3 postproc to session description"""
+  session_desc.postproc = cnis.Postprocessor()
+  session_desc.set_postproc_func(cnis.PostprocYolov3(0.5).execute)
 
 
 def prepare_mlu_data():
+  """Read image from file. Convert OpenCV mat to VideoFrame (convert color and copy data from cpu to mlu)"""
   # Prepare MLU data
-  img = cv2.imread(cur_file_dir + "/../test/data/test.jpg")
-  w = img.shape[1]
-  h = img.shape[0]
+  cv_image = cv2.imread(cur_file_dir + "/../test/data/test.jpg")
+  img_width = cv_image.shape[1]
+  img_height = cv_image.shape[0]
   # Create a video_frame
-  video_frame = VideoFrame()
+  video_frame = cnis.VideoFrame()
   video_frame.plane_num = 2
-  video_frame.format = VideoPixelFmt.NV12
-  video_frame.width = w
-  video_frame.height = h
+  video_frame.format = cnis.VideoPixelFmt.NV12
+  video_frame.width = img_width
+  video_frame.height = img_height
   video_frame.stride = [video_frame.width, video_frame.width]
 
   # Convert image from BGR24 TO YUV NV12
-  i420_img = cv2.cvtColor(img, cv2.COLOR_BGR2YUV_I420)
-  i420_img = i420_img.reshape(int(w * h * 3 / 2))
-  img_y = i420_img[:w*h]
-  img_uv = i420_img[w*h:]
-  img_uv.reshape((int(w * h / 4), 2), order="F").reshape(int(w * h /2))
+  i420_img = cv2.cvtColor(cv_image, cv2.COLOR_BGR2YUV_I420)
+  i420_img = i420_img.reshape(int(img_width * img_height * 3 / 2))
+  img_y = i420_img[:img_width*img_height]
+  img_uv = i420_img[img_width*img_height:]
+  img_uv.reshape((int(img_width * img_height / 4), 2), order="F").reshape(int(img_width * img_height /2))
 
   # Create mlu buffer
-  mlu_buffer_y = Buffer(w * h, 0)
-  mlu_buffer_uv = Buffer(int(w * h / 2), 0)
+  mlu_buffer_y = cnis.Buffer(img_width * img_height, 0)
+  mlu_buffer_uv = cnis.Buffer(int(img_width * img_height / 2), 0)
   # Copy to mlu buffer
   mlu_buffer_y.copy_from(img_y)
   mlu_buffer_uv.copy_from(img_uv)
@@ -53,14 +75,15 @@ def prepare_mlu_data():
   video_frame.set_plane(1, mlu_buffer_uv)
 
   # Create package and set video_frame to it
-  input_pak = Package(1, tag)
+  input_pak = cnis.Package(1, tag)
   input_pak.data[0].set(video_frame)
   # Set user data to input data, as PostprocYolov3 need to known the image width and height
-  input_pak.data[0].set_user_data({"image_width": w, "image_height": h})
+  input_pak.data[0].set_user_data({"image_width": img_width, "image_height": img_height})
   return input_pak
 
 
 def print_result(output_pak):
+  """Print object detection results"""
   for data in output_pak.data:
     objs = data.get_dict()["objs"]
     if len(objs) == 0:
@@ -71,25 +94,36 @@ def print_result(output_pak):
           obj.label, obj.score, obj.bbox.x, obj.bbox.y, obj.bbox.w, obj.bbox.h))
 
 
-class MyObserver(Observer):
-  def __init(self):
+class MyObserver(cnis.Observer):
+  """To receive results from InferServer, we define a class MyObserver which inherits from cnis.Observer.
+  After a request is sent to InferServer and is processed by InferServer, the response_func API will be called with
+  status, results and user data.
+  """
+  def __init__(self):
     super().__init__()
   def response_func(self, status, data, user_data):
-      if status == Status.SUCCESS:
+      if status == cnis.Status.SUCCESS:
          print_result(data)
       else:
         print("MyObserver.response status: ", status)
 
 
 def async_demo(platform):
+  """Asynchronous demo API
+  1. Create InferServer and Session
+  2. Sent frames to InferServer
+  3. Print results.
+  4. Wait all task finished
+  5. Destroy session
+  """
   # Create InferServer
-  infer_server = InferServer(dev_id=0)
+  infer_server = cnis.InferServer(dev_id=0)
 
   # Create session. Sync API
-  session_desc = SessionDesc()
+  session_desc = cnis.SessionDesc()
   session_desc.name = "test_session_async"
   session_desc.engine_num = 1
-  session_desc.strategy = BatchStrategy.DYNAMIC
+  session_desc.strategy = cnis.BatchStrategy.DYNAMIC
 
   # Load model
   if platform in ["mlu220", "220", "MLU220"]:
@@ -107,7 +141,7 @@ def async_demo(platform):
   # Create session
   session = infer_server.create_session(session_desc, obs)
 
-  for i in range(4):
+  for _ in range(4):
     input_pak = prepare_mlu_data()
     user_data = {"user_data" : "this is user data"}
 
@@ -123,6 +157,7 @@ def async_demo(platform):
 
 
 def main():
+  """Parser arguments and run the asynchronous inference demo. Set argument -p to choose platform"""
   parser = argparse.ArgumentParser()
   parser.add_argument("-p", dest="platform", required=False, default = "mlu270",
                       help="The platform, choose from mlu270 or mlu220")

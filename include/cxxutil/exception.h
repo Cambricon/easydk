@@ -38,7 +38,7 @@ namespace edk {
 class Exception : public std::exception {
  public:
   /**
-   * @brief Error code enumaration
+   * @brief Error code enumeration
    */
   enum Code {
     INTERNAL = 0,     ///< internal error

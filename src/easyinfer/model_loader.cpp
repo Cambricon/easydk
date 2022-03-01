@@ -140,9 +140,9 @@ class ModelLoaderPrivate {
 
   std::vector<int64_t> i_data_sizes_, o_data_sizes_;
   std::vector<DataLayout> i_mlu_layouts_, o_mlu_layouts_;
-  uint32_t o_num_;
-  uint32_t i_num_;
-  int model_parallelism_;
+  uint32_t o_num_ = 0;
+  uint32_t i_num_ = 0;
+  int model_parallelism_ = 0;
   std::vector<DataLayout> i_cpu_layouts_, o_cpu_layouts_;
   std::vector<Shape> input_shapes_ = {}, output_shapes_ = {};
   std::vector<ShapeEx> input_shapexs_ = {}, output_shapexs_ = {};

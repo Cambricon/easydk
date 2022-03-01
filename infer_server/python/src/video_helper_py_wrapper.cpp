@@ -235,10 +235,19 @@ void VideoHelperWrapper(py::module& m) {  // NOLINT
              return infer_server->GetModel(reinterpret_cast<Session_t>(session.get_pointer()));
            })
       .def_static("set_model_dir", &video::VideoInferServer::SetModelDir)
+#ifdef CNIS_USE_MAGICMIND
+      .def("load_model",
+           [](std::shared_ptr<video::VideoInferServer> infer_server, const std::string& model_url,
+              const std::vector<Shape>& input_shapes) {
+             return infer_server->LoadModel(model_url, input_shapes);
+           },
+           py::arg("model_url"), py::arg("input_shapes") = std::vector<Shape>{})
+#else
       .def("load_model",
            [](std::shared_ptr<video::VideoInferServer> infer_server, const std::string& pattern1,
               const std::string& pattern2) { return infer_server->LoadModel(pattern1, pattern2); },
            py::arg("pattern1"), py::arg("pattern2") = "subnet0")
+#endif
       .def_static("unload_model", &video::VideoInferServer::UnloadModel)
       .def_static("clear_model_cache", &video::VideoInferServer::ClearModelCache);
 }

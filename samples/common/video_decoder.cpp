@@ -99,8 +99,8 @@ class EasyDecodeImpl : public VideoDecoderImpl {
   }
 
  private:
-  AVBitStreamFilterContext* p_bsfc_;
-  AVCodecContext* codec_ctx_;
+  AVBitStreamFilterContext* p_bsfc_ = nullptr;
+  AVCodecContext* codec_ctx_ = nullptr;
   std::unique_ptr<edk::EasyDecode> decode_{nullptr};
 };
 

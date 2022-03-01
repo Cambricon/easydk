@@ -183,7 +183,7 @@ TEST(Easyinfer, MluMemoryOp) {
   while (--times) {
     try {
       size_t kStrSize = 317 * times;
-      snprintf(str, kStrSize, "test MluMemoryOp, s: %lu", kStrSize);
+      snprintf(str, kStrSize, "test MluMemoryOp, s: %zu", kStrSize);
       void *in = reinterpret_cast<void *>(str);
       void *out = reinterpret_cast<void *>(str_out);
       edk::MluContext context;

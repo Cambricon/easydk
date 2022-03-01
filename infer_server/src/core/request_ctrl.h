@@ -58,9 +58,6 @@ class RequestControl {
 
   ~RequestControl() {
     std::lock_guard<std::mutex> lk(done_mutex_);
-    if (resp_done_cb_) {
-      resp_done_cb_();
-    }
     response_done_flag_.set_value();
   }
 
@@ -90,10 +87,6 @@ class RequestControl {
   const std::map<std::string, float>& Performance() const noexcept { return output_->perf; }
 #endif
 
-  void SetResponseDoneCallback(std::function<void()>&& callback) {
-    resp_done_cb_ = std::move(callback);
-  }
-
   void Response() noexcept {
     output_->tag = tag_;
     response_(status_.load(), std::move(output_));
@@ -114,7 +107,6 @@ class RequestControl {
   PackagePtr output_;
   ResponseFunc response_;
   NotifyFunc done_notifier_;
-  std::function<void()> resp_done_cb_{nullptr};
   std::string tag_;
   std::mutex done_mutex_;
   std::promise<void> response_done_flag_;

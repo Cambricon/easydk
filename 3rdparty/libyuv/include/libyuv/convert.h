@@ -122,6 +122,22 @@ int I420Copy(const uint8_t* src_y,
              int width,
              int height);
 
+// Copy NV12 to NV12.
+#define NV21Copy NV12Copy
+#define NV12ToNV12 NV12Copy
+#define NV21ToNV21 NV12Copy
+LIBYUV_API
+int NV12Copy(const uint8_t* src_y,
+             int src_stride_y,
+             const uint8_t* src_uv,
+             int src_stride_uv,
+             uint8_t* dst_y,
+             int dst_stride_y,
+             uint8_t* dst_uv,
+             int dst_stride_uv,
+             int width,
+             int height);
+
 // Copy I010 to I010
 #define I010ToI010 I010Copy
 #define H010ToH010 I010Copy
@@ -346,6 +362,28 @@ int RGB24ToI420(const uint8_t* src_rgb24,
                 int width,
                 int height);
 
+// RGB little endian (bgr in memory) to NV12.
+LIBYUV_API
+int RGB24ToNV12(const uint8_t* src_rgb24,
+                int src_stride_rgb24,
+                uint8_t* dst_y,
+                int dst_stride_y,
+                uint8_t* dst_uv,
+                int dst_stride_uv,
+                int width,
+                int height);
+
+// RGB little endian (bgr in memory) to NV21.
+LIBYUV_API
+int RGB24ToNV21(const uint8_t* src_rgb24,
+                int src_stride_rgb24,
+                uint8_t* dst_y,
+                int dst_stride_y,
+                uint8_t* dst_vu,
+                int dst_stride_vu,
+                int width,
+                int height);
+
 // RGB little endian (bgr in memory) to J420.
 LIBYUV_API
 int RGB24ToJ420(const uint8_t* src_rgb24,
@@ -369,6 +407,28 @@ int RAWToI420(const uint8_t* src_raw,
               int dst_stride_u,
               uint8_t* dst_v,
               int dst_stride_v,
+              int width,
+              int height);
+
+// RGB big endian (rgb in memory) to NV12.
+LIBYUV_API
+int RAWToNV12(const uint8_t* src_raw,
+              int src_stride_raw,
+              uint8_t* dst_y,
+              int dst_stride_y,
+              uint8_t* dst_uv,
+              int dst_stride_uv,
+              int width,
+              int height);
+
+// RGB big endian (rgb in memory) to NV21.
+LIBYUV_API
+int RAWToNV21(const uint8_t* src_raw,
+              int src_stride_raw,
+              uint8_t* dst_y,
+              int dst_stride_y,
+              uint8_t* dst_vu,
+              int dst_stride_vu,
               int width,
               int height);
 

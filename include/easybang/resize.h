@@ -70,7 +70,7 @@ class MluResize {
    * @brief Set the mlu task queue
    *
    * @param queue mlu task queue on which run kernel
-   * @param exclusive mlu task queue is exclusive. Therefore it could be destroied.
+   * @param exclusive mlu task queue is exclusive. Therefore it could be destroyed.
    */
   void SetMluQueue(cnrtQueue_t queue, bool exclusive = false);
 

@@ -206,26 +206,35 @@ Status PreprocessorHost::Process(PackagePtr pack) noexcept {
   input.buffers.reserve(i_num);
   input.shapes.reserve(i_num);
   for (size_t i_idx = 0; i_idx < i_num; ++i_idx) {
-    Shape s = priv_->layouts[i_idx].order == DimOrder::NCHW ? Shape(DimNCHW2NHWC(priv_->shapes[i_idx].Vectorize()))
-                                                            : priv_->shapes[i_idx];
-    // FIXME(dmh): assume that first element of shape is N
-    s[0] = batch_size;
     input.shapes.emplace_back(priv_->shapes[i_idx]);
     input.shapes[i_idx][0] = batch_size;
     input.buffers.emplace_back(priv_->pools[i_idx]->Request());
-    if (priv_->host_layout.dtype == priv_->layouts[i_idx].dtype &&
-        priv_->host_layout.order == priv_->layouts[i_idx].order) {
+    DataLayout dst_layout = priv_->layouts[i_idx];
+    if (priv_->host_layout.dtype == dst_layout.dtype && priv_->host_layout.order == dst_layout.order) {
       (void)priv_->dst_tmp[i_idx].MutableData();
       input.buffers[i_idx].CopyFrom(priv_->dst_tmp[i_idx],
-                                    input.shapes[i_idx].BatchDataCount() * GetTypeSize(priv_->layouts[i_idx].dtype));
+                                    input.shapes[i_idx].BatchDataCount() * GetTypeSize(dst_layout.dtype));
       continue;
     }
-    if (!detail::TransLayout(priv_->dst_tmp[i_idx].MutableData(), priv_->dst[i_idx].MutableData(), priv_->host_layout,
-                             priv_->layouts[i_idx], s)) {
+    Shape s = priv_->shapes[i_idx];
+    if (priv_->host_layout.order != dst_layout.order) {
+      if (priv_->host_layout.order == DimOrder::NCHW) {
+        s = DimNHWC2NCHW(s.Vectorize());
+      } else if (priv_->host_layout.order == DimOrder::NHWC) {
+        s = DimNCHW2NHWC(s.Vectorize());
+      } else {
+        LOG(ERROR) << "unsupported dim order: " << detail::DimOrderStr(priv_->host_layout.order);
+        return Status::INVALID_PARAM;
+      }
+    }
+    // FIXME(dmh): assume that first element of shape is N
+    s[0] = batch_size;
+    if (!detail::TransLayout(priv_->dst_tmp[i_idx].MutableData(), priv_->dst[i_idx].MutableData(),
+                             priv_->host_layout, dst_layout, s)) {
       return Status::ERROR_BACKEND;
     }
     input.buffers[i_idx].CopyFrom(priv_->dst[i_idx],
-                                  input.shapes[i_idx].BatchDataCount() * GetTypeSize(priv_->layouts[i_idx].dtype));
+                                  input.shapes[i_idx].BatchDataCount() * GetTypeSize(dst_layout.dtype));
   }
   pack->predict_io.reset(new InferData);
   pack->predict_io->Set(std::move(input));

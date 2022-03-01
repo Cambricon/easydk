@@ -25,16 +25,20 @@ EASYDK_DIR=$CURRENT_DIR/..
     pushd $EASYDK_DIR/build/
   fi
 
-  cmake -DBUILD_TESTS=ON -DCODE_COVERAGE_TEST=ON -DENABLE_KCF=OFF $EASYDK_DIR
+  cmake -DBUILD_TESTS=ON -DCODE_COVERAGE_TEST=ON -DENABLE_KCF=OFF -DCNIS_WITH_PYTHON_API=ON $EASYDK_DIR
   make -j8
   export LD_LIBRARY_PATH=$LD_LIBRARY_PATH:/usr/local/neuware/lib64/
   ./tests/tests_edk
+  ./tests/tests_edk
+  ./infer_server/tests/apitest_cnis
+  ./infer_server/tests/unittest_cnis
+  ./../infer_server/python/test/run_pytest.sh
   popd
 
   lcov --rc lcov_branch_coverage=1 -c -d . -o clog
   lcov --rc lcov_branch_coverage=1 -r clog -o easydk_all.coverage
   rm clog
-  lcov --rc lcov_branch_coverage=1 -e easydk_all.coverage '*/src/cxxutil/*.cpp' '*/src/device/*.cpp' '*/src/easybang/resize/*.cpp' '*/src/easybang/resize_and_convert/*.cpp' '*/src/easycodec/*.cpp' '*/src/easyinfer/*.cpp' '*/src/easytrack/*.cpp' '*/src/easyplugin/resize_yuv_to_rgba/*' '*/src/easyplugin/resize_yuv_to_yuv/*' -o $trace_file
+  lcov --rc lcov_branch_coverage=1 -e easydk_all.coverage '*/src/cxxutil/*.cpp' '*/src/device/*.cpp' '*/src/easybang/resize/*.cpp' '*/src/easybang/resize_and_convert/*.cpp' '*/src/easycodec/*.cpp' '*/src/easyinfer/*.cpp' '*/src/easytrack/*.cpp' '*/src/easyplugin/resize_yuv_to_rgba/*' '*/src/easyplugin/resize_yuv_to_yuv/*' '*/infer_server/src/core/*.cpp' '*/infer_server/src/model/*.cpp' '*/infer_server/src/preprocessor/*.cpp' '*/infer_server/python/src/*.cpp' -o $trace_file
   rm easydk_all.coverage
   genhtml --rc lcov_branch_coverage=1 $trace_file -o $dir
 

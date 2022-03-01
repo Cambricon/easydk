@@ -62,6 +62,7 @@ inline std::string DimOrderStr(DimOrder order) noexcept {
     DIMORDER2STR(HWCN)
     DIMORDER2STR(TNC)
     DIMORDER2STR(NTC)
+    DIMORDER2STR(NONE)
 #undef DIMORDER2STR
     default:
       LOG(ERROR) << "Unsupported dim order";
@@ -122,6 +123,30 @@ inline DataType CastDataType(cnrtDataType type) noexcept {
   }
 }
 
+#ifdef CNIS_USE_MAGICMIND
+inline DimOrder CastDimOrder(magicmind::Layout order) noexcept {
+  switch (order) {
+#define RETURN_DIM_ORDER(order)    \
+  case magicmind::Layout::order: \
+    return DimOrder::order;
+    RETURN_DIM_ORDER(NCHW)
+    RETURN_DIM_ORDER(NHWC)
+    RETURN_DIM_ORDER(HWCN)
+    RETURN_DIM_ORDER(TNC)
+    RETURN_DIM_ORDER(NTC)
+    RETURN_DIM_ORDER(NONE)
+#undef RETURN_DIM_ORDER
+    default:
+      LOG(ERROR) << "Unsupported dim order";
+      return DimOrder::INVALID;
+  }
+}
+#endif
+
+// shape corresponding to src_data
+bool CastDataType(void *src_data, void *dst_data, DataType src_dtype, DataType dst_dtype, const Shape &shape);
+
+// shape corresponding to src_data
 bool TransLayout(void* src_data, void* dst_data, DataLayout src_layout, DataLayout dst_layout, const Shape& shape);
 
 }  // namespace detail
@@ -146,7 +171,7 @@ inline std::vector<dtype> DimNHWC2NCHW(const std::vector<dtype>& dim) {
 }
 
 template <typename dtype>
-inline const std::vector<dtype> DimNCHW2NHWC(const std::vector<dtype>& dim) {
+inline std::vector<dtype> DimNCHW2NHWC(const std::vector<dtype>& dim) {
   switch (dim.size()) {
     case 1:
       return dim;

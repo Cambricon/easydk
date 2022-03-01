@@ -289,19 +289,18 @@ bool InferServer::SetModelDir(const std::string& model_dir) noexcept {
   return false;
 }
 
-ModelPtr InferServer::LoadModel(const std::string& pattern1, const std::string& pattern2) noexcept {
 #ifdef CNIS_USE_MAGICMIND
-  return ModelManager::Instance()->Load(pattern1);
-#else
-  return ModelManager::Instance()->Load(pattern1, pattern2);
-#endif
+ModelPtr InferServer::LoadModel(const std::string& model_uri, const std::vector<Shape>& in_shape) noexcept {
+  return ModelManager::Instance()->Load(model_uri, in_shape);
 }
 
-#ifdef CNIS_USE_MAGICMIND
-ModelPtr InferServer::LoadModel(void* mem_cache, size_t size) noexcept {
-  return ModelManager::Instance()->Load(mem_cache, size);
+ModelPtr InferServer::LoadModel(void* mem_cache, size_t size, const std::vector<Shape>& in_shape) noexcept {
+  return ModelManager::Instance()->Load(mem_cache, size, in_shape);
 }
 #else
+ModelPtr InferServer::LoadModel(const std::string& pattern1, const std::string& pattern2) noexcept {
+  return ModelManager::Instance()->Load(pattern1, pattern2);
+}
 ModelPtr InferServer::LoadModel(void* mem_cache, const std::string& func_name) noexcept {
   return ModelManager::Instance()->Load(mem_cache, func_name);
 }

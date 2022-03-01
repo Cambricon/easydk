@@ -58,7 +58,7 @@ class EasyInfer {
    * @brief Initialize the inference helper class
    *
    * @param model Model loader which contain neural network offline model and informations
-   * @param dev_id init cninfer in device with origin id dev_id. only supported on MLU270
+   * @param dev_id init EasyInfer in device with origin id dev_id. only supported on MLU270
    */
   void Init(std::shared_ptr<ModelLoader> model, int dev_id);
 

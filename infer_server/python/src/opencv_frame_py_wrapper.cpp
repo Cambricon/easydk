@@ -41,10 +41,9 @@ class PyOpencvPreproc {
  public:
   PyOpencvPreproc(video::PixelFmt dst_fmt, std::vector<float> mean = {}, std::vector<float> std = {},
                   bool normalize = false, bool keep_aspect_ratio = true, int pad_value = 0, bool transpose = false,
-                  DataType src_depth = DataType::UINT8) {
-    func_ = video::OpencvPreproc::GetFunction(dst_fmt, std::move(mean), std::move(std), normalize, keep_aspect_ratio,
-                                              pad_value, transpose, src_depth);
-  }
+                  DataType src_depth = DataType::UINT8)
+      : func_(video::OpencvPreproc::GetFunction(dst_fmt, std::move(mean), std::move(std), normalize, keep_aspect_ratio,
+                                                pad_value, transpose, src_depth)) {}
   bool Execute(ModelIO* model_input, const InferData& input_data, const ModelInfo* model_info) {
     return func_(model_input, input_data, model_info);
   }

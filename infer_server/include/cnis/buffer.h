@@ -179,7 +179,7 @@ class Buffer {
    * @param cpu_src Copy source, data on CPU
    * @param copy_size Memory size in bytes
    */
-  void CopyFrom(void *cpu_src, size_t copy_size);
+  void CopyFrom(const void *cpu_src, size_t copy_size);
 
   /**
    * @brief Copy data from another buffer
