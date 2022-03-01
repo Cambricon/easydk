@@ -24,6 +24,7 @@
 #include <algorithm>
 #include <memory>
 #include <string>
+#include <utility>
 #include <vector>
 
 #include "cnrt.h"
@@ -54,13 +55,15 @@ namespace infer_server {
     }                                                            \
   } while (0)
 
-bool ModelRunner::Init(MModel* model, mm_unique_ptr<MContext> ctx) noexcept {
+bool ModelRunner::Init(MModel* model, mm_unique_ptr<MContext> ctx, const std::vector<Shape>& input_shape) noexcept {
   input_num_ = model->GetInputNum();
   output_num_ = model->GetOutputNum();
   ctx_ = std::move(ctx);
 
   i_shapes_.resize(input_num_);
   o_shapes_.resize(output_num_);
+  i_layouts_.resize(input_num_);
+  o_layouts_.resize(output_num_);
 
   MM_SAFECALL(mm::CreateInputTensors(ctx_.get(), &inputs_), false);
   MM_SAFECALL(mm::CreateOutputTensors(ctx_.get(), &outputs_), false);
@@ -69,6 +72,15 @@ bool ModelRunner::Init(MModel* model, mm_unique_ptr<MContext> ctx) noexcept {
   std::vector<mm::Dims> in_dims = model->GetInputDimensions();
   std::vector<Shape> in_shapes;
   std::transform(in_dims.begin(), in_dims.end(), std::back_inserter(in_shapes), dims2shape);
+  if (!FixedShape(in_shapes)) {
+    fixed_input_shape_ = false;
+    if (!input_shape.empty() && input_shape.size() == in_shapes.size()) {
+      VLOG(3) << "[ModelRunner] Model with mutable input shape. Input shape is set by user.";
+      for (unsigned idx = 0; idx < input_shape.size(); idx++) {
+        in_shapes[idx] = input_shape[idx];
+      }
+    }
+  }
   auto out_shape = InferOutputShape(in_shapes);
   if (out_shape.empty()) {
     for (auto tensor : outputs_) {
@@ -117,6 +129,7 @@ ModelRunner::~ModelRunner() {
 
 std::vector<Shape> ModelRunner::InferOutputShape(const std::vector<Shape>& input) noexcept {
   if (input.size() != inputs_.size()) return {};
+  if (!FixedShape(input)) return {};
   bool same_shape = true;
   for (uint32_t idx = 0; idx < i_shapes_.size(); ++idx) {
     if (i_shapes_[idx] != input[idx]) {
@@ -149,6 +162,16 @@ Status ModelRunner::Run(ModelIO* in, ModelIO* out) noexcept {  // NOLINT
 
   for (uint32_t i_idx = 0; i_idx < input_num_; ++i_idx) {
     inputs_[i_idx]->SetData(input[i_idx].MutableData());
+    if (!fixed_input_shape_) {
+      if (in->shapes.size() > i_idx && FixedShape({in->shapes[i_idx]})) {
+        inputs_[i_idx]->SetDimensions(mm::Dims(in->shapes[i_idx].Vectorize()));
+      } else if (i_shapes_.size() > i_idx && FixedShape({i_shapes_[i_idx]})) {
+        inputs_[i_idx]->SetDimensions(mm::Dims(i_shapes_[i_idx].Vectorize()));
+      } else {
+        LOG(ERROR) << "[ModelRunner] Can not get valid shape of the input tensor.";
+        return Status::ERROR_BACKEND;
+      }
+    }
   }
   if (!output.empty()) {
     CHECK_EQ(output_num_, output.size());
@@ -195,17 +218,17 @@ Status ModelRunner::Run(ModelIO* in, ModelIO* out) noexcept {  // NOLINT
   return Status::SUCCESS;
 }
 
-bool Model::Init(const string& model_file) noexcept {
+bool Model::Init(const string& model_file, const std::vector<Shape>& in_shape) noexcept {
   model_file_ = model_file;
   model_.reset(mm::CreateIModel());
   VLOG(3) << "(success) Load model from graph file: " << model_file_;
   MM_SAFECALL(model_->DeserializeFromFile(model_file_.c_str()), false);
 
-  has_init_ = GetModelInfo();
+  has_init_ = GetModelInfo(in_shape);
   return has_init_;
 }
 
-bool Model::Init(void* mem_ptr, size_t size) noexcept {
+bool Model::Init(void* mem_ptr, size_t size, const std::vector<Shape>& in_shape) noexcept {
   std::ostringstream ss;
   ss << mem_ptr;
   model_file_ = ss.str();
@@ -214,41 +237,110 @@ bool Model::Init(void* mem_ptr, size_t size) noexcept {
   VLOG(3) << "(success) Load model from memory: " << model_file_;
   MM_SAFECALL(model_->DeserializeFromMemory(mem_ptr, size), false);
 
-  has_init_ = GetModelInfo();
+  has_init_ = GetModelInfo(in_shape);
   return has_init_;
 }
 
-bool Model::GetModelInfo() noexcept {
+bool Model::GetModelInfo(const std::vector<Shape>& in_shape) noexcept {
   // get IO messages
   // get io number and data size
   i_num_ = model_->GetInputNum();
   o_num_ = model_->GetOutputNum();
-  std::vector<mm::Dims> in_dims = model_->GetInputDimensions();
-  std::vector<mm::Dims> out_dims = model_->GetOutputDimensions();
-
-  model_batch_size_ = in_dims[0].GetDimValue(0);
-
-  // get io shapes
-  auto dims2shape = [](const mm::Dims& d) { return Shape(d.GetDims()); };
-  std::transform(in_dims.begin(), in_dims.end(), std::back_inserter(input_shapes_), dims2shape);
-  std::transform(out_dims.begin(), out_dims.end(), std::back_inserter(output_shapes_), dims2shape);
 
   // get mlu io data type
   std::vector<mm::DataType> i_dtypes = model_->GetInputDataTypes();
   std::vector<mm::DataType> o_dtypes = model_->GetOutputDataTypes();
-  auto dtype2layout = [](mm::DataType t) { return DataLayout{detail::CastDataType(t), DimOrder::NCHW}; };
-  std::transform(i_dtypes.begin(), i_dtypes.end(), std::back_inserter(i_mlu_layouts_), dtype2layout);
-  std::transform(o_dtypes.begin(), o_dtypes.end(), std::back_inserter(o_mlu_layouts_), dtype2layout);
 
-  // since we can not get dimorder from model, deduce it from shape
-  // FIXME(dmh): not robust
-  for (int i_idx = 0; i_idx < i_num_; ++i_idx) {
-    if (input_shapes_[i_idx].Size() == 4 && input_shapes_[i_idx][3] <= 4) {
-      i_mlu_layouts_[i_idx].order = DimOrder::NHWC;
+  // get mlu io dim order
+  // FIXME(gaoyujia) : hard code get engine on device 0
+  MEngine* engine = GetEngine(0);
+  MContext* ctx = engine->CreateIContext();
+  std::vector<MTensor*> inputs, outputs;
+  MM_SAFECALL(mm::CreateInputTensors(ctx, &inputs), false);
+  MM_SAFECALL(mm::CreateOutputTensors(ctx, &outputs), false);
+  auto trans2layout = [](mm::DataType t, mm::Layout l) {
+    DimOrder order = detail::CastDimOrder(l);
+    if (order == DimOrder::INVALID) {
+      LOG(WARNING) << "DimOrder is invalid, use NHWC instead";
+       order = DimOrder::NHWC;
+    }
+    return DataLayout{detail::CastDataType(t), order};
+  };
+  i_mlu_layouts_.reserve(i_num_);
+  o_mlu_layouts_.reserve(o_num_);
+  for (int idx = 0; idx < i_num_; ++idx) {
+    i_mlu_layouts_.push_back(trans2layout(i_dtypes[idx], inputs[idx]->GetLayout()));
+  }
+  for (int idx = 0; idx < o_num_; ++idx) {
+    o_mlu_layouts_.push_back(trans2layout(o_dtypes[idx], outputs[idx]->GetLayout()));
+  }
+
+  std::vector<mm::Dims> in_dims = model_->GetInputDimensions();
+  std::vector<mm::Dims> out_dims = model_->GetOutputDimensions();
+
+  auto dims2shape = [](const mm::Dims& d) { return Shape(d.GetDims()); };
+  std::transform(in_dims.begin(), in_dims.end(), std::back_inserter(input_shapes_), dims2shape);
+  std::transform(out_dims.begin(), out_dims.end(), std::back_inserter(output_shapes_), dims2shape);
+
+  if (!FixedShape(input_shapes_)) {
+    if (!in_shape.empty() && in_shape.size() == input_shapes_.size()) {
+      VLOG(3) << "Model with mutable input shape. Input shape is set by user.";
+      for (unsigned idx = 0; idx < in_shape.size(); idx++) {
+        input_shapes_[idx] = in_shape[idx];
+        inputs[idx]->SetDimensions(mm::Dims(in_shape[idx].Vectorize()));
+      }
+      MM_SAFECALL(ctx->InferOutputShape(inputs, outputs), {});
+      for (uint32_t idx = 0; idx < outputs.size(); ++idx) {
+        output_shapes_[idx] = outputs[idx]->GetDimensions().GetDims();
+      }
+    } else {
+      VLOG(3) << "Model with mutable input shape. Input shape is not set.";
     }
   }
 
+  // Destroy mm tensor and context
+  for (auto& it : inputs) { it->Destroy(); }
+  for (auto& it : outputs) { it->Destroy(); }
+  ctx->Destroy();
+
+  switch (i_mlu_layouts_[0].order) {
+    case DimOrder::NCHW:
+    case DimOrder::NHWC:
+    case DimOrder::HWCN:
+      if (input_shapes_[0].Size() != 4) {
+        LOG(ERROR) << "Input shape and dim order is unmatched.";
+        return false;
+      }
+      break;
+    case DimOrder::NTC:
+    case DimOrder::TNC:
+      if (input_shapes_[0].Size() != 3) {
+        LOG(ERROR) << "Input shape and dim order is unmatched.";
+        return false;
+      }
+      break;
+    default:
+      break;
+  }
+  switch (i_mlu_layouts_[0].order) {
+    case DimOrder::NCHW:
+    case DimOrder::NHWC:
+    case DimOrder::NTC:
+      model_batch_size_ = input_shapes_[0][0];
+      break;
+    case DimOrder::TNC:
+      model_batch_size_ = input_shapes_[0][1];
+      break;
+    case DimOrder::HWCN:
+      model_batch_size_ = input_shapes_[0][3];
+      break;
+    default:
+      model_batch_size_ = input_shapes_[0][0];
+      break;
+  }
+
   VLOG(3) << "Model Info: input number = " << i_num_ << ";\toutput number = " << o_num_;
+  VLOG(3) << "            batch size = " << model_batch_size_;
   for (int i = 0; i < i_num_; ++i) {
     VLOG(3) << "----- input index [" << i;
     VLOG(3) << "      data type " << detail::DataTypeStr(i_mlu_layouts_[i].dtype);

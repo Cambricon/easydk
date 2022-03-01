@@ -1,5 +1,5 @@
 /*************************************************************************
- * Copyright (C) [2019] by Cambricon, Inc. All rights reserved
+ * Copyright (C) [2022] by Cambricon, Inc. All rights reserved
  *
  *  Licensed under the Apache License, Version 2.0 (the "License");
  *  you may not use this file except in compliance with the License.
@@ -17,25 +17,34 @@
  * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
  * THE SOFTWARE.
  *************************************************************************/
+#include <utility>
+#include <vector>
 
-#include "test_base.h"
+#include "cnis/infer_server.h"
+#include "cnis/processor.h"
+#include "postproc.h"
 
-#include <unistd.h>
-#include <string>
+bool PostprocSSD::operator()(infer_server::InferData* result, const infer_server::ModelIO& model_output,
+                             const infer_server::ModelInfo* model) {
+  std::vector<DetectObject> objs;
+  const float* data = reinterpret_cast<const float*>(model_output.buffers[0].Data());
+  int box_num = data[0];
+  data += 64;
 
-#define PATH_MAX_LENGTH 1024
-
-std::string GetExePath() {
-  char path[PATH_MAX_LENGTH];
-  int cnt = readlink("/proc/self/exe", path, PATH_MAX_LENGTH);
-  if (cnt < 1 || cnt >= PATH_MAX_LENGTH) {
-    return "";
+  for (int bi = 0; bi < box_num; ++bi) {
+    DetectObject obj;
+    if (data[1] == 0) continue;
+    obj.label = data[1] - 1;
+    obj.score = data[2];
+    if (threshold > 0 && obj.score < threshold) continue;
+    obj.bbox.x = Clip(data[3]);
+    obj.bbox.y = Clip(data[4]);
+    obj.bbox.w = Clip(data[5]) - obj.bbox.x;
+    obj.bbox.h = Clip(data[6]) - obj.bbox.y;
+    objs.emplace_back(std::move(obj));
+    data += 7;
   }
-  if (path[cnt - 1] == '/') {
-    path[cnt - 1] = '\0';
-  } else {
-    path[cnt] = '\0';
-  }
-  std::string result(path);
-  return std::string(path).substr(0, result.find_last_of('/') + 1);
+
+  result->Set(std::move(objs));
+  return true;
 }

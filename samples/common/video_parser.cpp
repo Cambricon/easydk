@@ -245,7 +245,7 @@ int VideoParser::ParseLoop(uint32_t frame_interval) {
     if (AV_NOPTS_VALUE == packet_.pts) {
       LOGI(SAMPLES) << "Didn't find pts informations, use ordered numbers instead. ";
       packet_.pts = frame_index_++;
-    } else if (AV_NOPTS_VALUE != packet_.pts) {
+    } else {
       packet_.pts = av_rescale_q(packet_.pts, vstream->time_base, {1, 90000});
     }
 

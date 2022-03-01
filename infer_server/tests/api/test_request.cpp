@@ -55,9 +55,7 @@ using video::PreprocessType;
 
 #ifdef CNIS_USE_MAGICMIND
 static constexpr const char* model_url =
-    "http://video.cambricon.com/models/MLU370/resnet50_nhwc_tfu_0.5_int8_fp16.model";
-static const std::vector<float> preproc_mean{104.f, 117.f, 123.f};
-static const std::vector<float> preproc_std{1.f, 1.f, 1.f};
+    "http://video.cambricon.com/models/MLU370/resnet50_nhwc_tfu_0.8.2_uint8_int8_fp16.model";
 static constexpr bool preproc_normalize{false};
 static constexpr bool keep_aspect_ratio{true};
 static constexpr int pad_value{128};
@@ -204,8 +202,8 @@ class InferServerRequestTest : public InferServerTestAPI {
     desc.priority = 0;
     desc.host_output_layout = {infer_server::DataType::FLOAT32, infer_server::DimOrder::NCHW};
 #ifdef CNIS_USE_MAGICMIND
-    desc.preproc->SetParams("dst_format", PixelFmt::RGB24, "preprocess_type", PreprocessType::CNCV_PREPROC, "mean",
-                            preproc_mean, "std", preproc_std, "normalize", preproc_normalize);
+    desc.preproc->SetParams("dst_format", PixelFmt::RGB24, "preprocess_type", PreprocessType::CNCV_PREPROC,
+                            "normalize", preproc_normalize);
 #else
     edk::MluContext context(device_id_);
     auto version = context.GetCoreVersion();
@@ -383,7 +381,7 @@ TEST_F(InferServerRequestTest, ProcessFailed) {
 TEST_F(InferServerRequestTest, DynamicBatchPreprocessHost) {
 #ifdef CNIS_USE_MAGICMIND
   preproc_host_->SetParams<PreprocessorHost::ProcessFunction>(
-      "process_function", video::OpencvPreproc::GetFunction(PixelFmt::RGB24, preproc_mean, preproc_std,
+      "process_function", video::OpencvPreproc::GetFunction(PixelFmt::RGB24, {}, {},
                                                             preproc_normalize, keep_aspect_ratio, pad_value,
                                                             transpose));
 #endif
@@ -409,7 +407,7 @@ TEST_F(InferServerRequestTest, InputContinuousData) {
       PrepareSession("continuous data input", empty_preproc_host_, postproc_, 5, BatchStrategy::STATIC, nullptr);
   ASSERT_NE(session, nullptr);
 
-  size_t data_size = 12;
+  size_t data_size = 2;
   auto in = Package::Create(data_size);
   ModelIO input;
   input.buffers.reserve(model_->InputNum());

@@ -207,22 +207,22 @@ void prepareMaskAndWeights(void* cpu_workspace,
 
     if (!repeated) {
       // cpu pointer offset
-      half* cur_mask_left_cpu_ptr = (half*)(cur_cpu_ptr);
-      half* cur_mask_right_cpu_ptr = (half*)(cur_mask_left_cpu_ptr + mult * cur_roi_w_ * 4);
+      half* cur_mask_left_cpu_ptr = reinterpret_cast<half*>(cur_cpu_ptr);
+      half* cur_mask_right_cpu_ptr = reinterpret_cast<half*>(cur_mask_left_cpu_ptr + mult * cur_roi_w_ * 4);
 
-      half* cur_weight_left_cpu_ptr = (half*)(cur_mask_right_cpu_ptr + mult * cur_roi_w_ * 4);
-      half* cur_weight_right_cpu_ptr = (half*)(cur_weight_left_cpu_ptr + dst_roi_w * 4);
+      half* cur_weight_left_cpu_ptr = reinterpret_cast<half*>(cur_mask_right_cpu_ptr + mult * cur_roi_w_ * 4);
+      half* cur_weight_right_cpu_ptr = reinterpret_cast<half*>(cur_weight_left_cpu_ptr + dst_roi_w * 4);
 
-      cur_cpu_ptr = (half*)(cur_weight_right_cpu_ptr + dst_roi_w * 4);
+      cur_cpu_ptr = reinterpret_cast<half*>(cur_weight_right_cpu_ptr + dst_roi_w * 4);
 
       // mlu pointer offset
-      half* cur_mask_left_mlu_ptr = (half*)(cur_mlu_ptr);
-      half* cur_mask_right_mlu_ptr = (half*)(cur_mask_left_mlu_ptr + mult * cur_roi_w_ * 4);
+      half* cur_mask_left_mlu_ptr = reinterpret_cast<half*>(cur_mlu_ptr);
+      half* cur_mask_right_mlu_ptr = reinterpret_cast<half*>(cur_mask_left_mlu_ptr + mult * cur_roi_w_ * 4);
 
-      half* cur_weight_left_mlu_ptr = (half*)(cur_mask_right_mlu_ptr + mult * cur_roi_w_ * 4);
-      half* cur_weight_right_mlu_ptr = (half*)(cur_weight_left_mlu_ptr + dst_roi_w * 4);
+      half* cur_weight_left_mlu_ptr = reinterpret_cast<half*>(cur_mask_right_mlu_ptr + mult * cur_roi_w_ * 4);
+      half* cur_weight_right_mlu_ptr = reinterpret_cast<half*>(cur_weight_left_mlu_ptr + dst_roi_w * 4);
 
-      cur_mlu_ptr = (half*)(cur_weight_right_mlu_ptr + dst_roi_w * 4);
+      cur_mlu_ptr = reinterpret_cast<half*>(cur_weight_right_mlu_ptr + dst_roi_w * 4);
 
 #ifdef ZERO_COORDINATE
       float src_w_iter_base = 0.0f;
@@ -309,12 +309,12 @@ void prepareMaskAndWeights(void* cpu_workspace,
         // cpu pointer offset
         int8_t* cur_copy_filter_cpu_ptr = (int8_t*)(cur_cpu_ptr);
 
-        cur_cpu_ptr = (half*)(cur_copy_filter_cpu_ptr + LT_NUM * mult * LT_NUM);
+        cur_cpu_ptr = reinterpret_cast<half*>(cur_copy_filter_cpu_ptr + LT_NUM * mult * LT_NUM);
 
         // mlu pointer offset
         int8_t* cur_copy_filter_mlu_ptr = (int8_t*)(cur_mlu_ptr);
 
-        cur_mlu_ptr = (half*)(cur_copy_filter_mlu_ptr + LT_NUM * mult * LT_NUM);
+        cur_mlu_ptr = reinterpret_cast<half*>(cur_copy_filter_mlu_ptr + LT_NUM * mult * LT_NUM);
 
         // lt data
         for (int lt_i = 0; lt_i < LT_NUM; lt_i++) {
@@ -486,11 +486,11 @@ bool PrepareKernelParam(int d_row, int d_col, int color_mode, int data_type,
   input2half = 1 - sizeof(IN_DATA_TYPE) / 2;
   // output2uint = 1 when out_datatype = uint8
   output2uint = 1 - sizeof(OUT_DATA_TYPE) / 2;
-  half* consts = (half*)malloc((2 * CI * CO + CO) * sizeof(half));
+  half* consts = reinterpret_cast<half*>(malloc((2 * CI * CO + CO) * sizeof(half)));
   // int ratio = 150;
   // int total = ratio * (ratio + 1) / 2;
-  // half* maskTP = (half*)malloc((CI * CI * total) * sizeof(int16_t));
-  // half* maskUV = (half*)malloc((CI * CI * total) * sizeof(int16_t));
+  // half* maskTP = reinterpret_cast<half*>(malloc((CI * CI * total) * sizeof(int16_t)));
+  // half* maskUV = reinterpret_cast<half*>(malloc((CI * CI * total) * sizeof(int16_t)));
   // half temp[CI * CI];
   // for (int i = 0; i < CI; i++) {
   //  for (int j = 0; j < CI; j++) {
@@ -636,8 +636,8 @@ bool PrepareKernelParam(int d_row, int d_col, int color_mode, int data_type,
   //   printf("cnrtMalloc FAILED!\n");
   //   exit(-1);
   // }
-  // if (CNRT_RET_SUCCESS != cnrtMemcpy(maskUV_mlu, (half*)maskUV,
-  //                                   CI * CI * total * sizeof(half),
+  // if (CNRT_RET_SUCCESS != cnrtMemcpy(maskUV_mlu, reinterpret_cast<half*>(maskUV),
+  //                                    CI * CI * total * sizeof(half),
   //                                    CNRT_MEM_TRANS_DIR_HOST2DEV)) {
   //   printf("cnrtMemcpy FAILED!\n");
   //   exit(-1);

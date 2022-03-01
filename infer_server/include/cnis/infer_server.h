@@ -46,7 +46,7 @@ enum class DataType { UINT8, FLOAT32, FLOAT16, INT16, INT32, INVALID };
 /**
  * @brief Enumeration to specify dim order of model input and output
  */
-enum class DimOrder { NCHW, NHWC, HWCN, TNC, NTC };
+enum class DimOrder { NCHW, NHWC, HWCN, TNC, NTC, NONE, INVALID };
 
 /**
  * @brief Describe data layout on MLU or CPU
@@ -107,7 +107,7 @@ std::string ToString(BatchStrategy strategy) noexcept;
 inline std::ostream& operator<<(std::ostream& os, BatchStrategy s) { return os << ToString(s); }
 
 /**
- * @brief Set current deivce for this thread
+ * @brief Set current device for this thread
  *
  * @param device_id device id
  *
@@ -422,7 +422,7 @@ class ProcessorForkable : public Processor {
    *
    * @return std::shared_ptr<Processor> A new processor
    */
-  std::shared_ptr<Processor> Fork() noexcept(std::is_nothrow_default_constructible<T>::value) final {
+  std::shared_ptr<Processor> Fork() noexcept(std::is_nothrow_default_constructible<T>::value) override {
     auto p = std::make_shared<T>();
     p->CopyParamsFrom(*this);
     if (p->Init() != Status::SUCCESS) return nullptr;
@@ -487,7 +487,7 @@ struct SessionDesc {
   std::shared_ptr<Processor> preproc{nullptr};
   /// postprocessor
   std::shared_ptr<Processor> postproc{nullptr};
-  /// timeout in milliseconds, only work for BatchStrategy::DYNAMIC
+  /// timeout in milliseconds, zero means endless waiting. only work for BatchStrategy::DYNAMIC
   uint32_t batch_timeout{100};
   /// Session request priority
   int priority{0};
@@ -642,27 +642,37 @@ class InferServer {
    */
   static bool SetModelDir(const std::string& model_dir) noexcept;
 
-  /**
+#ifdef CNIS_USE_MAGICMIND
+/**
    * @brief Load model from uri, model won't be loaded again if it is already in cache
    *
    * @note support download model from remote by HTTP, HTTPS, FTP, while compiled with flag `WITH_CURL`,
    *       use uri such as `../../model_file`, or "https://someweb/model_file"
-   * @param pattern1 offline model uri
-   * @param pattern2 extracted function name, work only if backend is cnrt
+   * @param model_uri offline model uri
+   * @param in_shape input shape of the model. If the model has mutable input shape, you could set input shape here.
    * @return ModelPtr A model
    */
-  static ModelPtr LoadModel(const std::string& pattern1, const std::string& pattern2 = "subnet0") noexcept;
-
-#ifdef CNIS_USE_MAGICMIND
+  static ModelPtr LoadModel(const std::string& model_uri, const std::vector<Shape>& in_shape = {}) noexcept;
   /**
    * @brief Load model from memory, model won't be loaded again if it is already in cache
    *
    * @param ptr serialized model data in memory
    * @param size size of model data in memory
+   * @param in_shape input shape of the model. If the model has mutable input shape, you could set input shape here.
    * @return ModelPtr A model
    */
-  static ModelPtr LoadModel(void* ptr, size_t size) noexcept;
+  static ModelPtr LoadModel(void* ptr, size_t size, const std::vector<Shape>& in_shape) noexcept;
 #else
+  /**
+   * @brief Load model from uri, model won't be loaded again if it is already in cache
+   *
+   * @note support download model from remote by HTTP, HTTPS, FTP, while compiled with flag `WITH_CURL`,
+   *       use uri such as `../../model_file`, or "https://someweb/model_file"
+   * @param model_uri offline model uri
+   * @param func_name name of function to be extracted
+   * @return ModelPtr A model
+   */
+  static ModelPtr LoadModel(const std::string& model_uri, const std::string& func_name = "subnet0") noexcept;
   /**
    * @brief Load model from memory, model won't be loaded again if it is already in cache
    *

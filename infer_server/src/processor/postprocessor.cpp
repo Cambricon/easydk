@@ -154,56 +154,82 @@ Status Postprocessor::Process(PackagePtr pack) noexcept {
 
   size_t host_type_size = GetTypeSize(priv_->host_layout.dtype);
   for (size_t out_idx = 0; out_idx < out_mlu.buffers.size(); ++out_idx) {
-    // TransLayout need NHWC shape
-    Shape s = priv_->layouts[out_idx].order == DimOrder::NCHW ? Shape(DimNCHW2NHWC(out_mlu.shapes[out_idx].Vectorize()))
-                                                              : out_mlu.shapes[out_idx];
-    size_t batch_data_len = s.BatchDataCount();
-    size_t type_size = GetTypeSize(priv_->layouts[out_idx].dtype);
+    DataLayout out_layout = priv_->layouts[out_idx];
+    size_t batch_data_len = out_mlu.shapes[out_idx].BatchDataCount();
+    size_t type_size = GetTypeSize(out_layout.dtype);
     Buffer out_tmp(batch_data_len * type_size);
     out_cpu.emplace_back(batch_data_len * host_type_size);
-    // TODO(dmh): multi output host_layout set by user?
-    // do not cast INT32 to float
-    bool no_cast =
-        priv_->layouts[out_idx].dtype == priv_->host_layout.dtype || priv_->layouts[out_idx].dtype == DataType::INT32;
-    // do not transpose when num of dims == 1 / 2
-    bool no_transpose = priv_->layouts[out_idx].order == priv_->host_layout.order || s.Size() < 3;
-    // copy to host
-    if (no_cast && no_transpose) {
-      out_mlu.buffers[out_idx].CopyTo(&out_cpu[out_idx], batch_data_len * type_size);
-      continue;
+
+    if ((out_layout.order == DimOrder::NCHW || out_layout.order == DimOrder::NHWC) &&
+        (priv_->host_layout.order == DimOrder::NCHW || priv_->host_layout.order == DimOrder::NHWC)) {
+      // Trans order only support NCHWTONHWC and NHWCTONCHW.
+      // TransLayout need NHWC shape
+      Shape s = out_layout.order == DimOrder::NCHW ? Shape(DimNCHW2NHWC(out_mlu.shapes[out_idx].Vectorize()))
+                                                   : out_mlu.shapes[out_idx];
+      // TODO(dmh): multi output host_layout set by user?
+      // do not cast INT32 to float
+      bool no_cast = out_layout.dtype == priv_->host_layout.dtype || out_layout.dtype == DataType::INT32;
+      // do not transpose when num of dims == 1 / 2
+      bool no_transpose = priv_->layouts[out_idx].order == priv_->host_layout.order || s.Size() < 3;
+      // copy to host
+      if (no_cast && no_transpose) {
+        out_mlu.buffers[out_idx].CopyTo(&out_cpu[out_idx], batch_data_len * type_size);
+        continue;
+      }
+      out_mlu.buffers[out_idx].CopyTo(&out_tmp, batch_data_len * type_size);
+      // do not cast INT32 to float
+      DataLayout tmp = priv_->host_layout;
+      tmp.dtype = priv_->layouts[out_idx].dtype == DataType::INT32 ? DataType::INT32 : tmp.dtype;
+      // transform data layout
+      detail::TransLayout(out_tmp.MutableData(), out_cpu[out_idx].MutableData(), priv_->layouts[out_idx],
+                          priv_->host_layout, s);
+    } else {
+      // Trans order not supported except NCHWTONHWC and NHWCTONCHW.
+      if (out_layout.dtype == priv_->host_layout.dtype || out_layout.dtype == DataType::INT32) {
+        // no need to cast data type
+        out_mlu.buffers[out_idx].CopyTo(&out_cpu[out_idx], batch_data_len * type_size);
+      } else {
+        // cast data type
+        out_mlu.buffers[out_idx].CopyTo(&out_tmp, batch_data_len * type_size);
+        detail::CastDataType(out_tmp.MutableData(), out_cpu[out_idx].MutableData(), out_layout.dtype,
+                             priv_->host_layout.dtype, out_mlu.shapes[out_idx]);
+      }
     }
-    out_mlu.buffers[out_idx].CopyTo(&out_tmp, batch_data_len * type_size);
-    // do not cast INT32 to float
-    DataLayout tmp = priv_->host_layout;
-    tmp.dtype = priv_->layouts[out_idx].dtype == DataType::INT32 ? DataType::INT32 : tmp.dtype;
-    // transform data layout
-    detail::TransLayout(out_tmp.MutableData(), out_cpu[out_idx].MutableData(), priv_->layouts[out_idx],
-                        priv_->host_layout, s);
   }
 
   // use real number of data as batch size
   const size_t batch_size = pack->data.size();
   std::vector<std::future<bool>> res;
   res.reserve(batch_size);
-  // collect output shapes
+  // collect output shapes and layouts
   std::vector<Shape> out_shapes;
+  std::vector<DataLayout> out_layouts;
   for (size_t out_idx = 0; out_idx < out_cpu.size(); ++out_idx) {
-    bool no_transpose = priv_->layouts[out_idx].order == priv_->host_layout.order || out_mlu.shapes[out_idx].Size() < 3;
-    Shape s;
-    // shape is corresponding to buffer after translayout
-    if (no_transpose) {
-      s = out_mlu.shapes[out_idx];
-    } else if (priv_->host_layout.order == DimOrder::NHWC) {
-      s = Shape(DimNCHW2NHWC(out_mlu.shapes[out_idx].Vectorize()));
-    } else if (priv_->host_layout.order == DimOrder::NCHW) {
-      s = Shape(DimNHWC2NCHW(out_mlu.shapes[out_idx].Vectorize()));
+    Shape s = out_mlu.shapes[out_idx];
+    if ((priv_->layouts[out_idx].order == DimOrder::NCHW || priv_->layouts[out_idx].order == DimOrder::NHWC) &&
+        (priv_->host_layout.order == DimOrder::NCHW || priv_->host_layout.order == DimOrder::NHWC)) {
+      bool need_transpose = (priv_->layouts[out_idx].order != priv_->host_layout.order) &&
+                            (out_mlu.shapes[out_idx].Size() >= 3);
+      // shape is corresponding to buffer after translayout
+      if (need_transpose) {
+        if (priv_->host_layout.order == DimOrder::NHWC) {
+          s = Shape(DimNCHW2NHWC(out_mlu.shapes[out_idx].Vectorize()));
+        } else if (priv_->host_layout.order == DimOrder::NCHW) {
+          s = Shape(DimNHWC2NCHW(out_mlu.shapes[out_idx].Vectorize()));
+        }
+      }
+      s[0] = 1;
+      DataLayout layout = {priv_->host_layout.dtype, priv_->host_layout.order};
+      out_layouts.emplace_back(layout);
     } else {
-      LOG(ERROR) << "Non supported dim order: " << static_cast<int>(priv_->host_layout.order);
-      return Status::ERROR_BACKEND;
+      VLOG(4) << "Not transpose output dim order to host dim order, use the original dim order";
+      DataLayout layout = {priv_->host_layout.dtype, priv_->layouts[out_idx].order};
+      out_layouts.emplace_back(layout);
     }
-    s[0] = 1;
     out_shapes.emplace_back(std::move(s));
   }
+
+  // invoke user postprocess function
   for (size_t batch_idx = 0; batch_idx < batch_size; ++batch_idx) {
     ModelIO outputs;
     for (size_t out_idx = 0; out_idx < out_cpu.size(); ++out_idx) {

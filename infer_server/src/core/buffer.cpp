@@ -147,6 +147,7 @@ void Buffer::LazyMalloc() {
       if (!data_->data) THROW_EXCEPTION(Exception::MEMORY, "malloc failed");
     } else if (type_ == MemoryType::MLU) {
       cnrtRet_t error_code;
+      SetCurrentDevice(data_->device_id);
       error_code = cnrtMalloc(&data_->data, memory_size_);
       VLOG(5) << "Alloc memory on MLU in " << memory_size_ << " bytes. " << data_->data;
       CHECK_CNRT_RET(error_code, "Mlu malloc failed.");
@@ -177,7 +178,7 @@ bool Buffer::OwnMemory() const noexcept {
   return data_ && data_->data;
 }
 
-void Buffer::CopyFrom(void* cpu_src, size_t copy_size) {
+void Buffer::CopyFrom(const void* cpu_src, size_t copy_size) {
   if (this->MemorySize() < copy_size) {
     THROW_EXCEPTION(Exception::INVALID_ARG, "copy: dst size less than copy size");
   }

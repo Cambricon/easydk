@@ -58,7 +58,11 @@ ClassificationRunner::ClassificationRunner(const VideoDecoder::DecoderType& deco
   desc.name = "classification session";
 
   // load offline model
+#ifdef CNIS_USE_MAGICMIND
+  desc.model = infer_server::InferServer::LoadModel(model_path);
+#else
   desc.model = infer_server::InferServer::LoadModel(model_path, func_name);
+#endif
   // set preproc and postproc
   desc.preproc = infer_server::video::PreprocessorMLU::Create();
   desc.postproc = infer_server::Postprocessor::Create();
@@ -66,10 +70,7 @@ ClassificationRunner::ClassificationRunner(const VideoDecoder::DecoderType& deco
 #ifdef CNIS_USE_MAGICMIND
   desc.preproc->SetParams("preprocess_type", infer_server::video::PreprocessType::CNCV_PREPROC,
                           "src_format", infer_server::video::PixelFmt::NV12,
-                          "dst_format", infer_server::video::PixelFmt::RGB24,
-                          "normalize", false,
-                          "mean", std::vector<float>({104, 117, 123}),
-                          "std", std::vector<float>({1, 1, 1}));
+                          "dst_format", infer_server::video::PixelFmt::RGB24);
 #else
 desc.preproc->SetParams("preprocess_type", infer_server::video::PreprocessType::CNCV_PREPROC,
                         "src_format", infer_server::video::PixelFmt::NV12,

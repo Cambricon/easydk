@@ -63,7 +63,7 @@ class Predictor : public ProcessorForkable<Predictor> {
    *
    * @param data processed data
    * @retval Status::SUCCESS Succeeded
-   * @retval Status::INVALID_PARAM Predictor get uncontinuous data
+   * @retval Status::INVALID_PARAM Predictor get discontinuous data
    * @retval Status::WRONG_TYPE Predictor get data of wrong type (bad_any_cast)
    * @retval Status::ERROR_BACKEND Predict failed
    */
@@ -73,7 +73,7 @@ class Predictor : public ProcessorForkable<Predictor> {
    * @brief Initialize predictor
    *
    * @retval Status::SUCCESS Init succeeded
-   * @retval Status::INVALID_PARAM Predictor donot have enough params or get wrong params, @see BaseObject::SetParam
+   * @retval Status::INVALID_PARAM Predictor do not have enough params or get wrong params, @see BaseObject::SetParam
    * @retval Status::WRONG_TYPE Predictor get params of wrong type (bad_any_cast)
    */
   Status Init() noexcept override;
@@ -126,7 +126,7 @@ class PreprocessorHost : public ProcessorForkable<PreprocessorHost> {
    * @brief Initialize PreprocessorHost
    *
    * @retval Status::SUCCESS Init succeeded
-   * @retval Status::INVALID_PARAM Preprocessor not have enough params or get wrong params, @see BaseObject::SetParam
+   * @retval Status::INVALID_PARAM Preprocessor do not have enough params or get wrong params, @see BaseObject::SetParam
    * @retval Status::WRONG_TYPE Preprocessor get params of wrong type (bad_any_cast)
    */
   Status Init() noexcept override;
@@ -209,7 +209,7 @@ class Postprocessor : public ProcessorForkable<Postprocessor> {
    *
    * @param data processed data
    * @retval Status::SUCCESS Succeeded
-   * @retval Status::INVALID_PARAM Postprocessor get uncontinuous data
+   * @retval Status::INVALID_PARAM Postprocessor get discontinuous data
    * @retval Status::WRONG_TYPE Postprocessor get data of wrong type (bad_any_cast)
    * @retval Status::ERROR_BACKEND Postprocess failed in transform layout or process_function set by user
    */
@@ -219,7 +219,8 @@ class Postprocessor : public ProcessorForkable<Postprocessor> {
    * @brief Initialize PostprocessorHost
    *
    * @retval Status::SUCCESS Init succeeded
-   * @retval Status::INVALID_PARAM Postprocessor donot have enough params or get wrong params, @see BaseObject::SetParam
+   * @retval Status::INVALID_PARAM Postprocessor do not have enough params or get wrong params,
+   *         @see BaseObject::SetParam
    * @retval Status::WRONG_TYPE Postprocessor get params of wrong type (bad_any_cast)
    */
   Status Init() noexcept override;

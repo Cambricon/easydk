@@ -30,6 +30,7 @@
 #include "cnis/processor.h"
 #include "core/data_type.h"
 #include "model/model.h"
+#include "util/env.h"
 
 using std::shared_ptr;
 using std::vector;
@@ -45,34 +46,61 @@ namespace infer_server {
     }                                                \
   } while (0)
 struct PredictorPrivate {
-  // FIXME(dmh): data is not always float
-  void DumpData(vector<Buffer>& in, vector<Buffer>& out) {
-    // input
-    int64_t in_data_count = model->InputShape(0).BatchDataCount();
-    size_t in_data_size = in_data_count * GetTypeSize(model->InputLayout(0).dtype);
-    Buffer in_cpu(in_data_size);
-    in_cpu.CopyFrom(in[0], in_data_size);
-    const float* i_data = reinterpret_cast<const float*>(in_cpu.Data());
-
-    std::ofstream in_file("in.txt");
-    for (int idx = 0; idx < in_data_count; ++idx) {
-      in_file << i_data[idx] << "\n";
+#ifndef NDEBUG
+  void PrintTo(std::ostream& os, const void* data, DataType dtype, size_t cnt) {
+    if (dtype == DataType::FLOAT32) {
+      const float* i_data = reinterpret_cast<const float*>(data);
+      for (size_t idx = 0; idx < cnt; ++idx) {
+        os << i_data[idx] << "\n";
+      }
+    } else if (dtype == DataType::FLOAT16) {
+      const uint16_t* i_data = reinterpret_cast<const uint16_t*>(data);
+      float d;
+      for (size_t idx = 0; idx < cnt; ++idx) {
+        auto ret = cnrtConvertHalfToFloat(&d, i_data[idx]);
+        if (ret != CNRT_RET_SUCCESS) throw std::runtime_error("internal error");
+        os << d << "\n";
+      }
+    } else if (dtype == DataType::UINT8) {
+      const uint8_t* i_data = reinterpret_cast<const uint8_t*>(data);
+      for (size_t idx = 0; idx < cnt; ++idx) {
+        os << static_cast<uint32_t>(i_data[idx]) << "\n";
+      }
+    } else {
+      throw std::runtime_error("unsupported dtype");
     }
-    in_file.close();
+  }
+  void DumpData(vector<Buffer>& in, vector<Buffer>& out) {  // NOLINT
+    LOG(INFO) << "dump model input/output   --" << model->GetKey();
+    // input
+    for (uint32_t i_idx = 0; i_idx < in.size(); ++i_idx) {
+      int64_t in_data_count = model->InputShape(i_idx).BatchDataCount();
+      size_t in_data_size = in_data_count * GetTypeSize(model->InputLayout(i_idx).dtype);
+      Buffer in_cpu(in_data_size);
+      in_cpu.CopyFrom(in[i_idx], in_data_size);
+
+      std::string f_name = "in_" + std::to_string(i_idx) + ".txt";
+      std::ofstream in_f(f_name);
+      CHECK(in_f.is_open());
+      PrintTo(in_f, in_cpu.Data(), model->InputLayout(i_idx).dtype, in_data_count);
+      in_f.close();
+    }
 
     // output
-    int64_t data_count = model->OutputShape(0).BatchDataCount();
-    size_t data_size = data_count * GetTypeSize(layouts[0].dtype);
-    Buffer out_cpu(data_size);
-    out_cpu.CopyFrom(out[0], data_size);
-    const float* o_data = reinterpret_cast<const float*>(out_cpu.Data());
+    for (uint32_t o_idx = 0; o_idx < out.size(); ++o_idx) {
+      int64_t out_data_count = model->OutputShape(o_idx).BatchDataCount();
+      size_t out_data_size = out_data_count * GetTypeSize(layouts[o_idx].dtype);
+      Buffer out_cpu(out_data_size);
+      out_cpu.CopyFrom(out[o_idx], out_data_size);
 
-    std::ofstream out_file("out.txt");
-    for (int idx = 0; idx < data_count; ++idx) {
-      out_file << o_data[idx] << "\n";
+      std::string f_name = "out_" + std::to_string(o_idx) + ".txt";
+      std::ofstream out_f(f_name);
+      CHECK(out_f.is_open());
+      PrintTo(out_f, out_cpu.Data(), model->OutputLayout(o_idx).dtype, out_data_count);
+      out_f.close();
     }
-    out_file.close();
   }
+  #endif
   ModelPtr model{nullptr};
   vector<std::unique_ptr<MluMemoryPool>> output_pools;
   std::shared_ptr<ModelRunner> runner;
@@ -175,6 +203,11 @@ Status Predictor::Process(PackagePtr pack) noexcept {
 #endif
     }
     s = priv_->runner->Run(&in_mlu, &out_mlu);
+
+#ifndef NDEBUG
+    static bool dump_data = GetBoolFromEnv("CNIS_DUMP_MODEL_IO", false);
+    if (dump_data) { priv_->DumpData(in_mlu.buffers, out_mlu.buffers); }
+#endif
   } catch (bad_any_cast&) {
     LOG(ERROR) << "predictor received unsupported data type";
     return Status::WRONG_TYPE;

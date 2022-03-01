@@ -176,6 +176,7 @@ TEST(Easytrack, KCF) {
   bool ret = true;
   int width = 500;
   int height = 500;
+  int mem_size = width * height;
   std::vector<edk::DetectObject> detects;
   std::vector<edk::DetectObject> tracks;
   edk::MluMemoryOp mem_op;
@@ -188,13 +189,13 @@ TEST(Easytrack, KCF) {
   tracker->SetModel(loader);
   tracker->SetParams(0.2);
   int size[10] = {0};
-  void *output = mem_op.AllocMlu(width * height);
+  void *output = mem_op.AllocMlu(mem_size);
 
   std::string image_path = GetExePath() + "../../tests/data/500x500.jpg";
   cv::Mat image = cv::imread(image_path);
   cv::resize(image, image, cv::Size(width, height));
   cv::cvtColor(image, image, CV_BGRA2GRAY);
-  mem_op.MemcpyH2D(output, reinterpret_cast<void *>(image.data), width * height);
+  mem_op.MemcpyH2D(output, reinterpret_cast<void *>(image.data), mem_size);
 
   for (int i = 0; i < 10; i++) {
     detects.clear();

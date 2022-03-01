@@ -129,7 +129,7 @@ struct OpencvPreproc {
         } else if (dst_fmt_ == PixelFmt::RGB24 || dst_fmt_ == PixelFmt::BGR24) {
           tmp_resize = cv::Mat(dst_height, dst_width, CV_8UC3, cv::Scalar(pad_value_));
         } else {
-          std::cerr << "unsupport fmt for model input." << std::endl;
+          std::cerr << "unsupported format for model input." << std::endl;
         }
         auto rect = KeepAspectRatio(src_width, src_height, dst_width, dst_height);
         cv::Mat resize_keepaspectratio = tmp_resize(rect);
@@ -143,7 +143,7 @@ struct OpencvPreproc {
 
     uint32_t channel_num = GetChannelNum();
     if (channel_num == 0) {
-      std::cerr << "unsupport fmt for model input." << std::endl;
+      std::cerr << "unsupported format for model input." << std::endl;
       return false;
     }
     DataType dst_dtype = m->InputLayout(0).dtype;
@@ -207,7 +207,7 @@ inline uint32_t OpencvPreproc::GetChannelNum() {
     case PixelFmt::BGRA:
       return 4;
     default:
-      std::cerr << "Unsupport dst_fmt in OpencvPreproc." << std::endl;
+      std::cerr << "unsupported destination format in OpencvPreproc." << std::endl;
   }
   return 0;
 }

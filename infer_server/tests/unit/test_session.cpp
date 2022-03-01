@@ -36,7 +36,7 @@ auto g_empty_preproc_func = [](ModelIO*, const InferData&, const ModelInfo*) { r
 constexpr int device_id = 0;
 
 #ifdef CNIS_USE_MAGICMIND
-static const char* model_url = "http://video.cambricon.com/models/MLU370/resnet50_nhwc_tfu_0.5_int8_fp16.model";
+static const char* model_url = "http://video.cambricon.com/models/MLU370/resnet50_nhwc_tfu_0.8.2_uint8_int8_fp16.model";
 #else
 static const char* model_url = "http://video.cambricon.com/models/MLU270/Primary_Detector/ssd/resnet34_ssd.cambricon";
 #endif

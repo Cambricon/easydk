@@ -252,6 +252,9 @@ class Mlu300Encoder : public Encoder{
 
   std::mutex list_mtx_;
   std::list<cncodecFrame_t> input_list_;
+
+  std::atomic<bool> first_frame_{true};
+  CnPacket head_pkg_;
 };
 
 static int32_t EventHandler(cncodecEventType_t type, void *user_data, void *package);
@@ -545,7 +548,7 @@ Mlu300Encoder::~Mlu300Encoder() {
       if (!send_eos_ && handle_) {
         eos_lk.unlock();
         LOGI(ENCODE) << "Send EOS in destruct";
-        FeedEos();
+        Mlu300Encoder::FeedEos();
       } else {
         if (!handle_) got_eos_ = true;
       }
@@ -584,7 +587,7 @@ Mlu300Encoder::~Mlu300Encoder() {
 
 bool Mlu300Encoder::ReleaseBuffer(uint64_t buf_id) {
   LOGD(ENCODE) << "Release buffer, " << reinterpret_cast<void *>(buf_id);
-  delete[] reinterpret_cast<uint8_t *>(buf_id);
+  if (buf_id) delete[] reinterpret_cast<uint8_t *>(buf_id);
   return true;
 }
 
@@ -620,7 +623,18 @@ void Mlu300Encoder::ReceivePacket(void *_packet) {
     cn_packet.pts = stream->pts;
     cn_packet.codec_type = attr_.codec_type;
     cn_packet.buf_id = reinterpret_cast<uint64_t>(cn_packet.data);
-    attr_.packet_callback(cn_packet);
+    if (first_frame_ && cn_packet.slice_type == BitStreamSliceType::SPS_PPS) {
+      head_pkg_ = cn_packet;
+    } else if (first_frame_ && (cn_packet.slice_type == BitStreamSliceType::FRAME ||
+                                cn_packet.slice_type == BitStreamSliceType::KEY_FRAME)) {
+      first_frame_ = false;
+
+      if (head_pkg_.buf_id) { attr_.packet_callback(head_pkg_); }
+
+      attr_.packet_callback(cn_packet);
+    } else {
+      attr_.packet_callback(cn_packet);
+    }
   }
 }
 

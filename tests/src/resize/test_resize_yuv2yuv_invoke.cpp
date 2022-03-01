@@ -39,7 +39,7 @@ static void SaveImg(cv::Mat yuv_img, bool yuv_nv12, int cnt, std::string prefix)
 }
 #endif
 
-static void Rgb2Yuv(std::string path, TestResizeParam p, char* cpu_input, int frame_cnt) {
+static void Rgb2Yuv(const std::string& path, TestResizeParam p, char* cpu_input, int frame_cnt) {
   cv::Mat src_image, src_yuv_image;
   // read src image
   src_image = cv::imread(exe_path + dir + path, CV_LOAD_IMAGE_COLOR);
@@ -113,7 +113,7 @@ static void H2D(TestResizeParam param, std::vector<std::string> image_name, char
 }
 
 static void InvokeResizeYuv2Yuv(char* mlu_input, char* mlu_output, TestResizeParam param,
-                                std::vector<std::string> image_name, int batch_num, uint32_t channel_id,
+                                const std::vector<std::string>& image_name, int batch_num, uint32_t channel_id,
                                 bool print_hardware_time, bool print_time) {
   cnrtNotifier_t eventBegin = nullptr;
   cnrtNotifier_t eventEnd = nullptr;

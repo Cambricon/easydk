@@ -51,6 +51,9 @@ LIBYUV_API extern const struct YuvConstants kYvu2020Constants;  // BT.2020
   I420AlphaToARGBMatrix(a, b, e, f, c, d, g, h, i, j, k##VU, l, m, n)
 
 // Alias.
+#define RAWCopy    RGB24Copy
+#define RAWToRAW   RGB24Copy
+#define RGB24ToRAW RAWToRGB24
 #define ARGBToARGB ARGBCopy
 
 // Copy ARGB to ARGB.
@@ -59,6 +62,16 @@ int ARGBCopy(const uint8_t* src_argb,
              int src_stride_argb,
              uint8_t* dst_argb,
              int dst_stride_argb,
+             int width,
+             int height);
+
+// Copy RGB24 to RGB24
+#define RGB24ToRGB24 RGB24Copy
+LIBYUV_API
+int RGB24Copy(const uint8_t* src_rgb24,
+             int src_stride_rgb24,
+             uint8_t* dst_rgb24,
+             int dst_stride_rgb24,
              int width,
              int height);
 

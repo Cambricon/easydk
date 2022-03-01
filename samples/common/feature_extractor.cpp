@@ -59,8 +59,11 @@ bool FeatureExtractor::Init(const std::string &model_path, const std::string &fu
   desc.name = "Feature extract session";
 
   // load offline model
+#ifdef CNIS_USE_MAGICMIND
+  desc.model = infer_server::InferServer::LoadModel(model_path);
+#else
   desc.model = infer_server::InferServer::LoadModel(model_path, func_name);
-
+#endif
   // set preproc and postproc
   desc.preproc = infer_server::video::PreprocessorMLU::Create();
   desc.postproc = infer_server::Postprocessor::Create();

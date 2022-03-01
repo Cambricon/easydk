@@ -1,5 +1,5 @@
 /*************************************************************************
- * Copyright (C) [2021] by Cambricon, Inc. All rights reserved
+ * Copyright (C) [2022] by Cambricon, Inc. All rights reserved
  *
  *  Licensed under the Apache License, Version 2.0 (the "License");
  *  you may not use this file except in compliance with the License.
@@ -17,8 +17,8 @@
  * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
  * THE SOFTWARE.
  *************************************************************************/
-#ifndef EDK_SAMPLES_POSTPROCESS_POSTPROC_H_
-#define EDK_SAMPLES_POSTPROCESS_POSTPROC_H_
+#ifndef INFER_SERVER_SAMPLES_POSTPROCESS_POSTPROC_H_
+#define INFER_SERVER_SAMPLES_POSTPROCESS_POSTPROC_H_
 
 #include "cnis/contrib/video_helper.h"
 #include "cnis/infer_server.h"
@@ -28,19 +28,14 @@ struct DetectObject {
   int label;
   float score;
   infer_server::video::BoundingBox bbox;
-};  // struct DetectObject
+};
+
+struct FrameSize {
+  int width;
+  int height;
+};  // struct FrameSize
 
 inline float Clip(float x) { return x < 0 ? 0 : (x > 1 ? 1 : x); }
-
-struct PostprocClassification {
-  float threshold;
-
-  explicit PostprocClassification(float _threshold = 0) : threshold(_threshold) {}
-
-  bool operator()(infer_server::InferData* result, const infer_server::ModelIO& model_output,
-                  const infer_server::ModelInfo* model);
-};  // struct PostprocClassification
-
 
 struct PostprocSSD {
   float threshold;
@@ -50,35 +45,6 @@ struct PostprocSSD {
   bool operator()(infer_server::InferData* result, const infer_server::ModelIO& model_output,
                   const infer_server::ModelInfo* model);
 };  // struct PostprocSSD
-
-
-struct FrameSize {
-  int width;
-  int height;
-};  // struct FrameSize
-
-
-struct PostprocYolov3 {
-  float threshold;
-
-  explicit PostprocYolov3(float _threshold) : threshold(_threshold) {}
-
-  bool operator()(infer_server::InferData* result, const infer_server::ModelIO& model_output,
-                  const infer_server::ModelInfo* model);
-  void SetFrameSize(FrameSize size) {
-    size_ = size;
-    set_frame_size_ = true;
-  }
-
-  FrameSize GetFrameSize() {
-    return size_;
-  }
-
- private:
-  bool set_frame_size_ = false;
-  FrameSize size_{0, 0};
-};  // struct PostprocYolov3
-
 
 struct PostprocYolov3MM {
   float threshold;
@@ -122,4 +88,4 @@ struct PostprocYolov5 {
   FrameSize size_{0, 0};
 };  // struct PostprocYolov5
 
-#endif  // EDK_SAMPLES_POSTPROCESS_POSTPROC_H_
+#endif  // INFER_SERVER_SAMPLES_POSTPROCESS_POSTPROC_H_

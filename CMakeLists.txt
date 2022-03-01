@@ -132,7 +132,7 @@ if (WITH_INFER_SERVER)
   message(STATUS "Build with InferServer")
   # ---[ Google-glog
   find_package(Glog)
-  find_package(Gflags)
+  find_package(GFlags)
 
   if (CNIS_WITH_CONTRIB)
     file(GLOB_RECURSE infer_server_contrib_srcs ${CMAKE_CURRENT_SOURCE_DIR}/infer_server/src/contrib/*.cpp)
@@ -228,6 +228,9 @@ if (WITH_INFER_SERVER)
   target_link_libraries(easydk PUBLIC ${GLOG_LIBRARIES} ${GFLAGS_LIBRARIES})
 
   if(BUILD_SAMPLES)
+    if(NOT WITH_TURBOJPEG)
+      add_subdirectory(3rdparty/libyuv)
+    endif()
     add_subdirectory(infer_server/samples)
   endif()
   if(BUILD_TESTS)
@@ -250,11 +253,8 @@ set_target_properties(easydk PROPERTIES SOVERSION ${EDK_VERSION_MAJOR})
 
 install(TARGETS easydk LIBRARY DESTINATION lib64)
 
-if(BUILD_SAMPLES AND WITH_INFER AND WITH_CODEC AND WITH_TRACKER AND WITH_INFER_SERVER)
+if(BUILD_SAMPLES AND WITH_CODEC AND WITH_TRACKER AND WITH_INFER_SERVER)
   message(STATUS "---------------- Build samples -----------------")
-  if(NOT WITH_TURBOJPEG)
-    add_subdirectory(3rdparty/libyuv)
-  endif()
   add_subdirectory(samples)
 endif()
 

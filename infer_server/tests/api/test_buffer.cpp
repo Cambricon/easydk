@@ -40,7 +40,7 @@ TEST_F(InferServerTestAPI, Buffer) {
   while (--times) {
     try {
       size_t str_size = 170 * times;
-      snprintf(raw_str, str_size, "test MluMemory, s: %lu", str_size);
+      snprintf(raw_str, str_size, "test MluMemory, s: %zu", str_size);
       infer_server::Buffer mlu_src(str_size, device_id_);
       infer_server::Buffer mlu_dst(str_size, device_id_);
       EXPECT_FALSE(mlu_src.OwnMemory());
@@ -103,7 +103,7 @@ TEST_F(InferServerTestAPI, MluMemoryPoolBuffer) {
   while (--times) {
     try {
       size_t a_number = 170 * times;
-      snprintf(str, kStrLength, "test MluMemory, s: %lu", a_number);
+      snprintf(str, kStrLength, "test MluMemory, s: %zu", a_number);
       void *in = reinterpret_cast<void *>(str);
       void *out = reinterpret_cast<void *>(str_out);
 

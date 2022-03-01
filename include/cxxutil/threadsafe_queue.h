@@ -57,7 +57,7 @@ class ThreadSafeQueue {
   /**
    * @brief wait until queue is not empty and pop an element, or timeout reached
    *
-   * @param value reference to poped element
+   * @param value reference to popped element
    * @param timeout maximum duration to block for
    * @retval true if succeeded
    * @retval false if timeout reached

@@ -264,6 +264,7 @@ void Session::CheckAndResponse(const RequestControl* caller) noexcept {
 #endif
         next->Response();
       }
+      executor_->ReleaseCount(next->DataNum());
       delete next;
       next = nullptr;
 

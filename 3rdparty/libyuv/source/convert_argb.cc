@@ -47,6 +47,29 @@ int ARGBCopy(const uint8_t* src_argb,
   return 0;
 }
 
+// Copy RGB24 with optional flipping
+LIBYUV_API
+int RGB24Copy(const uint8_t* src_rgb24,
+             int src_stride_rgb24,
+             uint8_t* dst_rgb24,
+             int dst_stride_rgb24,
+             int width,
+             int height) {
+  if (!src_rgb24 || !dst_rgb24 || width <= 0 || height == 0) {
+    return -1;
+  }
+  // Negative height means invert the image.
+  if (height < 0) {
+    height = -height;
+    src_rgb24 = src_rgb24 + (height - 1) * src_stride_rgb24;
+    src_stride_rgb24 = -src_stride_rgb24;
+  }
+
+  CopyPlane(src_rgb24, src_stride_rgb24, dst_rgb24, dst_stride_rgb24,
+            width * 3, height);
+  return 0;
+}
+
 // Convert I420 to ARGB with matrix.
 LIBYUV_API
 int I420ToARGBMatrix(const uint8_t* src_y,

@@ -44,9 +44,9 @@ struct PreprocSSD {
                   const infer_server::ModelInfo* model);
 
  private:
-#ifdef HAVE_CNCV
   int dev_id_;
   infer_server::ModelPtr model_;
+#ifdef HAVE_CNCV
   cnrtQueue_t queue_;
   cncvHandle_t handle_;
   infer_server::Buffer workspace_;

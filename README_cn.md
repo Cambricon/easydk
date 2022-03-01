@@ -156,3 +156,10 @@ Easydk仅支持源码编译的方式使用，按如下步骤编译Easydk (`${EAS
 
    可下载edge编译压缩包 http://video.cambricon.com/models/edge.tar.gz, 解压后按照README文档提供的步骤进行编译。
 
+## 文档 ##
+
+[Cambricon Forum Docs](https://www.cambricon.com/docs/easydk/user_guide_html/index.html)
+
+更多内容请参看文档，包括如何使用EasyDK，EasyDK模块的详细介绍以及一些示例代码等等。
+
+另外也可参看基于EasyDK的应用程序移植教程 `${EASYDK_DIR}/docs/ApplicationPortingTutorialBasedOnEasyDK.md` 。

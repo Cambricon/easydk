@@ -73,15 +73,17 @@ TEST(InferServerCore, ConstexprPriority) {
   ASSERT_EQ(Priority::Offset(major, offset), major + Priority::ShiftMajor(offset));
   ASSERT_EQ(Priority::Next(major), Priority::Offset(major, 1));
   ASSERT_EQ(c_p, Priority(base));
-  if (base > 0 && base < 10) {
-    ASSERT_GT(c_p, Priority(base - 1));
-  } else {
-    ASSERT_EQ(c_p, Priority(base - 1));
-  }
-  if (base > -1 && base < 9) {
-    ASSERT_LT(c_p, Priority(base + 1));
-  } else {
-    ASSERT_EQ(c_p, Priority(base + 1));
-  }
+  ASSERT_GT(c_p, Priority(base - 1));
+  ASSERT_LT(c_p, Priority(base + 1));
+  // if (base > 0 && base < 10) {
+  //   ASSERT_GT(c_p, Priority(base - 1));
+  // } else {
+  //   ASSERT_EQ(c_p, Priority(base - 1));
+  // }
+  // if (base > -1 && base < 9) {
+  //   ASSERT_LT(c_p, Priority(base + 1));
+  // } else {
+  //   ASSERT_EQ(c_p, Priority(base + 1));
+  // }
 }
 

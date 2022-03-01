@@ -39,9 +39,9 @@ namespace {
 
 #ifdef CNIS_USE_MAGICMIND
 constexpr const char* g_model_path1 =
-    "http://video.cambricon.com/models/MLU370/resnet50_nhwc_tfu_0.5_int8_fp16.model";
+    "http://video.cambricon.com/models/MLU370/resnet50_nhwc_tfu_0.8.2_uint8_int8_fp16.model";
 constexpr const char* g_model_path2 =
-    "http://video.cambricon.com/models/MLU370/yolov3_nhwc_tfu_0.5_int8_fp16.model";
+    "http://video.cambricon.com/models/MLU370/yolov3_nhwc_tfu_0.8.2_uint8_int8_fp16.model";
 #else
 constexpr const char* g_model_path1 =
     "http://video.cambricon.com/models/MLU270/Primary_Detector/ssd/resnet34_ssd.cambricon";
@@ -62,8 +62,6 @@ TEST_F(InferServerTestAPI, ModelManager) {
   EXPECT_EQ(ModelManager::Instance()->CacheSize(), 1);
   auto l = server_->LoadModel(g_model_path2);
   ASSERT_TRUE(l);
-  EXPECT_EQ(ModelManager::Instance()->CacheSize(), 2);
-  server_->LoadModel("./resnet50_nhwc_tfu_0.5_int8_fp16.graph", "./resnet50_nhwc_tfu_0.5_int8_fp16.data");
   EXPECT_EQ(ModelManager::Instance()->CacheSize(), 2);
   /************************************************************************************/
   EXPECT_EQ(ModelManager::Instance()->CacheSize(), 2);

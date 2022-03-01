@@ -87,7 +87,7 @@ void ModelManager::CheckAndCleanCache() noexcept {
 }
 
 #ifdef CNIS_USE_MAGICMIND
-ModelPtr ModelManager::Load(const std::string& model_file) noexcept {
+ModelPtr ModelManager::Load(const std::string& model_file, const std::vector<Shape>& in_shape) noexcept {
   std::string model_path;
   // check if model file exist
   if (detail::IsNetFile(model_file)) {
@@ -108,7 +108,7 @@ ModelPtr ModelManager::Load(const std::string& model_file) noexcept {
     // cache not hit
     LOG(INFO) << "Load model from model file: " << model_path;
     auto model = std::make_shared<Model>();
-    if (!model->Init(model_path)) {
+    if (!model->Init(model_path, in_shape)) {
       return nullptr;
     }
     CheckAndCleanCache();
@@ -121,7 +121,7 @@ ModelPtr ModelManager::Load(const std::string& model_file) noexcept {
   }
 };
 
-ModelPtr ModelManager::Load(void* mem_ptr, size_t size) noexcept {
+ModelPtr ModelManager::Load(void* mem_ptr, size_t size, const std::vector<Shape>& in_shape) noexcept {
   // check model in cache valid
   RETURN_VAL_IF_FAIL(mem_ptr, "Invalid memory pointer, please check model cached in memory", nullptr);
 
@@ -132,7 +132,7 @@ ModelPtr ModelManager::Load(void* mem_ptr, size_t size) noexcept {
     // cache not hit
     LOG(INFO) << "Load model from memory: " << mem_ptr << ", size: " << size;
     auto model = std::make_shared<Model>();
-    if (!model->Init(mem_ptr, size)) {
+    if (!model->Init(mem_ptr, size, in_shape)) {
       return nullptr;
     }
     CheckAndCleanCache();

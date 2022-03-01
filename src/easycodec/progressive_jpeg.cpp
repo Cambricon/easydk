@@ -21,6 +21,7 @@
 
 #include "cnrt.h"
 #include "cxxutil/log.h"
+#include "cxxutil/noncopy.h"
 #include "decoder.h"
 #include "easycodec/easy_decode.h"
 
@@ -71,7 +72,7 @@ static bool BGRToNV21(uint8_t* src, uint8_t* dst_y, int dst_y_stride, uint8_t* d
                int height) {
   int i420_stride_y = width;
   int i420_stride_u = width / 2;
-  int i420_stride_v = width / 2;
+  int i420_stride_v = i420_stride_u;
   uint8_t* i420 = new uint8_t[width * height * 3 / 2];
   // clang-format off
   libyuv::RGB24ToI420(src, width * 3,
@@ -95,7 +96,7 @@ static bool BGRToNV12(uint8_t* src, uint8_t* dst_y, int dst_y_stride, uint8_t* d
                int height) {
   int i420_stride_y = width;
   int i420_stride_u = width / 2;
-  int i420_stride_v = width / 2;
+  int i420_stride_v = i420_stride_u;
   uint8_t* i420 = new uint8_t[width * height * 3 / 2];
   // clang-format off
   libyuv::RGB24ToI420(src, width * 3,
@@ -120,7 +121,7 @@ static bool BGRToNV12(uint8_t* src, uint8_t* dst_y, int dst_y_stride, uint8_t* d
 }  // namespace detail
 
 #ifdef ENABLE_TURBOJPEG
-class ProgressiveJpegDecoder : public Decoder {
+class ProgressiveJpegDecoder : public Decoder, public NonCopyable {
  public:
   explicit ProgressiveJpegDecoder(const EasyDecode::Attr& attr);
   ~ProgressiveJpegDecoder();
