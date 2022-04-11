@@ -21,6 +21,7 @@
 
 #include "easycodec/easy_decode.h"
 #include "easycodec/vformat.h"
+#include "cxxutil/rwlock.h"
 
 namespace edk {
 
@@ -38,6 +39,7 @@ class Decoder {
   virtual bool FeedData(const CnPacket& packet) noexcept(false) = 0;
   virtual bool FeedEos() noexcept(false) = 0;
   virtual bool ReleaseBuffer(uint64_t buf_id) = 0;
+  virtual void DestroyDecoder() = 0;
 
   EasyDecode::Attr GetAttr() const { return attr_; }
   EasyDecode::Status GetStatus() const { return status_.load(); }
@@ -62,6 +64,7 @@ class Decoder {
  protected:
   EasyDecode::Attr attr_;
   std::atomic<EasyDecode::Status> status_{EasyDecode::Status::RUNNING};
+  RwLock handle_lk_;
   std::atomic<int> minimum_buf_cnt_{0};
 };
 

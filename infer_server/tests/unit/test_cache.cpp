@@ -247,7 +247,7 @@ TEST(InferServerCore, DynamicCache_ConcurrentAndDiscard) {
   cache->Stop();
   while (auto pack = cache->Pop()) {
     for (auto& it : pack->data) {
-      EXPECT_FALSE(it->ctrl->IsDiscarded()) << "discarded data should not be popped out";
+      EXPECT_FALSE(it->ctrl->IsDiscarded()) << "[EasyDK Tests] [InferServer] discarded data should not be popped out";
       EXPECT_NE(it->ctrl->Tag(), std::to_string(discard_idx));
     }
   }

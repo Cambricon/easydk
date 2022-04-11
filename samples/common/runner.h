@@ -49,7 +49,11 @@ class StreamRunner : public IDecodeEventHandle {
   virtual void Process(edk::CnFrame frame) = 0;
   void DemuxLoop(const uint32_t repeat_time);
 
-  void OnEos() override { receive_eos_ = true; }
+  void OnEos() override {
+    std::unique_lock<std::mutex> lk(eos_mut_);
+    receive_eos_ = true;
+    eos_cond_.notify_one();
+  }
   void OnDecodeFrame(const edk::CnFrame& info) override {
     std::unique_lock<std::mutex> lk(mut_);
     frames_.push(info);
@@ -75,6 +79,8 @@ class StreamRunner : public IDecodeEventHandle {
   std::mutex mut_;
   std::condition_variable cond_;
   std::string data_path_;
+  std::mutex eos_mut_;
+  std::condition_variable eos_cond_;
   std::atomic<bool> receive_eos_{false};
   std::atomic<bool> running_{false};
   std::atomic<bool> in_loop_{false};

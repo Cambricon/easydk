@@ -38,9 +38,9 @@ class Batcher {
   // timeout == 0 means no timeout
   Batcher(notifier_type notifier, uint32_t timeout, uint32_t batch_size)
       : notifier_(notifier), timeout_(timeout), batch_size_(batch_size) {
-    CHECK(batch_size) << "batch size is 0!";
-    VLOG(4) << "batcher] -------batch timeout " << timeout_ << " ms";
-    VLOG(4) << "batcher] -------batch size " << batch_size_;
+    CHECK(batch_size) << "[EasyDK InferServer] [Batcher] batch size is 0!";
+    VLOG(2) << "[EasyDK InferServer] [Batcher] -------batch timeout " << timeout_ << " ms";
+    VLOG(2) << "[EasyDK InferServer] [Batcher] -------batch size " << batch_size_;
     cache_.reserve(batch_size_);
     first_item_.store(true);
   }
@@ -91,11 +91,11 @@ class Batcher {
     cache_.reserve(batch_size_);
     lk.unlock();
 
-    VLOG(5) << "emit a batch, batch_size: " << tmp_cache.size();
+    VLOG(3) << "[EasyDK InferServer] [Batcher] Emit a batch, batch_size: " << tmp_cache.size();
     if (notifier_) {
       notifier_(std::move(tmp_cache));
     } else {
-      LOG(WARNING) << "Batcher donot have notifier, do nothing";
+      LOG(WARNING) << "[EasyDK InferServer] [Batcher] Notifier is not existed, do nothing";
     }
   }
 

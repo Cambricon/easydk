@@ -19,6 +19,7 @@
  *************************************************************************/
 
 #include <gflags/gflags.h>
+#include <glog/logging.h>
 #include <unistd.h>
 
 #include <csignal>
@@ -28,7 +29,6 @@
 #include <utility>
 
 #include "transcode_runner.h"
-#include "cxxutil/log.h"
 #include "device/mlu_context.h"
 
 DEFINE_int32(repeat_time, 0, "process repeat time");
@@ -47,22 +47,22 @@ bool g_exit = false;
 void HandleSignal(int sig) {
   g_runner->Stop();
   g_exit = true;
-  LOGI(SAMPLES) << "Got INT signal, ready to exit!";
+  LOG(INFO) << "[EasyDK Samples] [transcode] Got INT signal, ready to exit!";
 }
 
 int main(int argc, char** argv) {
   gflags::ParseCommandLineFlags(&argc, &argv, true);
-  edk::log::InitLogging(true, true);
+  google::InitGoogleLogging(argv[0]);
 
   // check params
-  CHECK(SAMPLES, FLAGS_data_path.size() != 0u);  // NOLINT
-  CHECK(SAMPLES, FLAGS_output_file_name.size() != 0u);  // NOLINT
-  CHECK(SAMPLES, FLAGS_dst_frame_rate > 0);    // NOLINT
-  CHECK(SAMPLES, FLAGS_dst_width > 0);    // NOLINT
-  CHECK(SAMPLES, FLAGS_dst_height > 0);    // NOLINT
-  CHECK(SAMPLES, FLAGS_wait_time >= 0);    // NOLINT
-  CHECK(SAMPLES, FLAGS_repeat_time >= 0);  // NOLINT
-  CHECK(SAMPLES, FLAGS_dev_id >= 0);       // NOLINT
+  CHECK(FLAGS_data_path.size() != 0u) << "[EasyDK Samples] [transcode] data path is empty";  // NOLINT
+  CHECK(FLAGS_output_file_name.size() != 0u) << "[EasyDK Samples] [transcode] output file name is empty";  // NOLINT
+  CHECK(FLAGS_dst_frame_rate > 0) << "[EasyDK Samples] [transcode] dst frame rate should be > 0";    // NOLINT
+  CHECK(FLAGS_dst_width > 0) << "[EasyDK Samples] [transcode] dst width should be > 0";    // NOLINT
+  CHECK(FLAGS_dst_height > 0) << "[EasyDK Samples] [transcode] dst height should be > 0";    // NOLINT
+  CHECK(FLAGS_wait_time >= 0) << "[EasyDK Samples] [transcode] wait time should be >= 0";    // NOLINT
+  CHECK(FLAGS_repeat_time >= 0) << "[EasyDK Samples] [transcode] repeat time should be >= 0";  // NOLINT
+  CHECK(FLAGS_dev_id >= 0) << "[EasyDK Samples] [transcode] device id should be >= 0";       // NOLINT
 
   VideoDecoder::DecoderType decode_type = VideoDecoder::EASY_DECODE;
   if (FLAGS_decode_type == "ffmpeg" || FLAGS_decode_type == "FFmpeg") {
@@ -74,7 +74,7 @@ int main(int argc, char** argv) {
     g_runner = std::make_shared<TranscodeRunner>(decode_type, FLAGS_dev_id, FLAGS_data_path, FLAGS_output_file_name,
                                                  FLAGS_dst_width, FLAGS_dst_height, FLAGS_dst_frame_rate);
   } catch (edk::Exception& e) {
-    LOGE(SAMPLES) << "Create stream runner failed" << e.what();
+    LOG(ERROR) << "[EasyDK Samples] [transcode] Create stream runner failed" << e.what();
     return -1;
   }
 
@@ -99,7 +99,7 @@ int main(int argc, char** argv) {
     return 1;
   }
 
-  LOGI(SAMPLES) << "run transcode SUCCEED!!!" << std::endl;
-  edk::log::ShutdownLogging();
+  LOG(INFO) << "[EasyDK Samples] [transcode] Run SUCCEED!!!";
+  google::ShutdownGoogleLogging();
   return 0;
 }

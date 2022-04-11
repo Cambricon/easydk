@@ -264,6 +264,10 @@ if(BUILD_TESTS)
   add_subdirectory(tests)
 endif()
 
+if (build_python_api)
+  set(CNIS_WITH_PYTHON_API ON)
+endif()
+
 if(CNIS_WITH_PYTHON_API)
   message(STATUS "----------------- Build cnis python api ------------------")
   add_subdirectory(infer_server/python)

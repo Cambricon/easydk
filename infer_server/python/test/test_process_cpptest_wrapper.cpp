@@ -18,6 +18,7 @@
  * THE SOFTWARE.
  *************************************************************************/
 
+#include <glog/logging.h>
 #include <pybind11/pybind11.h>
 
 #include <memory>
@@ -32,10 +33,10 @@ namespace infer_server {
 
 struct PreprocTest {
  public:
-  PreprocTest() {std::cout << "PreprocTest()" << std::endl;}
+  PreprocTest() { VLOG(1) << "[EasyDK Tests] [InferServer] [PythonAPI] PreprocTest()";}
 
   bool Execute(ModelIO* model_input, const InferData& input_data, const ModelInfo* model_info) {
-    std::cout << "PreprocTest:Execute()" << std::endl;
+    VLOG(1) << "[EasyDK Tests] [InferServer] [PythonAPI] PreprocTest:Execute()";
     return true;
   }
 };  // struct PreprocTest
@@ -45,7 +46,7 @@ struct PostprocTest {
   PostprocTest() {}
 
   bool Execute(InferData* result, const ModelIO& model_output, const ModelInfo* model) {
-    std::cout << "PostprocTest:Execute()" << std::endl;
+    VLOG(1) << "[EasyDK Tests] [InferServer] [PythonAPI] PostprocTest:Execute()";
     return true;
   }
 };  // struct PostprocTest

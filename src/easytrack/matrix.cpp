@@ -7,9 +7,10 @@
 namespace edk {
 
 const Matrix &Matrix::operator+=(const Matrix &m) {
-  if (Rows() != m.Rows() || Cols() != m.Cols())
-    THROW_EXCEPTION(Exception::INVALID_ARG, "Matrices of two different shape cannot be added");
-
+  if (Rows() != m.Rows() || Cols() != m.Cols()) {
+    THROW_EXCEPTION(Exception::INVALID_ARG,
+        "[EasyDK EasyTrack] [Matrix] Matrices of two different shape cannot be added");
+  }
   size_t size = Size();
   for (uint32_t i = 0; i < size; ++i) {
     arrays_[i] += m[i];
@@ -18,9 +19,10 @@ const Matrix &Matrix::operator+=(const Matrix &m) {
 }
 
 const Matrix &Matrix::operator-=(const Matrix &m) {
-  if (Rows() != m.Rows() || Cols() != m.Cols())
-    THROW_EXCEPTION(Exception::INVALID_ARG, "Matrices of two different shape cannot be subtracted");
-
+  if (Rows() != m.Rows() || Cols() != m.Cols()) {
+    THROW_EXCEPTION(Exception::INVALID_ARG,
+        "[EasyDK EasyTrack] [Matrix] Matrices of two different shape cannot be subtracted");
+  }
   size_t size = Size();
   for (uint32_t i = 0; i < size; ++i) {
     arrays_[i] -= m[i];
@@ -43,7 +45,9 @@ const Matrix operator-(const Matrix &lhs, const Matrix &rhs) {
 }
 
 const Matrix operator*(const Matrix &lhs, const Matrix &rhs) {
-  if (lhs.Cols() != rhs.Rows()) THROW_EXCEPTION(Exception::INVALID_ARG, "Matrices can not be multiplied");
+  if (lhs.Cols() != rhs.Rows()) {
+    THROW_EXCEPTION(Exception::INVALID_ARG, "[EasyDK EasyTrack] [Matrix]Matrices can not be multiplied");
+  }
 
   Matrix m(lhs.Rows(), rhs.Cols());
 
@@ -64,7 +68,7 @@ const Matrix operator*(const Matrix &lhs, const Matrix &rhs) {
 }
 
 Matrix Matrix::Trans() const {
-  if (Empty()) THROW_EXCEPTION(Exception::INVALID_ARG, "Empty Matrix do not have transpose");
+  if (Empty()) THROW_EXCEPTION(Exception::INVALID_ARG, "[EasyDK EasyTrack] [Matrix]Empty Matrix do not have transpose");
 
   uint32_t row = Cols();
   uint32_t col = Rows();
@@ -82,7 +86,7 @@ static void SolveInverse(const float *A, int n, float *m_inv);
 
 Matrix Matrix::Inv() const {
   if (!Square()) {
-    THROW_EXCEPTION(Exception::INVALID_ARG, "Non-square matrix do not have inverse");
+    THROW_EXCEPTION(Exception::INVALID_ARG, "[EasyDK EasyTrack] [Matrix] Non-square matrix do not have inverse");
   }
   uint32_t n = Rows();
   Matrix ret(n, n);
@@ -111,13 +115,12 @@ bool operator!=(const Matrix &lhs, const Matrix &rhs) { return !(lhs == rhs); }
 void Matrix::Show() const {
   const int nCols = Cols();
   const int nRows = Rows();
-  printf("------- Matrix -------\n");
+  printf("[EasyDK EasyTrack] [Matrix] ------- Matrix -------\n");
   for (int i = 0; i < nRows; i++) {
     for (int j = 0; j < nCols; j++) printf("%.2f ", arrays_[i * cols_ + j]);
     printf("\n");
   }
-  printf("----------------------\n");
-  printf("\n");
+  printf("[EasyDK EasyTrack] [Matrix] ----------------------\n\n");
 }
 
 /* ------------------------------- inverse implement ------------------------------------ */

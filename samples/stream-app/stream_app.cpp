@@ -19,6 +19,7 @@
  *************************************************************************/
 
 #include <gflags/gflags.h>
+#include <glog/logging.h>
 #include <unistd.h>
 
 #include <csignal>
@@ -27,7 +28,6 @@
 #include <memory>
 #include <utility>
 
-#include "cxxutil/log.h"
 #include "detection_runner.h"
 #include "device/mlu_context.h"
 #include "video_decoder.h"
@@ -52,22 +52,22 @@ bool g_exit = false;
 void HandleSignal(int sig) {
   g_runner->Stop();
   g_exit = true;
-  LOGI(SAMPLES) << "Got INT signal, ready to exit!";
+  LOG(INFO) << "[EasyDK Samples] [stream-app] Got INT signal, ready to exit!";
 }
 
 int main(int argc, char** argv) {
   gflags::ParseCommandLineFlags(&argc, &argv, true);
-  edk::log::InitLogging(true, true);
+  google::InitGoogleLogging(argv[0]);
 
   // check params
-  CHECK(SAMPLES, FLAGS_data_path. size() != 0u);  // NOLINT
-  CHECK(SAMPLES, FLAGS_model_path.size() != 0u);  // NOLINT
-  CHECK(SAMPLES, FLAGS_func_name. size() != 0u);  // NOLINT
-  CHECK(SAMPLES, FLAGS_label_path.size() != 0u);  // NOLINT
-  CHECK(SAMPLES, FLAGS_net_type.  size() != 0u);  // NOLINT
-  CHECK(SAMPLES, FLAGS_wait_time >= 0);    // NOLINT
-  CHECK(SAMPLES, FLAGS_repeat_time >= 0);  // NOLINT
-  CHECK(SAMPLES, FLAGS_dev_id >= 0);       // NOLINT
+  CHECK(FLAGS_data_path. size() != 0u) << "[EasyDK Samples] [stream-app] data path is empty";  // NOLINT
+  CHECK(FLAGS_model_path.size() != 0u) << "[EasyDK Samples] [stream-app] model path is empty";  // NOLINT
+  CHECK(FLAGS_func_name. size() != 0u) << "[EasyDK Samples] [stream-app] function name is empty";  // NOLINT
+  CHECK(FLAGS_label_path.size() != 0u) << "[EasyDK Samples] [stream-app] label path is empty";  // NOLINT
+  CHECK(FLAGS_net_type.size() != 0u) << "[EasyDK Samples] [stream-app] net type is empty";  // NOLINT
+  CHECK(FLAGS_wait_time >= 0) << "[EasyDK Samples] [stream-app] wait time should be >= 0";    // NOLINT
+  CHECK(FLAGS_repeat_time >= 0) << "[EasyDK Samples] [stream-app] repeat time should be >= 0";  // NOLINT
+  CHECK(FLAGS_dev_id >= 0) << "[EasyDK Samples] [stream-app] device id should be >= 0";       // NOLINT
 
   VideoDecoder::DecoderType decode_type = VideoDecoder::EASY_DECODE;
   if (FLAGS_decode_type == "ffmpeg" || FLAGS_decode_type == "FFmpeg") {
@@ -82,7 +82,7 @@ int main(int argc, char** argv) {
                                                  FLAGS_data_path, FLAGS_net_type,
                                                  FLAGS_show, FLAGS_save_video);
   } catch (edk::Exception& e) {
-    LOGE(SAMPLES) << "Create stream runner failed" << e.what();
+    LOG(ERROR) << "[EasyDK Samples] [stream-app] Create stream runner failed" << e.what();
     return -1;
   }
 
@@ -107,7 +107,7 @@ int main(int argc, char** argv) {
     return 1;
   }
 
-  LOGI(SAMPLES) << "run stream app SUCCEED!!!" << std::endl;
-  edk::log::ShutdownLogging();
+  LOG(INFO) << "[EasyDK Samples] [stream-app] Run SUCCEED!!!";
+  google::ShutdownGoogleLogging();
   return 0;
 }

@@ -18,6 +18,7 @@
  * THE SOFTWARE.
  *************************************************************************/
 
+#include <glog/logging.h>
 #include <algorithm>
 #include <condition_variable>
 #include <cstring>
@@ -28,7 +29,6 @@
 #include <string>
 #include <thread>
 
-#include "cxxutil/log.h"
 #include "easyinfer/mlu_memory_op.h"
 #include "encoder.h"
 
@@ -265,9 +265,9 @@ Mlu300Encoder::Mlu300Encoder(const EasyEncode::Attr &attr) : Encoder(attr) {
       uint32_t major, minor, patch;
       int ret = cncodecGetLibVersion(&major, &minor, &patch);
       if (CNCODEC_SUCCESS == ret) {
-        LOGI(DECODE) << "CNCodec Version: " << major << "." << minor << "." << patch;
+        LOG(INFO) << "[EasyDK EasyCodec] [Mlu300Encoder] CNCodec Version: " << major << "." << minor << "." << patch;
       } else {
-        LOGW(DECODE) << "Get CNCodec version failed.";
+        LOG(WARNING) << "[EasyDK EasyCodec] [Mlu300Encoder] Get CNCodec version failed.";
       }
     }
   };
@@ -298,8 +298,9 @@ void Mlu300Encoder::InitEncode(const EasyEncode::Attr &attr) {
       codec_params_.input_buf_num = 6;
       break;
     default: {
-      THROW_EXCEPTION(Exception::INIT_FAILED, "codec type not supported yet, codec_type:"
-          + to_string(static_cast<int>(attr.codec_type)));
+      THROW_EXCEPTION(Exception::INIT_FAILED,
+          "[EasyDK EasyCodec] [Mlu300Encoder] Codec type not supported yet, codec_type:" +
+          CodecTypeStr(attr.codec_type));
     }
   }
 
@@ -327,27 +328,10 @@ void Mlu300Encoder::InitEncode(const EasyEncode::Attr &attr) {
     case PixelFmt::I420:
       codec_params_.pixel_format = CNCODEC_PIX_FMT_I420;
       break;
-    case PixelFmt::YUYV:
-      codec_params_.pixel_format = CNCODEC_PIX_FMT_YUYV;
-      break;
-    case PixelFmt::UYVY:
-      codec_params_.pixel_format = CNCODEC_PIX_FMT_UYVY;
-      break;
-    case PixelFmt::RGBA:
-      codec_params_.pixel_format = CNCODEC_PIX_FMT_RGBA;
-      break;
-    case PixelFmt::BGRA:
-      codec_params_.pixel_format = CNCODEC_PIX_FMT_BGRA;
-      break;
-    case PixelFmt::ARGB:
-      codec_params_.pixel_format = CNCODEC_PIX_FMT_ARGB;
-      break;
-    case PixelFmt::P010:
-      codec_params_.pixel_format = CNCODEC_PIX_FMT_P010;
-      break;
     default: {
-      THROW_EXCEPTION(Exception::INIT_FAILED, "codec pixel format not supported yet, pixel format:"
-          + to_string(static_cast<int>(attr.pixel_format)));
+      THROW_EXCEPTION(Exception::INIT_FAILED,
+          "[EasyDK EasyCodec] [Mlu300Encoder] Codec pixel format not supported yet, pixel format:"
+          + PixelFmtStr(attr.pixel_format));
     }
   }
 
@@ -372,8 +356,9 @@ void Mlu300Encoder::InitEncode(const EasyEncode::Attr &attr) {
         preset = CNCODEC_ENC_PRESET_VERY_SLOW;
         break;
       default:
-        THROW_EXCEPTION(Exception::INIT_FAILED, "preset mode not supported yet, preset:"
-            + to_string(static_cast<int>(attr.attr_mlu300.preset)));
+        THROW_EXCEPTION(Exception::INIT_FAILED,
+            "[EasyDK EasyCodec] [Mlu300Encoder] Preset mode not supported yet, preset: " +
+            EncodePresetStr(attr.attr_mlu300.preset));
     }
     switch (attr.attr_mlu300.tune) {
       case EncodeTune::DEFAULT:
@@ -392,15 +377,16 @@ void Mlu300Encoder::InitEncode(const EasyEncode::Attr &attr) {
         tune = CNCODEC_ENC_TUNING_INFO_FAST_DECODE;
         break;
       default:
-        THROW_EXCEPTION(Exception::INIT_FAILED, "tune mode not supported yet, tune:"
-            + to_string(static_cast<int>(attr.attr_mlu300.tune)));
+        THROW_EXCEPTION(Exception::INIT_FAILED,
+            "[EasyDK EasyCodec] [Mlu300Encoder] Tune mode not supported yet, tune: " +
+            EncodeTuneStr(attr.attr_mlu300.tune));
     }
 
     cncodecEncPresetAndTuneConfig_t preset_config;
     // get preset config
     auto ret = cncodecEncGetPresetConfig(codec_params_.coding_attr.codec_attr.codec, preset, tune, &preset_config);
     if (ret != CNCODEC_SUCCESS) {
-      THROW_EXCEPTION(Exception::INIT_FAILED, "Get preset config failed");
+      THROW_EXCEPTION(Exception::INIT_FAILED, "[EasyDK EasyCodec] [Mlu300Encoder] Get preset config failed");
     }
 
     codec_params_.frame_rate_num = attr.attr_mlu300.frame_rate_num > 0 ? attr.attr_mlu300.frame_rate_num : 30;
@@ -416,8 +402,8 @@ void Mlu300Encoder::InitEncode(const EasyEncode::Attr &attr) {
           attr.attr_mlu300.profile >= VideoProfile::H265_MAIN) {
         codec_params_.coding_attr.profile = ProfileCast(attr.attr_mlu300.profile);
       } else {
-        LOGW(ENCODE) << "Invalid profile, using profile: "
-                    << to_string(static_cast<int>(codec_params_.coding_attr.profile));
+        LOG(WARNING) << "[EasyDK EasyCodec] [Mlu300Encoder] Invalid profile, using profile: "
+                     << to_string(static_cast<int>(codec_params_.coding_attr.profile));
       }
     }
     if (attr.attr_mlu300.level < VideoLevel::LEVEL_MAX) {
@@ -430,8 +416,8 @@ void Mlu300Encoder::InitEncode(const EasyEncode::Attr &attr) {
           attr.attr_mlu300.level == VideoLevel::AUTO_SELECT)) {
         codec_params_.coding_attr.level = LevelCast(attr.attr_mlu300.level);
       } else {
-        LOGW(ENCODE) << "Invalid level, using level: "
-                    << to_string(static_cast<int>(codec_params_.coding_attr.level));
+        LOG(WARNING) << "[EasyDK EasyCodec] [Mlu300Encoder] Invalid level, using level: "
+                     << to_string(static_cast<int>(codec_params_.coding_attr.level));
       }
     }
     if (attr.attr_mlu300.gop_size > 0) {
@@ -536,9 +522,10 @@ void Mlu300Encoder::InitEncode(const EasyEncode::Attr &attr) {
   int ecode = cncodecEncCreate(&handle_, EventHandler, &codec_params_);
   if (CNCODEC_SUCCESS != ecode) {
     handle_ = 0;
-    THROW_EXCEPTION(Exception::INIT_FAILED, "Initialize video encoder failed. cncodec error code: " + to_string(ecode));
+    THROW_EXCEPTION(Exception::INIT_FAILED,
+       "[EasyDK EasyCodec] [Mlu300Encoder] Initialize video encoder failed. cncodec error code: " + to_string(ecode));
   }
-  LOGI(ENCODE) << "Init video encoder succeeded";
+  LOG(INFO) << "[EasyDK EasyCodec] [Mlu300Encoder] Init video encoder succeeded";
 }
 
 Mlu300Encoder::~Mlu300Encoder() {
@@ -547,7 +534,7 @@ Mlu300Encoder::~Mlu300Encoder() {
     if (!got_eos_) {
       if (!send_eos_ && handle_) {
         eos_lk.unlock();
-        LOGI(ENCODE) << "Send EOS in destruct";
+        LOG(INFO) << "[EasyDK EasyCodec] [Mlu300Encoder] Send EOS in destruct";
         Mlu300Encoder::FeedEos();
       } else {
         if (!handle_) got_eos_ = true;
@@ -559,7 +546,7 @@ Mlu300Encoder::~Mlu300Encoder() {
     }
 
     if (!got_eos_) {
-      LOGI(ENCODE) << "Wait EOS in destruct";
+      LOG(INFO) << "[EasyDK EasyCodec] [Mlu300Encoder] Wait EOS in destruct";
       eos_cond_.wait(eos_lk, [this]() -> bool { return got_eos_; });
     }
 
@@ -575,30 +562,30 @@ Mlu300Encoder::~Mlu300Encoder() {
     if (handle_) {
       int ecode = cncodecEncDestroy(handle_);
       if (CNCODEC_SUCCESS != ecode) {
-        LOGE(ENCODE) << "Destroy encoder failed. Error code: " << ecode;
+        LOG(ERROR) << "[EasyDK EasyCodec] [Mlu300Encoder] Destroy encoder failed. Error code: " << ecode;
       }
     }
   } catch (std::system_error &e) {
-    LOGE(ENCODE) << e.what();
+    LOG(ERROR) << "[EasyDK EasyCodec] [Mlu300Encoder] Error: " << e.what();
   } catch (Exception &e) {
-    LOGE(ENCODE) << e.what();
+    LOG(ERROR) << "[EasyDK EasyCodec] [Mlu300Encoder] Error: " << e.what();
   }
 }
 
 bool Mlu300Encoder::ReleaseBuffer(uint64_t buf_id) {
-  LOGD(ENCODE) << "Release buffer, " << reinterpret_cast<void *>(buf_id);
+  VLOG(4) << "[EasyDK EasyCodec] [Mlu300Encoder] Release buffer, " << reinterpret_cast<void *>(buf_id);
   if (buf_id) delete[] reinterpret_cast<uint8_t *>(buf_id);
   return true;
 }
 
 void Mlu300Encoder::ReceivePacket(void *_packet) {
-  LOGT(ENCODE) << "Encode receive packet " << _packet;
+  VLOG(5) << "[EasyDK EasyCodec] [Mlu300Encoder] Encode receive packet " << _packet;
   // packet callback
   if (attr_.packet_callback) {
     CnPacket cn_packet;
     cncodecStream_t *stream = reinterpret_cast<cncodecStream_t *>(_packet);
-    LOGT(ENCODE) << "ReceivePacket size=" << stream->data_len << ", pts=" << stream->pts
-                 << ", type=" << stream->stream_type;
+    VLOG(5) << "[EasyDK EasyCodec] [Mlu300Encoder] ReceivePacket size=" << stream->data_len << ", pts=" << stream->pts
+            << ", type=" << stream->stream_type;
     cncodecStreamType_t stream_type = stream->stream_type;
     if (stream_type == CNCODEC_H264_NALU_TYPE_SPS_PPS || stream_type == CNCODEC_HEVC_NALU_TYPE_VPS_SPS_PPS) {
       cn_packet.slice_type = BitStreamSliceType::SPS_PPS;
@@ -614,7 +601,7 @@ void Mlu300Encoder::ReceivePacket(void *_packet) {
     auto ret = cnrtMemcpy(cn_packet.data, reinterpret_cast<void *>(stream->mem_addr + stream->data_offset),
                           stream->data_len, CNRT_MEM_TRANS_DIR_DEV2HOST);
     if (ret != CNRT_RET_SUCCESS) {
-      LOGE(ENCODE) << "Copy bitstream failed, DEV2HOST";
+      LOG(ERROR) << "[EasyDK EasyCodec] [Mlu300Encoder] Copy bitstream failed, DEV2HOST";
       AbortEncoder();
       --packet_cnt_;
       return;
@@ -640,7 +627,7 @@ void Mlu300Encoder::ReceivePacket(void *_packet) {
 
 void Mlu300Encoder::ReceiveEOS() {
   // eos callback
-  LOGI(ENCODE) << "Encode receive EOS";
+  LOG(INFO) << "[EasyDK EasyCodec] [Mlu300Encoder] Encode receive EOS";
 
   if (attr_.eos_callback) {
     attr_.eos_callback();
@@ -671,30 +658,23 @@ void Mlu300Encoder::CopyFrame(cncodecFrame_t *dst, const CnFrame &input) {
     switch (attr_.pixel_format) {
       case PixelFmt::NV12:
       case PixelFmt::NV21: {
-        LOGT(ENCODE) << "Copy frame luminance";
+        VLOG(5) << "[EasyDK EasyCodec] [Mlu300Encoder] Copy frame luminance";
         mem_op.MemcpyH2D(reinterpret_cast<void *>(dst->plane[0].dev_addr), input.ptrs[0], frame_size);
-        LOGT(ENCODE) << "Copy frame chroma";
+        VLOG(5) << "[EasyDK EasyCodec] [Mlu300Encoder] Copy frame chroma";
         mem_op.MemcpyH2D(reinterpret_cast<void *>(dst->plane[1].dev_addr), input.ptrs[1], uv_size);
         break;
       }
       case PixelFmt::I420: {
-        LOGT(ENCODE) << "Copy frame luminance";
+        VLOG(5) << "[EasyDK EasyCodec] [Mlu300Encoder] Copy frame luminance";
         mem_op.MemcpyH2D(reinterpret_cast<void *>(dst->plane[0].dev_addr), input.ptrs[0], frame_size);
-        LOGT(ENCODE) << "Copy frame chroma 0";
+        VLOG(5) << "[EasyDK EasyCodec] [Mlu300Encoder] Copy frame chroma 0";
         mem_op.MemcpyH2D(reinterpret_cast<void *>(dst->plane[1].dev_addr), input.ptrs[1], uv_size >> 1);
-        LOGT(ENCODE) << "Copy frame chroma 1";
+        VLOG(5) << "[EasyDK EasyCodec] [Mlu300Encoder] Copy frame chroma 1";
         mem_op.MemcpyH2D(reinterpret_cast<void *>(dst->plane[2].dev_addr), input.ptrs[2], uv_size >> 1);
         break;
       }
-      case PixelFmt::ARGB:
-      case PixelFmt::ABGR:
-      case PixelFmt::RGBA:
-      case PixelFmt::BGRA:
-        LOGT(ENCODE) << "Copy frame RGB family";
-        mem_op.MemcpyH2D(reinterpret_cast<void *>(dst->plane[0].dev_addr), input.ptrs[0], frame_size << 2);
-        break;
       default:
-        THROW_EXCEPTION(Exception::UNSUPPORTED, "Unsupported pixel format");
+        THROW_EXCEPTION(Exception::UNSUPPORTED, "[EasyDK EasyCodec] [Mlu300Encoder] Unsupported pixel format");
         break;
     }
   }
@@ -708,10 +688,11 @@ bool Mlu300Encoder::RequestFrame(CnFrame* frame) {
   input.pixel_format = codec_params_.pixel_format;
   int ecode = cncodecEncWaitAvailInputBuf(handle_, &input, 10000);
   if (CNCODEC_ERROR_TIMEOUT == ecode) {
-    LOGE(ENCODE) << "cncodecEncWaitAvailInputBuf timeout";
+    LOG(ERROR) << "[EasyDK EasyCodec] [Mlu300Encoder] cncodecEncWaitAvailInputBuf timeout";
     return false;
   } else if (CNCODEC_SUCCESS != ecode) {
-    LOGE(ENCODE) << "cncodecEncWaitAvailInputBuf failed. Error code: " + to_string(ecode);
+    LOG(ERROR) << "[EasyDK EasyCodec] [Mlu300Encoder] cncodecEncWaitAvailInputBuf failed. Error code: "
+               << to_string(ecode);
     return false;
   }
 
@@ -751,18 +732,19 @@ bool Mlu300Encoder::RequestFrame(CnFrame* frame) {
 
 bool Mlu300Encoder::FeedEos() {
   if (send_eos_) {
-    LOGW(ENCODE) << "EOS had been feed, won't feed again";
+    LOG(WARNING) << "[EasyDK EasyCodec] [Mlu300Encoder] EOS had been feed, won't feed again";
     return false;
   }
 
-  LOGI(ENCODE) << "Thread id: " << std::this_thread::get_id() << ", Feed EOS data";
+  LOG(INFO) << "[EasyDK EasyCodec] [Mlu300Encoder] Thread id: " << std::this_thread::get_id() << ". Feed EOS data";
   auto ecode = cncodecEncSetEos(handle_);
 
   if (CNCODEC_ERROR_TIMEOUT == ecode) {
-    LOGE(ENCODE) << "Feed EOS timeout";
+    LOG(ERROR) << "[EasyDK EasyCodec] [Mlu300Encoder] Feed EOS timeout";
     return false;
   } else if (CNCODEC_SUCCESS != ecode) {
-    THROW_EXCEPTION(Exception::INTERNAL, "Encode feed EOS failed. cncodec error code: " + to_string(ecode));
+    THROW_EXCEPTION(Exception::INTERNAL,
+        "[EasyDK EasyCodec] [Mlu300Encoder] Encode feed EOS failed. cncodec error code: " + to_string(ecode));
   }
 
   send_eos_ = true;
@@ -771,7 +753,7 @@ bool Mlu300Encoder::FeedEos() {
 
 bool Mlu300Encoder::FeedData(const CnFrame &frame) {
   if (send_eos_) {
-    LOGW(ENCODE) << "EOS had been sent, won't feed data or EOS";
+    LOG(WARNING) << "[EasyDK EasyCodec] [Mlu300Encoder] EOS had been sent, won't feed data or EOS";
     return false;
   }
   cncodecFrame_t input;
@@ -783,10 +765,11 @@ bool Mlu300Encoder::FeedData(const CnFrame &frame) {
     input.pixel_format = codec_params_.pixel_format;
     ecode = cncodecEncWaitAvailInputBuf(handle_, &input, 10000);
     if (CNCODEC_ERROR_TIMEOUT == ecode) {
-      LOGE(ENCODE) << "cncodecEncWaitAvailInputBuf timeout";
+      LOG(ERROR) << "[EasyDK EasyCodec] [Mlu300Encoder] cncodecEncWaitAvailInputBuf timeout";
       return false;
     } else if (CNCODEC_SUCCESS != ecode) {
-      LOGE(ENCODE) << "cncodecEncWaitAvailInputBuf failed. Error code: " + to_string(ecode);
+      LOG(ERROR) << "[EasyDK EasyCodec] [Mlu300Encoder] cncodecEncWaitAvailInputBuf failed. Error code: "
+                 << to_string(ecode);
       return false;
     }
 
@@ -795,7 +778,7 @@ bool Mlu300Encoder::FeedData(const CnFrame &frame) {
   } else {
     std::lock_guard<std::mutex> lk(list_mtx_);
     if (input_list_.empty()) {
-      LOGE(ENCODE) << "Request memory from encoder if data is from device.";
+      LOG(ERROR) << "[EasyDK EasyCodec] [Mlu300Encoder] Request memory from encoder if data is from device.";
       return false;
     }
     auto enc_input = std::find_if(input_list_.begin(), input_list_.end(),
@@ -815,7 +798,7 @@ bool Mlu300Encoder::FeedData(const CnFrame &frame) {
       input = *enc_input;
       input_list_.erase(enc_input);
     } else {
-      LOGE(ENCODE) << "Memory is not requested from encoder on device";
+      LOG(ERROR) << "[EasyDK EasyCodec] [Mlu300Encoder] Memory is not requested from encoder on device";
       return false;
     }
   }
@@ -826,23 +809,24 @@ bool Mlu300Encoder::FeedData(const CnFrame &frame) {
   }
   input.pts = frame.pts;
   input.priv_data = reinterpret_cast<u64_t>(frame.user_data);
-  LOGT(ENCODE) << "Feed frame info data: " << frame.ptrs[0] << " length: " << frame.frame_size
-               << " pts: " << frame.pts;
+  VLOG(5) << "[EasyDK EasyCodec] [Mlu300Encoder] Feed frame info data: " << frame.ptrs[0] << " length: "
+          << frame.frame_size << " pts: " << frame.pts;
   ecode = cncodecEncSendFrame(handle_, &input, &frame_attr, 10000);
   if (CNCODEC_ERROR_TIMEOUT == ecode) {
-    LOGE(ENCODE) << "cncodecEncSendFrame timeout";
+    LOG(ERROR) << "[EasyDK EasyCodec] [Mlu300Encoder] cncodecEncSendFrame timeout";
   } else if (CNCODEC_SUCCESS != ecode) {
-    THROW_EXCEPTION(Exception::INTERNAL, "cncodecEncSendFrame failed. cncodec error code: " + to_string(ecode));
+    THROW_EXCEPTION(Exception::INTERNAL,
+        "[EasyDK EasyCodec] [Mlu300Encoder] cncodecEncSendFrame failed. cncodec error code: " + to_string(ecode));
   }
   return true;
 }
 
 void Mlu300Encoder::AbortEncoder() {
-  LOGW(ENCODE) << "Abort encoder";
+  LOG(WARNING) << "[EasyDK EasyCodec] [Mlu300Encoder] Abort encoder";
   if (handle_) {
     int codec_ret = cncodecEncDestroy(handle_);
     if (CNCODEC_SUCCESS != codec_ret) {
-      LOGE(ENCODE) << "Call cncodecEncDestroy failed, ret = " << codec_ret;
+      LOG(ERROR) << "[EasyDK EasyCodec] [Mlu300Encoder] Call cncodecEncDestroy failed, ret = " << codec_ret;
     }
     handle_ = 0;
 
@@ -853,7 +837,7 @@ void Mlu300Encoder::AbortEncoder() {
     got_eos_ = true;
     eos_cond_.notify_one();
   } else {
-    LOGE(ENCODE) << "Won't do abort, since cnencode handler has not been initialized";
+    LOG(ERROR) << "[EasyDK EasyCodec] [Mlu300Encoder] Won't do abort, since cnencode handler has not been initialized";
   }
 }
 
@@ -879,25 +863,26 @@ void Mlu300Encoder::EventTaskRunner() {
 
     switch (type) {
       case CNCODEC_EVENT_OUT_OF_MEMORY:
-        LOGE(DECODE) << "Out of memory error thrown from cncodec";
+        LOG(ERROR) << "[EasyDK EasyCodec] [Mlu300Encoder] Out of memory error thrown from cncodec";
         AbortEncoder();
         break;
       case CNCODEC_EVENT_STREAM_CORRUPT:
-        LOGW(ENCODE) << "Stream corrupt, discard frame";
+        LOG(WARNING) << "[EasyDK EasyCodec] [Mlu300Encoder] Stream corrupt, discard frame";
         break;
       case CNCODEC_EVENT_STREAM_NOT_SUPPORTED:
-        LOGE(ENCODE) << "Out of memory error thrown from cncodec";
+        LOG(ERROR) << "[EasyDK EasyCodec] [Mlu300Encoder] Out of memory error thrown from cncodec";
         AbortEncoder();
         break;
       case CNCODEC_EVENT_BUFFER_OVERFLOW:
-        LOGW(ENCODE) << "buffer overflow thrown from cncodec, buffer number is not enough";
+        LOG(WARNING) << "[EasyDK EasyCodec] [Mlu300Encoder] buffer overflow thrown from cncodec,"
+                     << " buffer number is not enough";
         break;
       case CNCODEC_EVENT_FATAL_ERROR:
-        LOGE(ENCODE) << "fatal error throw from cncodec";
+        LOG(ERROR) << "[EasyDK EasyCodec] [Mlu300Encoder] fatal error throw from cncodec";
         AbortEncoder();
         break;
       default:
-        LOGE(ENCODE) << "Unknown event type";
+        LOG(ERROR) << "[EasyDK EasyCodec] [Mlu300Encoder] Unknown event type";
         AbortEncoder();
         break;
     }
@@ -924,6 +909,7 @@ static int32_t EventHandler(cncodecEventType_t type, void *user_data, void *pack
 }
 
 Encoder* CreateMlu300Encoder(const EasyEncode::Attr& attr) {
+  VLOG(1) << "[EasyDK EasyCodec] [CreateMlu300Encoder] Create mlu300 encoder.";
   return new Mlu300Encoder(attr);
 }
 }  // namespace edk
@@ -932,7 +918,7 @@ Encoder* CreateMlu300Encoder(const EasyEncode::Attr& attr) {
 namespace edk {
 
 Encoder* CreateMlu300Encoder(const EasyEncode::Attr& attr) {
-  LOGE(DECODE) << "Create mlu300 encoder failed, please install cncodec_v3.";
+  LOG(ERROR) << "[EasyDK EasyCodec] [CreateMlu300Encoder] Create mlu300 encoder failed, please install cncodec_v3.";
   return nullptr;
 }
 

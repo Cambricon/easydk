@@ -93,6 +93,7 @@ class IDemuxEventHandle {
   virtual bool OnPacket(const AVPacket* frame) = 0;
   virtual void OnEos() = 0;
   virtual bool Running() = 0;
+  virtual void Destroy() = 0;
 };
 
 class VideoParser {

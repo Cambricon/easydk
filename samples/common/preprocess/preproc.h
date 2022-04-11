@@ -20,6 +20,7 @@
 #ifndef EDK_SAMPLES_PREPROCESS_PREPROC_H_
 #define EDK_SAMPLES_PREPROCESS_PREPROC_H_
 
+#include <glog/logging.h>
 #include <vector>
 
 #ifdef HAVE_CNCV
@@ -28,7 +29,6 @@
 
 #include "cnis/infer_server.h"
 #include "cnis/processor.h"
-#include "cxxutil/log.h"
 #include "easycodec/vformat.h"
 
 #ifdef HAVE_CNCV

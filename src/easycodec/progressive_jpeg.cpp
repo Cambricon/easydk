@@ -17,10 +17,10 @@
  * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
  * THE SOFTWARE.
  *************************************************************************/
+#include <glog/logging.h>
 #include <unordered_map>
 
 #include "cnrt.h"
-#include "cxxutil/log.h"
 #include "cxxutil/noncopy.h"
 #include "decoder.h"
 #include "easycodec/easy_decode.h"
@@ -39,8 +39,8 @@ extern "C" {
   do {                                                                                       \
     int ret = (func);                                                                        \
     if (0 != ret) {                                                                          \
-      LOGE(DECODE) << msg << " error code: " << ret;                                         \
-      THROW_EXCEPTION(Exception::INTERNAL, msg " cnrt error code : " + std::to_string(ret)); \
+      LOG(ERROR) <<  msg << " error code: " << ret;                                         \
+      THROW_EXCEPTION(Exception::INTERNAL, msg " CNRT error code : " + std::to_string(ret)); \
     }                                                                                        \
   } while (0)
 
@@ -128,9 +128,11 @@ class ProgressiveJpegDecoder : public Decoder, public NonCopyable {
   bool FeedData(const CnPacket& packet) override;
   bool FeedEos() override;
   void AbortDecoder() override {
-    LOGW(DECODE) << "Abort Decoder do nothing";
+    LOG(WARNING) << "[EasyDK EasyCodec] [ProgressiveJpegDecoder] Abort Decoder do nothing";
   };
   bool ReleaseBuffer(uint64_t buf_id) override;
+  void DestroyDecoder() override;
+
 
  private:
   std::unordered_map<uint64_t, void*> memory_pool_map_;
@@ -142,7 +144,8 @@ class ProgressiveJpegDecoder : public Decoder, public NonCopyable {
 
 ProgressiveJpegDecoder::ProgressiveJpegDecoder(const EasyDecode::Attr& attr) : Decoder(attr) {
   if (attr.pixel_format != PixelFmt::NV12 && attr.pixel_format != PixelFmt::NV21) {
-    THROW_EXCEPTION(Exception::UNSUPPORTED, "Unsupported output pixel format.");
+    THROW_EXCEPTION(Exception::UNSUPPORTED,
+        "[EasyDK EasyCodec] [ProgressiveJpegDecoder] Unsupported output pixel format.");
   }
   uint64_t size = 0;
   uint32_t plane_num = 2;
@@ -153,7 +156,8 @@ ProgressiveJpegDecoder::ProgressiveJpegDecoder(const EasyDecode::Attr& attr) : D
   }
   for (size_t i = 0; i < attr.output_buffer_num; ++i) {
     void* mlu_ptr = nullptr;
-    CALL_CNRT_FUNC(cnrtMalloc(reinterpret_cast<void**>(&mlu_ptr), size), "Malloc decode output buffer failed");
+    CALL_CNRT_FUNC(cnrtMalloc(reinterpret_cast<void**>(&mlu_ptr), size),
+        "[EasyDK EasyCodec] [ProgressiveJpegDecoder] Malloc decode output buffer failed");
     memory_pool_map_[attr.output_buffer_num + i] = mlu_ptr;
     memory_ids_.Push(attr.output_buffer_num + i);
   }
@@ -161,11 +165,15 @@ ProgressiveJpegDecoder::ProgressiveJpegDecoder(const EasyDecode::Attr& attr) : D
   bgr_cpu_data_ = new uint8_t[attr.frame_geometry.w * attr.frame_geometry.h * 3];
   tjinstance_ = tjInitDecompress();
   if (!tjinstance_) {
-    THROW_EXCEPTION(Exception::INIT_FAILED, "Create tj handler failed.");
+    THROW_EXCEPTION(Exception::INIT_FAILED, "[EasyDK EasyCodec] [ProgressiveJpegDecoder] Create tj handler failed.");
   }
 }
 
 ProgressiveJpegDecoder::~ProgressiveJpegDecoder() {
+  ProgressiveJpegDecoder::DestroyDecoder();
+}
+
+void ProgressiveJpegDecoder::DestroyDecoder() {
   for (auto& iter : memory_pool_map_) {
     cnrtFree(iter.second);
   }
@@ -196,7 +204,8 @@ bool ProgressiveJpegDecoder::FeedData(const CnPacket& packet) {
     detail::BGRToNV12(bgr_cpu_data_, yuv_cpu_data_, y_stride, yuv_cpu_data_ + height * y_stride, uv_stride, width,
                       height);
   } else {
-    LOGF(DECODE) << "Not support output pixel format " << std::to_string(static_cast<int>(attr_.pixel_format));
+    LOG(FATAL) << "[EasyDK EasyCodec] [ProgressiveJpegDecoder] Not support output pixel format "
+               << PixelFmtStr(attr_.pixel_format);
     return false;
   }
 
@@ -220,8 +229,8 @@ bool ProgressiveJpegDecoder::FeedData(const CnPacket& packet) {
   finfo.ptrs[1] = reinterpret_cast<void*>(reinterpret_cast<uint8_t*>(mlu_ptr) + height * y_stride);
   finfo.pformat = attr_.pixel_format;
 
-  LOGT(DECODE) << "Frame: width " << finfo.width << " height " << finfo.height << " planes " << finfo.n_planes
-                << " frame size " << finfo.frame_size;
+  VLOG(5) << "[EasyDK EasyCodec] [ProgressiveJpegDecoder] Frame: width " << finfo.width << " height "
+          << finfo.height << " planes " << finfo.n_planes << " frame size " << finfo.frame_size;
   if (NULL != attr_.frame_callback) {
     attr_.frame_callback(finfo);
   }
@@ -250,7 +259,8 @@ Decoder* CreateProgressiveJpegDecoder(const EasyDecode::Attr& attr) {
 #else
 
 Decoder* CreateProgressiveJpegDecoder(const EasyDecode::Attr& attr) {
-  LOGE(DECODE) << "Create progressive jpeg decoder failed, please set compile option WITH_TURBOJPEG to ON.";
+  LOG(ERROR) << "[EasyDK EasyCodec] [CreateProgressiveJpegDecoder] Create progressive jpeg decoder failed, "
+             << "please set compile option WITH_TURBOJPEG to ON.";
   return nullptr;
 }
 

@@ -17,6 +17,7 @@
  * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
  * THE SOFTWARE.
  *************************************************************************/
+#include <glog/logging.h>
 #include <vector>
 
 #ifdef HAVE_CNCV
@@ -25,7 +26,6 @@
 
 #include "cnis/infer_server.h"
 #include "cnis/processor.h"
-#include "cxxutil/log.h"
 #include "internal/cnrt_wrap.h"
 
 #include "preproc.h"
@@ -35,7 +35,7 @@
   do {                                                            \
     cncvStatus_t ret = (func);                                    \
     if (ret != CNCV_STATUS_SUCCESS) {                             \
-      LOGE(SAMPLE) << "Call " #func " failed. error code: " << ret; \
+      LOG(ERROR) << "[EasyDK Samples] Call " #func " failed. error code: " << ret; \
       return val;                                                 \
     }                                                             \
   } while (0)
@@ -74,19 +74,19 @@ PreprocSSD::PreprocSSD(infer_server::ModelPtr model, int dev_id, edk::PixelFmt d
   cpu_output_ = infer_server::Buffer(ptr_size);
 
   if (CNRT_RET_SUCCESS != cnrt::QueueCreate(&queue_)) {
-    LOGE(SAMPLE) << "Create cnrtQueue failed";
+    LOG(ERROR) << "[EasyDK Samples] [PreprocSSD] Create cnrtQueue failed";
     return;
   }
   if (CNCV_STATUS_SUCCESS != cncvCreate(&handle_)) {
-    LOGE(SAMPLE) << "Create cncvHandle failed";
+    LOG(ERROR) << "[EasyDK Samples] [PreprocSSD] Create cncvHandle failed";
     return;
   }
   if (CNCV_STATUS_SUCCESS != cncvSetQueue(handle_, queue_)) {
-    LOGE(SAMPLE) << "Set cnrtQueue to cncvHandle failed";
+    LOG(ERROR) << "[EasyDK Samples] [PreprocSSD] Set cnrtQueue to cncvHandle failed";
     return;
   }
 #else
-  LOGE(SAMPLE) << "PreprocSSD needs CNCV but not found, please install CNCV";
+  LOG(ERROR) << "[EasyDK Samples] [PreprocSSD] Needs CNCV but not found, please install CNCV";
 #endif
 }
 
@@ -95,7 +95,7 @@ bool PreprocSSD::operator()(infer_server::ModelIO* model_input, const infer_serv
                             const infer_server::ModelInfo* model) {
 #ifdef HAVE_CNCV
 if (!queue_ || !handle_) {
-  LOGE(SAMPLE) << "[PreprocSSD] handle or queue is nullptr.";
+  LOG(ERROR) << "[EasyDK Samples] [PreprocSSD] Handle or queue is nullptr.";
   return false;
 }
   auto batch_size = batch_infer_data.size();
@@ -115,7 +115,8 @@ if (!queue_ || !handle_) {
   for (size_t i = 0; i < batch_size; ++i) {
     edk::CnFrame& frame = batch_infer_data[i]->GetLref<edk::CnFrame>();
     if (frame.pformat != edk::PixelFmt::NV12 && frame.pformat != edk::PixelFmt::NV21) {
-      LOGE(SAMPLE) << "[PreprocSSD] Pixel format " << static_cast<int>(frame.pformat) << " not supported!";
+      LOG(ERROR) << "[EasyDK Samples] [PreprocSSD] Pixel format " << PixelFmtStr(frame.pformat)
+                 << " not supported!";
       return false;
     }
     // init cpu ptr
@@ -181,7 +182,7 @@ if (!queue_ || !handle_) {
       false);
   return true;
 #else
-  LOGE(SAMPLE) << "PreprocSSD needs CNCV but not found, please install CNCV";
+  LOG(ERROR) << "[EasyDK Samples] [PreprocSSD] Needs CNCV but not found, please install CNCV";
   return false;
 #endif
 }

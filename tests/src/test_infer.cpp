@@ -33,7 +33,7 @@ TEST(Easyinfer, Shape) {
   EXPECT_EQ(h * w * c, shape.hwc());
   EXPECT_EQ(n * c * h * w, shape.nhwc());
   EXPECT_EQ(n * c * h * stride, shape.DataCount());
-  std::cout << shape << std::endl;
+  VLOG(1) << "[EasyDK Tests] [EasyInfer] Shape is " << shape;
 
   // stride should be equal to w, while set stride less than w
   n = 4, c = 1, h = 20, w = 96, stride = 64;
@@ -66,7 +66,7 @@ TEST(Easyinfer, ShapeEx) {
   EXPECT_EQ(c, shape[3]);
   EXPECT_EQ(h * w * c, shape.DataCount());
   EXPECT_EQ(n * c * h * w, shape.BatchDataCount());
-  std::cout << shape << std::endl;
+  VLOG(1) << "[EasyDK Tests] [EasyInfer] Shape is " << shape;
 }
 
 TEST(Easyinfer, ModelLoader) {
@@ -78,13 +78,13 @@ TEST(Easyinfer, ModelLoader) {
   if (version == edk::CoreVersion::MLU370) return;
   std::string model_path = GetExePath();
   if (version == edk::CoreVersion::MLU220) {
-    std::cout << "220 model" << std::endl;
+    VLOG(1) << "[EasyDK Tests] [EasyInfer] MLU220 model";
     model_path += gmodel_path_220;
   } else if (version == edk::CoreVersion::MLU270) {
-    std::cout << "270 model" << std::endl;
+    VLOG(1) << "[EasyDK Tests] [EasyInfer] MLU270 model";
     model_path += gmodel_path_270;
   } else {
-    ASSERT_TRUE(false) << "Unsupport core version" << static_cast<int>(version);
+    ASSERT_TRUE(false) << "[EasyDK Tests] [EasyInfer] Unsupported core version" << CoreVersionStr(version);
   }
   int parallelism = 0, input_align = 0, output_align = 0;
   {
@@ -116,15 +116,15 @@ TEST(Easyinfer, ModelLoader) {
     EXPECT_GT(model->OutputShape(0).BatchDataCount(), 0);
 
     for (size_t idx = 0; idx < model->InputNum(); ++idx) {
-      std::cout << "Model input shape[" << idx << "]: " << model->InputShape(idx) << std::endl;
+      VLOG(1) << "[EasyDK Tests] [EasyInfer] Model input shape[" << idx << "]: " << model->InputShape(idx);
     }
     for (size_t idx = 0; idx < model->OutputNum(); ++idx) {
-      std::cout << "Model output shape[" << idx << "]: " << model->OutputShape(idx) << std::endl;
+     VLOG(1) << "[EasyDK Tests] [EasyInfer] Model output shape[" << idx << "]: " << model->OutputShape(idx);
     }
   }
   {
     FILE *fd = fopen(model_path.c_str(), "rb");
-    ASSERT_TRUE(fd) << "model path does not exist";
+    ASSERT_TRUE(fd) << "[EasyDK Tests] [EasyInfer] Model path does not exist";
     fseek(fd, 0, SEEK_END);
     size_t fsize = ftell(fd);
     rewind(fd);
@@ -134,7 +134,7 @@ TEST(Easyinfer, ModelLoader) {
 
     if (size != fsize) {
       delete[] mem_buf;
-      ASSERT_TRUE(false) << "read model file failed";
+      ASSERT_TRUE(false) << "[EasyDK Tests] [EasyInfer] Read model file failed";
     }
 
     auto model = std::make_shared<edk::ModelLoader>(reinterpret_cast<void *>(mem_buf), function_name.c_str());
@@ -163,10 +163,10 @@ TEST(Easyinfer, ModelLoader) {
     EXPECT_GT(model->OutputShape(0).BatchDataCount(), 0);
 
     for (size_t idx = 0; idx < model->InputNum(); ++idx) {
-      std::cout << "Model input shape[" << idx << "]: " << model->InputShape(idx) << std::endl;
+      VLOG(1) << "[EasyDK Tests] [EasyInfer] Model input shape[" << idx << "]: " << model->InputShape(idx);
     }
     for (size_t idx = 0; idx < model->OutputNum(); ++idx) {
-      std::cout << "Model output shape[" << idx << "]: " << model->OutputShape(idx) << std::endl;
+      VLOG(1) << "[EasyDK Tests] [EasyInfer] Model output shape[" << idx << "]: " << model->OutputShape(idx);
     }
   }
 }
@@ -217,12 +217,12 @@ void TestInfer(bool async_launch = false) {
     std::string model_path = GetExePath();
     if (version == edk::CoreVersion::MLU220) {
       model_path += gmodel_path_220;
-      std::cout << "220 model" << std::endl;
+      VLOG(1) << "[EasyDK Tests] [EasyInfer] MLU220 model";
     } else if (version == edk::CoreVersion::MLU270) {
       model_path += gmodel_path_270;
-      std::cout << "270 model" << std::endl;
+      VLOG(1) << "[EasyDK Tests] [EasyInfer] MLU270 model";
     } else {
-      ASSERT_TRUE(false) << "Unsupport core version" << static_cast<int>(version);
+      ASSERT_TRUE(false) << "[EasyDK Tests] [EasyInfer] Unsupported core version" << CoreVersionStr(version);
     }
     auto model = std::make_shared<edk::ModelLoader>(model_path, function_name);
 
@@ -258,7 +258,7 @@ void TestInfer(bool async_launch = false) {
     mem_op.FreeCpuOutput(cpu_output);
     mem_op.FreeCpuInput(cpu_input);
   } catch (edk::Exception &err) {
-    EXPECT_TRUE(false) << err.what();
+    EXPECT_TRUE(false) << "[EasyDK Tests] [EasyInfer] Error occurs: " << err.what();
   }
 }
 

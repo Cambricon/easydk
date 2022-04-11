@@ -18,11 +18,11 @@
  * THE SOFTWARE.
  *************************************************************************/
 
+#include <glog/logging.h>
 #include <libyuv.h>
 
 #include <memory>
 
-#include "cxxutil/log.h"
 #include "easyinfer/mlu_memory_op.h"
 #include "video_decoder.h"
 #include "runner.h"
@@ -51,7 +51,7 @@ class EasyDecodeImpl : public VideoDecoderImpl {
     } else if (AV_CODEC_ID_MJPEG == info.codec_id) {
       attr.codec_type = edk::CodecType::JPEG;
     } else {
-      LOGE(SAMPLES) << "nonsupport codec id: " << info.codec_id;
+      LOG(ERROR) << "[EasyDK Samples] [EasyDecodeImpl] Unsupported codec id: " << info.codec_id;
       return false;
     }
     codec_ctx_ = info.codec_ctx;
@@ -63,7 +63,6 @@ class EasyDecodeImpl : public VideoDecoderImpl {
     attr.silent = false;
     attr.output_buffer_num = 6;
     decode_ = edk::EasyDecode::New(attr);
-
     return true;
   }
   bool FeedPacket(const AVPacket* packet) override {
@@ -90,12 +89,18 @@ class EasyDecodeImpl : public VideoDecoderImpl {
   void ReleaseFrame(edk::CnFrame&& frame) override {
     decode_->ReleaseBuffer(frame.buf_id);
   }
-  bool CopyFrameD2H(void *dst, const edk::CnFrame &frame) { return decode_->CopyFrameD2H(dst, frame); }
-  ~EasyDecodeImpl() {
+  bool CopyFrameD2H(void* dst, const edk::CnFrame& frame) override { return decode_->CopyFrameD2H(dst, frame); }
+
+  void Destroy() {
     if (p_bsfc_) {
       av_bitstream_filter_close(p_bsfc_);
       p_bsfc_ = nullptr;
     }
+    decode_->DestroyDecoder();
+  }
+
+  ~EasyDecodeImpl() {
+    EasyDecodeImpl::Destroy();
   }
 
  private:
@@ -106,14 +111,6 @@ class EasyDecodeImpl : public VideoDecoderImpl {
 
 _Pragma("GCC diagnostic push") _Pragma("GCC diagnostic ignored \"-Wdeprecated-declarations\"")
 // ------------------------------- FFmpegDecodeImpl --------------------------------------
-#define CALL_CNRT_FUNC(func, msg)                                                            \
-  do {                                                                                       \
-    int ret = (func);                                                                        \
-    if (0 != ret) {                                                                          \
-      LOGE(DECODE) << msg << " error code: " << ret;                                         \
-      THROW_EXCEPTION(Exception::INTERNAL, msg " cnrt error code : " + std::to_string(ret)); \
-    }                                                                                        \
-  } while (0)
 class FFmpegDecodeImpl : public VideoDecoderImpl {
  public:
   FFmpegDecodeImpl(VideoDecoder* interface, IDecodeEventHandle* handle, int device_id)
@@ -122,27 +119,29 @@ class FFmpegDecodeImpl : public VideoDecoderImpl {
     VideoInfo& info = interface_->GetVideoInfo();
     AVCodec *dec = avcodec_find_decoder(info.codec_id);
     if (!dec) {
-      LOGE(SAMPLE) << "avcodec_find_decoder failed";
+      LOG(ERROR) << "[EasyDK Samples] [FFmpegDecodeImpl] avcodec_find_decoder failed";
       return false;
     }
     decode_ = avcodec_alloc_context3(dec);
     if (!decode_) {
-      LOGE(SAMPLE) << "Failed to do avcodec_alloc_context3";
+      LOG(ERROR) << "[EasyDK Samples] [FFmpegDecodeImpl] avcodec_alloc_context3 failed";
       return false;
     }
     // av_codec_set_pkt_timebase(instance_, st->time_base);
 
     if (!info.extra_data.empty()) {
-      decode_->extradata = info.extra_data.data();
       decode_->extradata_size = info.extra_data.size();
+      uint8_t* extradata = reinterpret_cast<uint8_t*>(malloc(decode_->extradata_size));
+      memcpy(extradata, info.extra_data.data(), decode_->extradata_size);
+      decode_->extradata = extradata;
     }
     if (avcodec_open2(decode_, dec, NULL) < 0) {
-      LOGE(SAMPLE) << "Failed to open codec";
+      LOG(ERROR) << "[EasyDK Samples] [FFmpegDecodeImpl] Failed to open codec";
       return false;
     }
     av_frame_ = av_frame_alloc();
     if (!av_frame_) {
-      LOGE(SAMPLE) << "Could not alloc frame";
+      LOG(ERROR) << "[EasyDK Samples] [FFmpegDecodeImpl] Could not alloc frame";
       return false;
     }
     eos_got_.store(0);
@@ -153,7 +152,8 @@ class FFmpegDecodeImpl : public VideoDecoderImpl {
     int got_frame = 0;
     int ret = avcodec_decode_video2(decode_, av_frame_, &got_frame, pkt);
     if (ret < 0) {
-      LOGE(SAMPLE) << "avcodec_decode_video2 failed, data ptr, size:" << pkt->data << ", " << pkt->size;
+      LOG(ERROR) << "[EasyDK Samples] [FFmpegDecodeImpl] avcodec_decode_video2 failed, data ptr, size:"
+                 << pkt->data << ", " << pkt->size;
       return false;
     }
     if (got_frame) {
@@ -167,7 +167,7 @@ class FFmpegDecodeImpl : public VideoDecoderImpl {
     packet.size = 0;
     packet.data = NULL;
 
-    LOGI(SAMPLE) << "Sent EOS packet to decoder";
+    LOG(INFO) << "[EasyDK Samples] [FFmpegDecodeImpl] Sent EOS packet to decoder";
     eos_sent_.store(1);
     // flush all frames ...
     int got_frame = 0;
@@ -189,14 +189,20 @@ class FFmpegDecodeImpl : public VideoDecoderImpl {
   bool CopyFrameD2H(void *dst, const edk::CnFrame &frame) override {
     return edk::EasyDecode::CopyFrameD2H(dst, frame);
   }
-  ~FFmpegDecodeImpl() {
+  void Destroy() {
     if (av_frame_) {
       av_frame_free(&av_frame_);
+      av_frame_ = nullptr;
     }
     if (decode_) {
       avcodec_close(decode_);
       avcodec_free_context(&decode_);
+      decode_ = nullptr;
     }
+  }
+
+  ~FFmpegDecodeImpl() {
+    FFmpegDecodeImpl::Destroy();
   }
 
  private:
@@ -246,7 +252,8 @@ class FFmpegDecodeImpl : public VideoDecoderImpl {
         break;
       }
       default: {
-        LOGE(SAMPLE) << "FFmpegDecode ProcessFrame() Unsupported pixel format: " << decode_->pix_fmt;
+        LOG(ERROR) << "[EasyDK Samples] [FFmpegDecodeImpl] ProcessFrame() Unsupported pixel format: "
+                   << decode_->pix_fmt;
         return false;
       }
     }
@@ -285,7 +292,7 @@ static enum AVPixelFormat get_hw_format(AVCodecContext *ctx, const enum AVPixelF
   for (format = pix_fmts; *format != -1; format++) {
     if (*format == hw_pix_fmt) return *format;
   }
-  fprintf(stderr, "Failed to get HW surface format.\n");
+  LOG(ERROR) << "[EasyDK Samples] [FFmpegMluDecodeImpl] Failed to get HW surface format. ";
   return AV_PIX_FMT_NONE;
 }
 #endif
@@ -318,7 +325,7 @@ class FFmpegMluDecodeImpl : public VideoDecoderImpl {
     }
 
     if (!dec) {
-      LOGE(SAMPLE) << "avcodec_find_decoder failed";
+      LOG(ERROR) << "[EasyDK Samples] [FFmpegMluDecodeImpl] avcodec_find_decoder failed";
       return false;
     }
 #ifdef FFMPEG_MLU_OUTPUT_ON_MLU
@@ -326,8 +333,8 @@ class FFmpegMluDecodeImpl : public VideoDecoderImpl {
     for (int i = 0;; i++) {
       const AVCodecHWConfig *config = avcodec_get_hw_config(dec, i);
       if (!config) {
-        LOGE(SAMPLE)<< "Decoder " << dec->name << " doesn't support device type "
-                    << av_hwdevice_get_type_name(dev_type) << std::endl;
+        LOG(ERROR)<< "[EasyDK Samples] [FFmpegMluDecodeImpl] Decoder " << dec->name << " doesn't support device type "
+                    << av_hwdevice_get_type_name(dev_type);
         return -1;
       }
       if (config->methods & AV_CODEC_HW_CONFIG_METHOD_HW_DEVICE_CTX && config->device_type == dev_type) {
@@ -338,13 +345,13 @@ class FFmpegMluDecodeImpl : public VideoDecoderImpl {
 #endif
     decode_ = avcodec_alloc_context3(dec);
     if (!decode_) {
-      LOGE(SAMPLE) << "Failed to do avcodec_alloc_context3";
+      LOG(ERROR) << "[EasyDK Samples] [FFmpegMluDecodeImpl] Failed to do avcodec_alloc_context3";
       return false;
     }
     // av_codec_set_pkt_timebase(instance_, st->time_base);
 
     if (avcodec_parameters_to_context(decode_, info.codecpar) != 0) {
-        LOGE(SAMPLE) << "Copy codec context failed";
+        LOG(ERROR) << "[EasyDK Samples] [FFmpegMluDecodeImpl] Copy codec context failed";
         return false;
     }
 
@@ -358,19 +365,19 @@ class FFmpegMluDecodeImpl : public VideoDecoderImpl {
     AVBufferRef *hw_device_ctx = nullptr;
     snprintf(dev_idx_des, sizeof(device_id_), "%d", device_id_);
     if (av_hwdevice_ctx_create(&hw_device_ctx, dev_type, dev_idx_des, NULL, 0) < 0) {
-      LOGE(SAMPLE) << "Failed to create specified HW device.";
+      LOG(ERROR) << "[EasyDK Samples] [FFmpegMluDecodeImpl] Failed to create specified HW device.";
       return false;
     }
     decode_->hw_device_ctx = av_buffer_ref(hw_device_ctx);
 #endif
 
     if (avcodec_open2(decode_, dec,  &decoder_opts) < 0) {
-      LOGE(SAMPLE) << "Failed to open codec";
+      LOG(ERROR) << "[EasyDK Samples] [FFmpegMluDecodeImpl] Failed to open codec";
       return false;
     }
     av_frame_ = av_frame_alloc();
     if (!av_frame_) {
-      LOGE(SAMPLE) << "Could not alloc frame";
+      LOG(ERROR) << "[EasyDK Samples] [FFmpegMluDecodeImpl] Could not alloc frame";
       return false;
     }
     eos_got_.store(0);
@@ -380,7 +387,8 @@ class FFmpegMluDecodeImpl : public VideoDecoderImpl {
   bool FeedPacket(const AVPacket* pkt) override {
     int ret = avcodec_send_packet(decode_, pkt);
     if (ret < 0) {
-      LOGE(SAMPLE) << "avcodec_send_packet failed, data ptr, size:" << pkt->data << ", " << pkt->size;
+      LOG(ERROR) << "[EasyDK Samples] [FFmpegMluDecodeImpl] avcodec_send_packet failed, data ptr, size:"
+                 << pkt->data << ", " << pkt->size;
       return false;
     }
     ret = avcodec_receive_frame(decode_, av_frame_);
@@ -395,7 +403,7 @@ class FFmpegMluDecodeImpl : public VideoDecoderImpl {
     packet.size = 0;
     packet.data = NULL;
 
-    LOGI(SAMPLE) << "Sent EOS packet to decoder";
+    LOG(INFO) << "[EasyDK Samples] [FFmpegMluDecodeImpl] Sent EOS packet to decoder";
     eos_sent_.store(1);
     avcodec_send_packet(decode_, &packet);
     // flush all frames ...
@@ -418,14 +426,19 @@ class FFmpegMluDecodeImpl : public VideoDecoderImpl {
   bool CopyFrameD2H(void *dst, const edk::CnFrame &frame) override {
     return edk::EasyDecode::CopyFrameD2H(dst, frame);
   }
-  ~FFmpegMluDecodeImpl() {
+  void Destroy() {
     if (av_frame_) {
       av_frame_free(&av_frame_);
+      av_frame_ = nullptr;
     }
     if (decode_) {
       avcodec_close(decode_);
       avcodec_free_context(&decode_);
+      decode_ = nullptr;
     }
+  }
+  ~FFmpegMluDecodeImpl() {
+    FFmpegMluDecodeImpl::Destroy();
   }
 
  private:
@@ -442,7 +455,8 @@ class FFmpegMluDecodeImpl : public VideoDecoderImpl {
         cn_frame.pformat = edk::PixelFmt::NV21;
         break;
       default:
-        LOGE(SAMPLE) << "FFmpegMluDecode ProcessFrame() Unsupported pixel format: " << decode_->sw_pix_fmt;
+        LOG(ERROR) << "[EasyDK Samples] [FFmpegMluDecodeImpl] ProcessFrame() Unsupported pixel format: "
+                     << decode_->sw_pix_fmt;
         return false;
     }
     cn_frame.n_planes = 2;
@@ -495,8 +509,12 @@ VideoDecoder::VideoDecoder(StreamRunner* runner, DecoderType type, int device_id
       break;
 #endif
     default:
-      LOGF(SAMPLE) << "unsupported decoder type";
+      LOG(FATAL) << "[EasyDK Samples] [FFmpegMluDecodeImpl] unsupported decoder type";
   }
+}
+
+VideoDecoder::~VideoDecoder() {
+  if (impl_) delete impl_;
 }
 
 bool VideoDecoder::OnParseInfo(const VideoInfo& info) {
@@ -508,7 +526,10 @@ bool VideoDecoder::OnPacket(const AVPacket* packet) {
   return impl_->FeedPacket(packet);
 }
 
-void VideoDecoder::OnEos() { LOGI(SAMPLE) << "Get EOS"; }
+void VideoDecoder::OnEos() {
+  LOG(INFO) << "[EasyDK Samples] [VideoDecoder] Get EOS";
+  impl_->FeedEos();
+}
 
 bool VideoDecoder::Running() {
   return runner_->Running();
@@ -519,4 +540,8 @@ void VideoDecoder::SendEos() {
     impl_->FeedEos();
     send_eos_ = true;
   }
+}
+
+void VideoDecoder::Destroy() {
+  impl_->Destroy();
 }

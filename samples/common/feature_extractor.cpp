@@ -20,6 +20,7 @@
 
 #include "feature_extractor.h"
 
+#include <glog/logging.h>
 #include <opencv2/core/core.hpp>
 #include <opencv2/features2d/features2d.hpp>
 #include <opencv2/highgui/highgui.hpp>
@@ -37,13 +38,12 @@
 #include "cnis/contrib/video_helper.h"
 #include "cnis/infer_server.h"
 #include "cnis/processor.h"
-#include "cxxutil/log.h"
 #include "easycodec/vformat.h"
 
 bool FeatureExtractor::Init(const std::string &model_path, const std::string &func_name, int dev_id) {
   if (model_path.empty() || func_name.empty()) {
-    LOGW(SAMPLES) << "[FeatureExtractor] Do not need to init if extract feature on CPU";
-    LOGI(SAMPLES) << "[FeatureExtractor] Model not set, using opencv to extract feature on CPU";
+    LOG(WARNING) << "[EasyDK Samples] [FeatureExtractor] Do not need to init if extract feature on CPU";
+    LOG(INFO) << "[EasyDK Samples] [FeatureExtractor] Model not set, using OpenCV to extract feature on CPU";
     extract_feature_mlu_ = false;
     return true;
   }
@@ -96,15 +96,15 @@ bool FeatureExtractor::Init(const std::string &model_path, const std::string &fu
 
   // Check model I/O
   if (desc.model->InputNum() != 1) {
-    LOGE(SAMPLES) << "[FeatureExtractor] model should have exactly one input";
+    LOG(ERROR) << "[EasyDK Samples] [FeatureExtractor] model should have exactly one input";
     return false;
   }
   if (desc.model->OutputNum() != 1) {
-    LOGE(SAMPLES) << "[FeatureExtractor] model should have exactly two output";
+    LOG(ERROR) << "[EasyDK Samples] [FeatureExtractor] model should have exactly two output";
     return false;
   }
 
-  LOGI(SAMPLES) << "[FeatureExtractor] to extract feature on MLU";
+  LOG(INFO) << "[EasyDK Samples] [FeatureExtractor] to extract feature on MLU";
   extract_feature_mlu_ = true;
   return true;
 }
@@ -113,7 +113,7 @@ FeatureExtractor::~FeatureExtractor() { Destroy(); }
 
 void FeatureExtractor::Destroy() {
   if (extract_feature_mlu_ && infer_server_ && session_) {
-    LOGI(SAMPLES) << "[FeatureExtractor] destroy session";
+    LOG(INFO) << "[EasyDK Samples] [FeatureExtractor] destroy session";
     infer_server_->DestroySession(session_);
   }
 }
@@ -157,8 +157,8 @@ bool FeatureExtractor::ExtractFeatureOnMlu(const edk::CnFrame &frame,
     infer_server::Status status = infer_server::Status::SUCCESS;
     bool ret = infer_server_->RequestSync(session_, std::move(in), &status, out);
     if (!ret || status != infer_server::Status::SUCCESS) {
-      LOGE(SAMPLE) << "Request sending data to infer server failed. Status: "
-                   << std::to_string(static_cast<int>(status));
+      LOG(ERROR) << "[EasyDK Samples] [FeatureExtractor] Request sending data to infer server failed. Status: "
+                   << StatusStr(status);
       return false;
     }
 

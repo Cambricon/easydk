@@ -37,14 +37,6 @@ using std::vector;
 
 namespace infer_server {
 
-#define CALL_CNRT_FUNC(func, msg)                    \
-  do {                                               \
-    cnrtRet_t ret = (func);                          \
-    if (CNRT_RET_SUCCESS != ret) {                   \
-      LOG(ERROR) << (msg) << " error code: " << ret; \
-      return Status::ERROR_BACKEND;                  \
-    }                                                \
-  } while (0)
 struct PredictorPrivate {
 #ifndef NDEBUG
   void PrintTo(std::ostream& os, const void* data, DataType dtype, size_t cnt) {
@@ -71,7 +63,7 @@ struct PredictorPrivate {
     }
   }
   void DumpData(vector<Buffer>& in, vector<Buffer>& out) {  // NOLINT
-    LOG(INFO) << "dump model input/output   --" << model->GetKey();
+    LOG(INFO) << "[EasyDK InferServer] [Predictor] dump model input/output   --" << model->GetKey();
     // input
     for (uint32_t i_idx = 0; i_idx < in.size(); ++i_idx) {
       int64_t in_data_count = model->InputShape(i_idx).BatchDataCount();
@@ -81,7 +73,7 @@ struct PredictorPrivate {
 
       std::string f_name = "in_" + std::to_string(i_idx) + ".txt";
       std::ofstream in_f(f_name);
-      CHECK(in_f.is_open());
+      CHECK(in_f.is_open()) << "[EasyDK InferServer] [Predictor] Input file is not opened";
       PrintTo(in_f, in_cpu.Data(), model->InputLayout(i_idx).dtype, in_data_count);
       in_f.close();
     }
@@ -95,7 +87,7 @@ struct PredictorPrivate {
 
       std::string f_name = "out_" + std::to_string(o_idx) + ".txt";
       std::ofstream out_f(f_name);
-      CHECK(out_f.is_open());
+      CHECK(out_f.is_open()) << "[EasyDK InferServer] [Predictor] Output file is not opened";
       PrintTo(out_f, out_cpu.Data(), model->OutputLayout(o_idx).dtype, out_data_count);
       out_f.close();
     }
@@ -120,7 +112,7 @@ Status Predictor::Init() noexcept {
   constexpr const char* params[] = {"model_info", "device_id"};
   for (auto p : params) {
     if (!HaveParam(p)) {
-      LOG(ERROR) << p << " has not been set";
+      LOG(ERROR) << "[EasyDK InferServer] [Predictor] " << p << " has not been set";
       return Status::INVALID_PARAM;
     }
   }
@@ -132,7 +124,7 @@ Status Predictor::Init() noexcept {
 
     if (!SetCurrentDevice(device_id)) return Status::ERROR_BACKEND;
   } catch (bad_any_cast&) {
-    LOG(ERROR) << "unmatched param type";
+    LOG(ERROR) << "[EasyDK InferServer] [Predictor] Unmatched param type";
     return Status::WRONG_TYPE;
   }
 
@@ -154,7 +146,7 @@ Status Predictor::Init() noexcept {
     }
 #ifndef CNIS_USE_MAGICMIND
   } else {
-    LOG(ERROR) << "The output shapes of the model are not fixed.";
+    LOG(ERROR) << "[EasyDK InferServer] [Predictor] The output shapes of the model are not fixed.";
     return Status::INVALID_PARAM;
 #endif
   }
@@ -163,9 +155,9 @@ Status Predictor::Init() noexcept {
 }
 
 Status Predictor::Process(PackagePtr pack) noexcept {
-  CHECK(pack);
+  CHECK(pack) << "[EasyDK InferServer] [Predictor] Process pack. It should not be empty";
   if (!pack->predict_io || !pack->predict_io->HasValue()) {
-    LOG(ERROR) << "Predictor can process continuous data only";
+    LOG(ERROR) << "[EasyDK InferServer] [Predictor] Can process continuous data only";
     return Status::INVALID_PARAM;
   }
 
@@ -182,14 +174,15 @@ Status Predictor::Process(PackagePtr pack) noexcept {
 #ifdef CNIS_INFER_SHAPE_MUTABLE
       out_mlu.shapes = priv_->runner->InferOutputShape(in_mlu.shapes);
       if (out_mlu.shapes.empty()) {
-        LOG(ERROR) << "Invalid shapes: " << in_mlu.shapes;
+        LOG(ERROR) << "[EasyDK InferServer] [Predictor] Invalid shapes: " << in_mlu.shapes;
         return Status::ERROR_BACKEND;
       }
       size_t need_size;
       for (size_t idx = 0; idx < priv_->output_pools.size(); ++idx) {
         need_size = out_mlu.shapes[idx].BatchDataCount() * GetTypeSize(priv_->layouts[idx].dtype);
         if (need_size > priv_->output_pools[idx]->MemorySize()) {
-          LOG(INFO) << "size larger than mem pool, malloc buffer instantly";
+          LOG(INFO) << "[EasyDK InferServer] [Predictor] The size needed is larger than mem pool, malloc buffer"
+                    <<" instantly";
           out_mlu.buffers.emplace_back(need_size, priv_->output_pools[idx]->DeviceId());
         } else {
           out_mlu.buffers.emplace_back(priv_->output_pools[idx]->Request());
@@ -209,7 +202,7 @@ Status Predictor::Process(PackagePtr pack) noexcept {
     if (dump_data) { priv_->DumpData(in_mlu.buffers, out_mlu.buffers); }
 #endif
   } catch (bad_any_cast&) {
-    LOG(ERROR) << "predictor received unsupported data type";
+    LOG(ERROR) << "[EasyDK InferServer] [Predictor] Received unsupported data type";
     return Status::WRONG_TYPE;
   }
 

@@ -1,3 +1,23 @@
+# ==============================================================================
+# Copyright (C) [2022] by Cambricon, Inc. All rights reserved
+#
+#  Licensed under the Apache License, Version 2.0 (the "License");
+#  you may not use this file except in compliance with the License.
+#  You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# The above copyright notice and this permission notice shall be included in
+# all copies or substantial portions of the Software.
+# THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS
+# OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+# FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL
+# THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+# LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+# OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+# THE SOFTWARE.
+# ==============================================================================
+
 """Observer test
 
 This module tests Observer related APIs
@@ -9,10 +29,7 @@ sys.path.append(os.path.split(os.path.realpath(__file__))[0] + "/../lib")
 import numpy as np
 
 import cnis
-
-tag = "stream_0"
-ssd_mlu270_model_dir = \
-    "http://video.cambricon.com/models/MLU270/Primary_Detector/ssd/vgg16_ssd_b4c4_bgra_mlu270.cambricon"
+import utils
 
 class TestObserver(object):
   """TestObserver class provides several APIs for testing Observer"""
@@ -20,7 +37,7 @@ class TestObserver(object):
   def test_observer():
     infer_server = cnis.InferServer(dev_id=0)
     session_desc = cnis.SessionDesc()
-    session_desc.model = infer_server.load_model(ssd_mlu270_model_dir)
+    session_desc.model = infer_server.load_model(utils.model_dir)
     session_desc.show_perf = False
 
     class TestPostproc(cnis.Postprocess):
@@ -59,9 +76,13 @@ class TestObserver(object):
 
     obs = TestObserver()
     session = infer_server.create_session(session_desc, obs)
-    input_pak = cnis.Package(1, tag)
-    input_pak.data[0].set(np.random.randint(0, 255, size=(300, 300, 4), dtype=np.uint8))
+    input_pak = cnis.Package(1, utils.tag)
+    if cnis.get_device_core_version(dev_id=0) == cnis.CoreVersion.MLU270 or \
+       cnis.get_device_core_version(dev_id=0) == cnis.CoreVersion.MLU220:
+      input_pak.data[0].set(np.random.randint(0, 255, size=(300, 300, 4), dtype=np.uint8))
+    else:
+      input_pak.data[0].set(np.random.randint(0, 255, size=(416, 416, 3), dtype=np.uint8))
     infer_server.request(session, input_pak, {"user_data":"cnis"})
-    infer_server.wait_task_done(session, tag)
+    infer_server.wait_task_done(session, utils.tag)
     assert obs.called
     infer_server.destroy_session(session)

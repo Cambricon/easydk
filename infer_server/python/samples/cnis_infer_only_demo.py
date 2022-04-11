@@ -1,3 +1,23 @@
+# ==============================================================================
+# Copyright (C) [2022] by Cambricon, Inc. All rights reserved
+#
+#  Licensed under the Apache License, Version 2.0 (the "License");
+#  you may not use this file except in compliance with the License.
+#  You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# The above copyright notice and this permission notice shall be included in
+# all copies or substantial portions of the Software.
+# THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS
+# OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+# FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL
+# THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+# LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+# OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+# THE SOFTWARE.
+# ==============================================================================
+
 """Do inference only demo
 
 This module demonstrates how to run inference only by using cnis python api.
@@ -9,10 +29,8 @@ and the request_sync API will block until it is processed. After that we could g
 
 At last do not forget to destroy session.
 
-To run this script, on MLU270:
-    python cnis_infer_only_demo.py -p mlu270
-, on MLU220:
-    python cnis_infer_only_demo.py -p mlu220
+To run this script,
+    python cnis_infer_only_demo.py -dev 0
 
 """
 
@@ -23,138 +41,135 @@ import cv2
 cur_file_dir = os.path.split(os.path.realpath(__file__))[0]
 sys.path.append(cur_file_dir + "/../lib")
 import cnis
-
-tag = "stream_0"
-ssd_mlu270_model_dir = \
-    "http://video.cambricon.com/models/MLU270/Primary_Detector/ssd/vgg16_ssd_b4c4_bgra_mlu270.cambricon"
-ssd_mlu220_model_dir = \
-    "http://video.cambricon.com/models/MLU220/Primary_Detector/ssd/vgg16_ssd_b4c4_bgra_mlu220.cambricon"
+import sample_utils
 
 
-def get_model_input_wh(model):
-  """Get the input width and height of the model"""
-  width = 0
-  height = 0
-  order = model.input_layout(0).order
-  if order == cnis.DimOrder.NHWC:
-    width = model.input_shape(0)[2]
-    height = model.input_shape(0)[1]
-  elif order == cnis.DimOrder.NCHW:
-    width = model.input_shape(0)[1]
-    height =model.input_shape(0)[0]
-  else:
-    print("unsupported dim order")
-  return width, height
-
-
-def prepare_input_and_preproc(width, height):
-  """Read image from file. Convert color and resize the image to satisfy the model input"""
-  img = cv2.imread(cur_file_dir + "/../test/data/test.jpg")
-  resized_img = cv2.resize(img, (width, height))
-  bgra_img = cv2.cvtColor(resized_img, cv2.COLOR_BGR2BGRA)
-
-  input_pak = cnis.Package(1, tag)
-  input_pak.data[0].set(bgra_img)
-  return input_pak
-
-
-def ssd_postproc_and_print_result(output_pak, model, threshold):
-  """Do SSD postprocess and print object detection results"""
-  def clip(x):
-    """Limit the number in range [0, 1].
-    if x < 0, x = 0
-       x > 1, x = 1
-    otherwise x = x
-    """
-    return max(0, min(1, x))
-  for data in output_pak.data:
-    model_io = data.get_model_io()
-    buffer = model_io.buffers[0]
-    shape = model_io.shapes[0]
-    layout = model.output_layout(0)
-    data = buffer.data(shape, layout)
-    # Postproc ssd
-    data = data.reshape(model.output_shape(0)[3])
-    box_num = int(data[0])
-    objs = []
-    for i in range(box_num):
-      obj = cnis.DetectObject()
-      if data[64 + i * 7 + 1] == 0:
-        continue
-      obj.label = int(data[64 + i * 7 + 1] - 1)
-      obj.score = data[64 + i * 7 + 2]
-      if threshold > 0 and obj.score < threshold:
-        continue
-      obj.bbox.x = clip(data[64 + i * 7 + 3])
-      obj.bbox.y = clip(data[64 + i * 7 + 4])
-      obj.bbox.w = clip(data[64 + i * 7 + 5]) - obj.bbox.x
-      obj.bbox.h = clip(data[64 + i * 7 + 6]) - obj.bbox.y
-      objs.append(obj)
-
-    # Print results
-    if len(objs) == 0:
-      print("@@@@@@@@@@@ No objects detected in frame ")
-    print("objects number: ", len(objs))
-    for obj in objs:
-      print("obj label: {}  score: {}  bbox : {}, {}, {}, {}".format(
-            obj.label, obj.score, obj.bbox.x, obj.bbox.y, obj.bbox.w, obj.bbox.h))
-
-
-def sync_default_preproc_postproc_demo(platform):
+class SyncDefaultPreprocPostprocDemo(object):
   """Inference only demo API
   1. Create InferServer and Session (with default preprocess and postprocess)
   2. Sent frames to InferServer
   3. Do postprocess and print results
   4. Destroy session
   """
-  # Create InferServer
-  infer_server = cnis.InferServer(dev_id=0)
+  def __init__(self, device_id):
+    self.tag = "stream_0"
+    self.dev_id = device_id
+    self.core_ver = cnis.get_device_core_version(self.dev_id)
+    self.model_dir = "http://video.cambricon.com/models/MLU270/Primary_Detector/ssd/vgg16_ssd_b4c4_bgra_mlu270.cambricon"
+    if self.core_ver == cnis.CoreVersion.MLU220:
+      self.model_dir = "http://video.cambricon.com/models/MLU220/Primary_Detector/ssd/vgg16_ssd_b4c4_bgra_mlu220.cambricon"
+    elif self.core_ver == cnis.CoreVersion.MLU370:
+      self.model_dir = "http://video.cambricon.com/models/MLU370/yolov3_nhwc_tfu_0.8.2_uint8_int8_fp16.model"
 
-  # Create session. Sync API
-  session_desc = cnis.SessionDesc()
-  session_desc.name = "test_session_sync"
-  session_desc.engine_num = 1
-  session_desc.strategy = cnis.BatchStrategy.STATIC
-  if platform in ["mlu220", "220", "MLU220"]:
-    session_desc.model = infer_server.load_model(ssd_mlu220_model_dir)
-  else:
-    session_desc.model = infer_server.load_model(ssd_mlu270_model_dir)
-  session = infer_server.create_sync_session(session_desc)
 
-  width, height = get_model_input_wh(session_desc.model)
+  @staticmethod
+  def get_model_input_wh(model):
+    """Get the input width and height of the model"""
+    width = 0
+    height = 0
+    order = model.input_layout(0).order
+    if order == cnis.DimOrder.NHWC:
+      width = model.input_shape(0)[2]
+      height = model.input_shape(0)[1]
+    elif order == cnis.DimOrder.NCHW:
+      width = model.input_shape(0)[1]
+      height =model.input_shape(0)[0]
+    else:
+      print("[EasyDK PythonAPISamples] [InferOnlyDemo] Unsupported dim order")
+    return width, height
 
-  for _ in range(4):
-    # Prepare input and output
-    input_pak = prepare_input_and_preproc(width, height)
-    output_pak = cnis.Package(1)
 
-    # Request
-    status = cnis.Status.SUCCESS
-    ret = infer_server.request_sync(session, input_pak, status, output_pak, timeout=20000)
-    if not ret:
-      print("RequestSync failed, ret: {}, status: {}".format(ret, status))
+  def prepare_input_and_preproc(self, width, height):
+    """Read image from file. Convert color and resize the image to satisfy the model input"""
+    input_pak = cnis.Package(1, self.tag)
 
-    # Postproc and print results
-    if status == cnis.Status.SUCCESS:
-      ssd_postproc_and_print_result(output_pak, session_desc.model, 0.6)
+    img = cv2.imread(cur_file_dir + "/../test/data/test.jpg")
+    if self.core_ver == cnis.CoreVersion.MLU220 or self.core_ver == cnis.CoreVersion.MLU270:
+      resized_img = cv2.resize(img, (width, height))
+      result_img = cv2.cvtColor(resized_img, cv2.COLOR_BGR2BGRA)
+    else:
+      ratio = min(width / img.shape[1], height / img.shape[0])
+      resized_w = int(ratio * img.shape[1])
+      resized_h = int(ratio * img.shape[0])
+      resized_img = cv2.resize(img, (resized_w, resized_h))
+      delta_w = width - resized_w
+      delta_h = height - resized_h
+      top, bottom = delta_h // 2, delta_h - (delta_h // 2)
+      left, right = delta_w // 2, delta_w - (delta_w // 2)
+      color = [0, 0, 0]
+      new_img = cv2.copyMakeBorder(resized_img, top, bottom, left, right, cv2.BORDER_CONSTANT,
+                                   value=color)
+      result_img = cv2.cvtColor(new_img, cv2.COLOR_BGR2RGB)
+      input_pak.data[0].set_user_data({"image_width": img.shape[1], "image_height": img.shape[0]})
 
-  # Destroy Session
-  infer_server.destroy_session(session)
+    input_pak.data[0].set(result_img)
+    return input_pak
+
+
+  def postproc_and_print(self, output_pak, model, threshold):
+    """Do postproc and print detected objects"""
+    if self.core_ver == cnis.CoreVersion.MLU220 or self.core_ver == cnis.CoreVersion.MLU270:
+      """Do SSD postprocess and print object detection results"""
+      for data in output_pak.data:
+        model_io = data.get_model_io()
+        objs = sample_utils.ssd_postproc(model_io, model, threshold)
+        sample_utils.print_objs(objs)
+    else:
+      for data in output_pak.data:
+        model_io = data.get_model_io()
+        image_size = data.get_user_data()
+        objs = sample_utils.yolov3mm_postproc(model_io, model, image_size, threshold)
+        sample_utils.print_objs(objs)
+
+
+  def execute(self):
+    """Execyte Inference only demo"""
+    # Create InferServer
+    infer_server = cnis.InferServer(self.dev_id)
+
+    # Create session. Sync API
+    session_desc = cnis.SessionDesc()
+    session_desc.name = "test_session_sync"
+    session_desc.engine_num = 1
+    session_desc.strategy = cnis.BatchStrategy.STATIC
+    session_desc.model = infer_server.load_model(self.model_dir)
+    session = infer_server.create_sync_session(session_desc)
+
+    width, height = self.get_model_input_wh(session_desc.model)
+
+    for _ in range(4):
+      # Prepare input and output
+      input_pak = self.prepare_input_and_preproc(width, height)
+      output_pak = cnis.Package(1)
+
+      # Request
+      status = cnis.Status.SUCCESS
+      ret = infer_server.request_sync(session, input_pak, status, output_pak, timeout=20000)
+      if not ret:
+        print("[EasyDK PythonAPISamples] [InferOnlyDemo] RequestSync failed, ret: {}, status: {}".format(
+            ret, status))
+
+      # Postproc and print results
+      if status == cnis.Status.SUCCESS:
+        self.postproc_and_print(output_pak, session_desc.model, 0.6)
+
+    # Destroy Session
+    infer_server.destroy_session(session)
 
 
 def main():
-  """Parser arguments and run the inference only demo. Set argument -p to choose platform"""
+  """Parser arguments and run the inference only demo. Set argument -dev to choose device id"""
   parser = argparse.ArgumentParser()
-  parser.add_argument("-p", dest="platform", required=False, default = "mlu270",
-                      help="The platform, choose from mlu270 or mlu220")
+  parser.add_argument("-dev", dest="dev_id", type=int, required=False, default = 0, help="The device id")
 
   args = parser.parse_args()
 
   # Infer server will do inference only, users should do preproc and postproc before and after request
   start = time.time()
-  sync_default_preproc_postproc_demo(args.platform)
+  demo = SyncDefaultPreprocPostprocDemo(args.dev_id)
+  demo.execute()
   dur = time.time() - start
-  print("\n## Sync demo (default preproc/postproc) total time : {:.4f} second(s)\n".format(dur))
+  print("\n##[EasyDK PythonAPISamples] [InferOnlyDemo] Sync demo (default preproc/postproc) total time : {:.4f} second(s)\n".format(dur))
 
 
 if __name__ == '__main__':

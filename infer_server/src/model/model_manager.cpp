@@ -92,12 +92,14 @@ ModelPtr ModelManager::Load(const std::string& model_file, const std::vector<Sha
   // check if model file exist
   if (detail::IsNetFile(model_file)) {
     model_path = DownloadModel(model_file);
-    RETURN_VAL_IF_FAIL(!model_path.empty(), "Download model graph file failed: " + model_file, nullptr);
+    RETURN_VAL_IF_FAIL(!model_path.empty(),
+        "[EasyDK InferServer] [ModelManager] Download model graph file failed: " + model_file, nullptr);
   } else {
     model_path = model_file;
     std::ifstream f;
     f.open(model_path);
-    RETURN_VAL_IF_FAIL(f.is_open(), "Model file not exist. Please check model path: " + model_path, nullptr);
+    RETURN_VAL_IF_FAIL(f.is_open(),
+        "[EasyDK InferServer] [ModelManager] Model file not exist. Please check model path: " + model_path, nullptr);
     f.close();
   }
 
@@ -106,7 +108,7 @@ ModelPtr ModelManager::Load(const std::string& model_file, const std::vector<Sha
   std::unique_lock<std::mutex> lk(model_cache_mutex_);
   if (model_cache_.find(model_key) == model_cache_.cend()) {
     // cache not hit
-    LOG(INFO) << "Load model from model file: " << model_path;
+    LOG(INFO) << "[EasyDK InferServer] [ModelManager] Load model from model file: " << model_path;
     auto model = std::make_shared<Model>();
     if (!model->Init(model_path, in_shape)) {
       return nullptr;
@@ -116,21 +118,22 @@ ModelPtr ModelManager::Load(const std::string& model_file, const std::vector<Sha
     return model;
   } else {
     // cache hit
-    LOG(INFO) << "Get model from cache";
+    LOG(INFO) << "[EasyDK InferServer] [ModelManager] Get model from cache";
     return model_cache_.at(model_key);
   }
 };
 
 ModelPtr ModelManager::Load(void* mem_ptr, size_t size, const std::vector<Shape>& in_shape) noexcept {
   // check model in cache valid
-  RETURN_VAL_IF_FAIL(mem_ptr, "Invalid memory pointer, please check model cached in memory", nullptr);
+  RETURN_VAL_IF_FAIL(mem_ptr,
+      "[EasyDK InferServer] [ModelManager] Invalid memory pointer, please check model cached in memory", nullptr);
 
   std::string model_key = GetModelKey(mem_ptr);
 
   std::unique_lock<std::mutex> lk(model_cache_mutex_);
   if (model_cache_.find(model_key) == model_cache_.cend()) {
     // cache not hit
-    LOG(INFO) << "Load model from memory: " << mem_ptr << ", size: " << size;
+    LOG(INFO) << "[EasyDK InferServer] [ModelManager] Load model from memory: " << mem_ptr << ", size: " << size;
     auto model = std::make_shared<Model>();
     if (!model->Init(mem_ptr, size, in_shape)) {
       return nullptr;
@@ -140,7 +143,7 @@ ModelPtr ModelManager::Load(void* mem_ptr, size_t size, const std::vector<Shape>
     return model;
   } else {
     // cache hit
-    LOG(INFO) << "Get model from cache";
+    LOG(INFO) << "[EasyDK InferServer] [ModelManager] Get model from cache";
     return model_cache_.at(model_key);
   }
 };
@@ -150,12 +153,14 @@ ModelPtr ModelManager::Load(const std::string& url, const std::string& func_name
   // check if model file exist
   if (detail::IsNetFile(url)) {
     model_path = DownloadModel(url);
-    RETURN_VAL_IF_FAIL(!model_path.empty(), "Download model file failed: " + url, nullptr);
+    RETURN_VAL_IF_FAIL(!model_path.empty(),
+        "[EasyDK InferServer] [ModelManager] Download model file failed: " + url, nullptr);
   } else {
     model_path = url;
     std::ifstream f;
     f.open(model_path);
-    RETURN_VAL_IF_FAIL(f.is_open(), "Model file not exist. Please check model path: " + model_path, nullptr);
+    RETURN_VAL_IF_FAIL(f.is_open(),
+        "[EasyDK InferServer] [ModelManager] Model file not exist. Please check model path: " + model_path, nullptr);
     f.close();
   }
 
@@ -164,7 +169,7 @@ ModelPtr ModelManager::Load(const std::string& url, const std::string& func_name
   std::unique_lock<std::mutex> lk(model_cache_mutex_);
   if (model_cache_.find(model_key) == model_cache_.cend()) {
     // cache not hit
-    LOG(INFO) << "Load model from file: " << model_path;
+    LOG(INFO) << "[EasyDK InferServer] [ModelManager] Load model from file: " << model_path;
     auto model = std::make_shared<Model>();
     if (!model->Init(model_path, func_name)) {
       return nullptr;
@@ -174,21 +179,22 @@ ModelPtr ModelManager::Load(const std::string& url, const std::string& func_name
     return model;
   } else {
     // cache hit
-    LOG(INFO) << "Get model from cache";
+    LOG(INFO) << "[EasyDK InferServer] [ModelManager] Get model from cache";
     return model_cache_.at(model_key);
   }
 };
 
 ModelPtr ModelManager::Load(void* mem_ptr, const std::string& func_name) noexcept {
   // check model in cache valid
-  RETURN_VAL_IF_FAIL(mem_ptr, "Invalid memory pointer, please check model cached in memory", nullptr);
+  RETURN_VAL_IF_FAIL(mem_ptr,
+      "[EasyDK InferServer] [ModelManager] Invalid memory pointer, please check model cached in memory", nullptr);
 
   std::string model_key = GetModelKey(mem_ptr, func_name);
 
   std::unique_lock<std::mutex> lk(model_cache_mutex_);
   if (model_cache_.find(model_key) == model_cache_.cend()) {
     // cache not hit
-    LOG(INFO) << "Load model from memory, " << mem_ptr;
+    LOG(INFO) << "[EasyDK InferServer] [ModelManager] Load model from memory, " << mem_ptr;
     auto model = std::make_shared<Model>();
     if (!model->Init(mem_ptr, func_name)) {
       return nullptr;
@@ -198,7 +204,7 @@ ModelPtr ModelManager::Load(void* mem_ptr, const std::string& func_name) noexcep
     return model;
   } else {
     // cache hit
-    LOG(INFO) << "Get model from cache";
+    LOG(INFO) << "[EasyDK InferServer] [ModelManager] Get model from cache";
     return model_cache_.at(model_key);
   }
 };
@@ -215,11 +221,11 @@ std::shared_ptr<Model> ModelManager::GetModel(const std::string& name) noexcept 
 int ModelManager::CacheSize() noexcept { return model_cache_.size(); }
 
 bool ModelManager::Unload(ModelPtr model) noexcept {
-  RETURN_VAL_IF_FAIL(model, "model is nullptr!", false);
+  RETURN_VAL_IF_FAIL(model, "[EasyDK InferServer] [ModelManager] Model is nullptr!", false);
   const std::string& model_key = model->GetKey();
   std::lock_guard<std::mutex> lk(model_cache_mutex_);
   if (model_cache_.find(model_key) == model_cache_.cend()) {
-    LOG(WARNING) << "model not in cache";
+    LOG(WARNING) << "[EasyDK InferServer] [ModelManager] Model is not in cache";
     return false;
   } else {
     model_cache_.erase(model_key);
@@ -240,7 +246,8 @@ class CurlDownloader {
  public:
   explicit CurlDownloader(const std::string& model_dir) : model_dir_(model_dir) {
     CHECK_EQ(access(model_dir_.c_str(), W_OK), 0)
-        << "model directory not exist or do not have write permission: " << model_dir_;
+        << "[EasyDK InferServer] [CurlDownloader] model directory not exist or do not have write permission: "
+        << model_dir_;
     curl_ = curl_easy_init();
     curl_easy_setopt(curl_, CURLOPT_NOPROGRESS, false);
     curl_easy_setopt(curl_, CURLOPT_ERRORBUFFER, errbuf_);
@@ -251,7 +258,7 @@ class CurlDownloader {
     std::string file_path = model_dir_ + url.substr(url.find_last_of('/'));
 
     if (access(file_path.c_str(), F_OK) == 0) {
-      LOG(INFO) << "model exists in specified directory, skip download";
+      LOG(INFO) << "[EasyDK InferServer] [CurlDownloader] Model exists in specified directory, skip download";
       return file_path;
     } else {
       FileHandle f(file_path, "wb");
@@ -259,19 +266,19 @@ class CurlDownloader {
 
       curl_easy_setopt(curl_, CURLOPT_URL, url.c_str());
       curl_easy_setopt(curl_, CURLOPT_WRITEDATA, file);
-      LOG(INFO) << "url: " << url;
-      LOG(INFO) << "file: " << file_path;
+      LOG(INFO) << "[EasyDK InferServer] [CurlDownloader] Url: " << url;
+      LOG(INFO) << "[EasyDK InferServer] [CurlDownloader] File: " << file_path;
 
       auto re = curl_easy_perform(curl_);
       if (re != CURLE_OK) {
-        LOG(ERROR) << "Download model error, error_code: " << re;
+        LOG(ERROR) << "[EasyDK InferServer] [CurlDownloader] Download model error, error_code: " << re;
         size_t len = strlen(errbuf_);
         if (len) {
-          LOG(ERROR) << "extra message from cURL: " << errbuf_;
+          LOG(ERROR) << "[EasyDK InferServer] [CurlDownloader] Extra message from cURL: " << errbuf_;
         } else {
-          LOG(ERROR) << "extra message from cURL" << curl_easy_strerror(re);
+          LOG(ERROR) << "[EasyDK InferServer] [CurlDownloader] Extra message from cURL" << curl_easy_strerror(re);
         }
-        LOG(ERROR) << "model url: " << url;
+        LOG(ERROR) << "[EasyDK InferServer] [CurlDownloader] Model url: " << url;
         return {};
       }
       return file_path;
@@ -310,7 +317,7 @@ std::string ModelManager::DownloadModel(const std::string& url) noexcept {
 #else
 
 std::string ModelManager::DownloadModel(const std::string& url) noexcept {
-  LOG(ERROR) << "Build without curl, download model from net is not supported";
+  LOG(ERROR) << "[EasyDK InferServer] [ModelManager] Build without curl, download model from net is not supported";
   return {};
 }
 

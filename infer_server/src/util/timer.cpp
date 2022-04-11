@@ -60,14 +60,14 @@ class TimeCounter {
     while (running_.load()) {
       std::unique_lock<std::mutex> lk(mutex_);
       if (events_.empty()) {
-        VLOG(6) << "no time event...";
+        VLOG(4) << "[EasyDK InferServer] [TimeCounter] No time event...";
         cond_.wait(lk, [this]() { return !running_.load() || !events_.empty(); });
         continue;
       }
 
       TimeEvent* e = *events_.begin();
       if (Clock::now() < e->alarm_time) {
-        VLOG(7) << "wait for next time event";
+        VLOG(5) << "[EasyDK InferServer] [TimeCounter] Wait for next time event";
         cond_.wait_until(lk, e->alarm_time);
         continue;
       }
@@ -96,7 +96,7 @@ class TimeCounter {
   }
 
   int64_t Add(uint32_t t_ms, Timer::Notifier&& notifier, bool loop) {
-    VLOG(6) << "Add time event, timeout: " << t_ms;
+    VLOG(4) << "[EasyDK InferServer] [TimeCounter] Add time event, timeout: " << t_ms;
     Duration d(t_ms);
     std::unique_lock<std::mutex> lk(mutex_);
     auto te = new TimeEvent;
@@ -116,7 +116,7 @@ class TimeCounter {
     auto e = std::find_if(events_.begin(), events_.end(),
                           [handle](const TimeEvent* t) { return reinterpret_cast<int64_t>(t) == handle; });
     if (e != events_.end()) {
-      VLOG(6) << "Remove time event";
+      VLOG(4) << "[EasyDK InferServer] [TimeCounter] Remove time event";
       // wait until event is not in notifying
       while ((*e)->notifying.load()) {
       }

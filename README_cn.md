@@ -162,4 +162,4 @@ Easydk仅支持源码编译的方式使用，按如下步骤编译Easydk (`${EAS
 
 更多内容请参看文档，包括如何使用EasyDK，EasyDK模块的详细介绍以及一些示例代码等等。
 
-另外也可参看基于EasyDK的应用程序移植教程 `${EASYDK_DIR}/docs/ApplicationPortingTutorialBasedOnEasyDK.md` 。
+另外也可参看 [基于EasyDK的应用程序移植教程](docs/ApplicationPortingTutorialBasedOnEasyDK.md) , [最新的用户手册](docs/release_document/latest/Cambricon-EasyDK-User-Guide-CN-vlatest.pdf) 以及各版本的用户手册可以在 [这里](docs/release_document/) 查看。

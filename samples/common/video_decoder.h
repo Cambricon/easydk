@@ -58,6 +58,7 @@ class VideoDecoderImpl {
   virtual void FeedEos() = 0;
   virtual void ReleaseFrame(edk::CnFrame&& frame) = 0;
   virtual bool CopyFrameD2H(void *dst, const edk::CnFrame &frame) = 0;
+  virtual void Destroy() = 0;
 
  protected:
   VideoDecoder* interface_;
@@ -65,7 +66,7 @@ class VideoDecoderImpl {
   int device_id_;
 };
 
-class VideoDecoder : public IDemuxEventHandle {
+class VideoDecoder final : public IDemuxEventHandle {
  public:
   enum DecoderType {
     EASY_DECODE,
@@ -81,6 +82,8 @@ class VideoDecoder : public IDemuxEventHandle {
   VideoInfo& GetVideoInfo() { return info_; }
   bool CopyFrameD2H(void *dst, const edk::CnFrame &frame) { return impl_->CopyFrameD2H(dst, frame); }
   void ReleaseFrame(edk::CnFrame&& frame) { impl_->ReleaseFrame(std::forward<edk::CnFrame>(frame)); }
+  void Destroy();
+  ~VideoDecoder();
 
  private:
   bool InitEasyDecode();

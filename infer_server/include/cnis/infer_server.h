@@ -21,6 +21,7 @@
 #ifndef INFER_SERVER_API_H_
 #define INFER_SERVER_API_H_
 
+#include <glog/logging.h>
 #include <functional>
 #include <limits>
 #include <map>
@@ -78,6 +79,26 @@ enum class Status {
   TIMEOUT = 7,          ///< Time expired
   STATUS_COUNT = 8,     ///< Number of status
 };
+
+inline std::string StatusStr(Status status) noexcept {
+  switch (status) {
+#define STATUS2STR(status) \
+  case Status::status:     \
+    return #status;
+    STATUS2STR(SUCCESS)
+    STATUS2STR(ERROR_READWRITE)
+    STATUS2STR(ERROR_MEMORY)
+    STATUS2STR(INVALID_PARAM)
+    STATUS2STR(WRONG_TYPE)
+    STATUS2STR(ERROR_BACKEND)
+    STATUS2STR(NOT_IMPLEMENTED)
+    STATUS2STR(TIMEOUT)
+#undef STATUS2STR
+    default:
+      LOG(ERROR) << "[EasyDK InferServer] [StatusStr] Unsupported Status";
+      return "INVALID";
+  }
+}
 
 /**
  * @brief An enum describes batch strategy
@@ -649,19 +670,19 @@ class InferServer {
    * @note support download model from remote by HTTP, HTTPS, FTP, while compiled with flag `WITH_CURL`,
    *       use uri such as `../../model_file`, or "https://someweb/model_file"
    * @param model_uri offline model uri
-   * @param in_shape input shape of the model. If the model has mutable input shape, you could set input shape here.
+   * @param in_shapes input shapes of the model. If the model has mutable input shape, you could set input shape here.
    * @return ModelPtr A model
    */
-  static ModelPtr LoadModel(const std::string& model_uri, const std::vector<Shape>& in_shape = {}) noexcept;
+  static ModelPtr LoadModel(const std::string& model_uri, const std::vector<Shape>& in_shapes = {}) noexcept;
   /**
    * @brief Load model from memory, model won't be loaded again if it is already in cache
    *
    * @param ptr serialized model data in memory
    * @param size size of model data in memory
-   * @param in_shape input shape of the model. If the model has mutable input shape, you could set input shape here.
+   * @param in_shapes input shapes of the model. If the model has mutable input shape, you could set input shape here.
    * @return ModelPtr A model
    */
-  static ModelPtr LoadModel(void* ptr, size_t size, const std::vector<Shape>& in_shape) noexcept;
+  static ModelPtr LoadModel(void* ptr, size_t size, const std::vector<Shape>& in_shapes = {}) noexcept;
 #else
   /**
    * @brief Load model from uri, model won't be loaded again if it is already in cache

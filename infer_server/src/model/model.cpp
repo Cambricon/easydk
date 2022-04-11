@@ -50,7 +50,7 @@ namespace infer_server {
   do {                                                           \
     auto ret = (func);                                           \
     if (!ret.ok()) {                                             \
-      LOG(ERROR) << "Call " #func " failed, extra msg: " << ret; \
+      LOG(ERROR) << "[EasyDK InferServer] Call " #func " failed, extra msg: " << ret; \
       return val;                                                \
     }                                                            \
   } while (0)
@@ -75,7 +75,7 @@ bool ModelRunner::Init(MModel* model, mm_unique_ptr<MContext> ctx, const std::ve
   if (!FixedShape(in_shapes)) {
     fixed_input_shape_ = false;
     if (!input_shape.empty() && input_shape.size() == in_shapes.size()) {
-      VLOG(3) << "[ModelRunner] Model with mutable input shape. Input shape is set by user.";
+      VLOG(1) << "[EasyDK InferServer] [ModelRunner] Model with mutable input shape. Input shape is set by user.";
       for (unsigned idx = 0; idx < input_shape.size(); idx++) {
         in_shapes[idx] = input_shape[idx];
       }
@@ -89,15 +89,15 @@ bool ModelRunner::Init(MModel* model, mm_unique_ptr<MContext> ctx, const std::ve
     outputs_.clear();
   }
 
-  VLOG(3) << "Create cnrt queue";
+  VLOG(1) << "[EasyDK InferServer] [ModelRunner] Create CNRT queue";
   cnrtRet_t ret = cnrt::QueueCreate(&task_queue_);
-  CHECK_CNRT_RET(ret, "Create Queue failed", false);
+  CHECK_CNRT_RET(ret, "[EasyDK InferServer] [ModelRunner] Create Queue failed", false);
 #ifdef PERF_HARDWARE_TIME
   // create notifier for hardware time
   ret = cnrt::NotifierCreate(&notifier_start_);
-  CHECK_CNRT_RET(ret, "Create notifier failed", false);
+  CHECK_CNRT_RET(ret, "[EasyDK InferServer] [ModelRunner] Create notifier failed", false);
   ret = cnrt::NotifierCreate(&notifier_end_);
-  CHECK_CNRT_RET(ret, "Create notifier failed", false);
+  CHECK_CNRT_RET(ret, "[EasyDK InferServer] [ModelRunner] Create notifier failed", false);
 #endif
   return true;
 }
@@ -148,7 +148,7 @@ std::vector<Shape> ModelRunner::InferOutputShape(const std::vector<Shape>& input
     o_shapes_[idx] = outputs_[idx]->GetDimensions().GetDims();
   }
   i_shapes_ = input;
-  VLOG(4) << "inference shape changed ---"
+  VLOG(2) << "[EasyDK InferServer] [ModelRunner] inference shape changed ---"
           << "\n\tinput: " << i_shapes_ << "\n\toutput: " << o_shapes_;
   return o_shapes_;
 }
@@ -156,9 +156,10 @@ std::vector<Shape> ModelRunner::InferOutputShape(const std::vector<Shape>& input
 Status ModelRunner::Run(ModelIO* in, ModelIO* out) noexcept {  // NOLINT
   auto& input = in->buffers;
   auto& output = out->buffers;
-  CHECK_EQ(input_num_, input.size());
+  CHECK_EQ(input_num_, input.size()) << "EasyDK InferServer] [ModelRunner] Input number is mismatched";
 
-  VLOG(6) << "Process inference once, input num: " << input_num_ << " output num: " << output_num_;
+  VLOG(5) << "[EasyDK InferServer] [ModelRunner] Process inference once, input num: " << input_num_ << " output num: "
+          << output_num_;
 
   for (uint32_t i_idx = 0; i_idx < input_num_; ++i_idx) {
     inputs_[i_idx]->SetData(input[i_idx].MutableData());
@@ -168,13 +169,13 @@ Status ModelRunner::Run(ModelIO* in, ModelIO* out) noexcept {  // NOLINT
       } else if (i_shapes_.size() > i_idx && FixedShape({i_shapes_[i_idx]})) {
         inputs_[i_idx]->SetDimensions(mm::Dims(i_shapes_[i_idx].Vectorize()));
       } else {
-        LOG(ERROR) << "[ModelRunner] Can not get valid shape of the input tensor.";
+        LOG(ERROR) << "[EasyDK InferServer] [ModelRunner] Can not get valid shape of the input tensor.";
         return Status::ERROR_BACKEND;
       }
     }
   }
   if (!output.empty()) {
-    CHECK_EQ(output_num_, output.size());
+    CHECK_EQ(output_num_, output.size()) << "[EasyDK InferServer] [ModelRunner] Output number is mismatched";
     for (uint32_t o_idx = 0; o_idx < output_num_; ++o_idx) {
       outputs_[o_idx]->SetData(output[o_idx].MutableData());
     }
@@ -182,7 +183,8 @@ Status ModelRunner::Run(ModelIO* in, ModelIO* out) noexcept {  // NOLINT
 
 #ifdef PERF_HARDWARE_TIME
   // place start event
-  CALL_CNRT_FUNC(cnrt::PlaceNotifier(notifier_start_, task_queue_), "Place event failed");
+  CALL_CNRT_FUNC(cnrt::PlaceNotifier(notifier_start_, task_queue_),
+                 "[EasyDK InferServer] [ModelRunner] Place event failed");
 #endif
 
   if (output.empty()) {
@@ -194,10 +196,11 @@ Status ModelRunner::Run(ModelIO* in, ModelIO* out) noexcept {  // NOLINT
 
 #ifdef PERF_HARDWARE_TIME
   // place end event
-  CALL_CNRT_FUNC(cnrt::PlaceNotifier(notifier_end_, task_queue_), "Place event failed");
+  CALL_CNRT_FUNC(cnrt::PlaceNotifier(notifier_end_, task_queue_),
+                 "[EasyDK InferServer] [ModelRunner] Place event failed");
 #endif
 
-  CALL_CNRT_FUNC(cnrt::QueueSync(task_queue_), "Sync queue failed.");
+  CALL_CNRT_FUNC(cnrt::QueueSync(task_queue_), "[EasyDK InferServer] [ModelRunner] Sync queue failed.");
 
   if (output.empty()) {
     for (MTensor* tensor : outputs_) {
@@ -210,9 +213,10 @@ Status ModelRunner::Run(ModelIO* in, ModelIO* out) noexcept {  // NOLINT
 
 #ifdef PERF_HARDWARE_TIME
   float hw_time{0};
-  CALL_CNRT_FUNC(cnrt::NotifierDuration(notifier_start_, notifier_end_, &hw_time), "Calculate elapsed time failed.");
+  CALL_CNRT_FUNC(cnrt::NotifierDuration(notifier_start_, notifier_end_, &hw_time),
+                 "[EasyDK InferServer] [ModelRunner] Calculate elapsed time failed.");
   hw_time /= 1000.0f;
-  VLOG(3) << "Inference hardware time " << hw_time << " ms";
+  VLOG(1) << "[EasyDK InferServer] [ModelRunner] Inference hardware time " << hw_time << " ms";
 #endif
 
   return Status::SUCCESS;
@@ -221,7 +225,7 @@ Status ModelRunner::Run(ModelIO* in, ModelIO* out) noexcept {  // NOLINT
 bool Model::Init(const string& model_file, const std::vector<Shape>& in_shape) noexcept {
   model_file_ = model_file;
   model_.reset(mm::CreateIModel());
-  VLOG(3) << "(success) Load model from graph file: " << model_file_;
+  VLOG(1) << "[EasyDK InferServer] [Model] (success) Load model from graph file: " << model_file_;
   MM_SAFECALL(model_->DeserializeFromFile(model_file_.c_str()), false);
 
   has_init_ = GetModelInfo(in_shape);
@@ -234,7 +238,7 @@ bool Model::Init(void* mem_ptr, size_t size, const std::vector<Shape>& in_shape)
   model_file_ = ss.str();
   model_.reset(mm::CreateIModel());
 
-  VLOG(3) << "(success) Load model from memory: " << model_file_;
+  VLOG(1) << "[EasyDK InferServer] [Model] (success) Load model from memory: " << model_file_;
   MM_SAFECALL(model_->DeserializeFromMemory(mem_ptr, size), false);
 
   has_init_ = GetModelInfo(in_shape);
@@ -261,7 +265,7 @@ bool Model::GetModelInfo(const std::vector<Shape>& in_shape) noexcept {
   auto trans2layout = [](mm::DataType t, mm::Layout l) {
     DimOrder order = detail::CastDimOrder(l);
     if (order == DimOrder::INVALID) {
-      LOG(WARNING) << "DimOrder is invalid, use NHWC instead";
+      LOG(WARNING) << "[EasyDK InferServer] [Model] DimOrder is invalid, use NHWC instead";
        order = DimOrder::NHWC;
     }
     return DataLayout{detail::CastDataType(t), order};
@@ -284,7 +288,7 @@ bool Model::GetModelInfo(const std::vector<Shape>& in_shape) noexcept {
 
   if (!FixedShape(input_shapes_)) {
     if (!in_shape.empty() && in_shape.size() == input_shapes_.size()) {
-      VLOG(3) << "Model with mutable input shape. Input shape is set by user.";
+      VLOG(1) << "[EasyDK InferServer] [Model] Model with mutable input shape. Input shape is set by user.";
       for (unsigned idx = 0; idx < in_shape.size(); idx++) {
         input_shapes_[idx] = in_shape[idx];
         inputs[idx]->SetDimensions(mm::Dims(in_shape[idx].Vectorize()));
@@ -294,7 +298,7 @@ bool Model::GetModelInfo(const std::vector<Shape>& in_shape) noexcept {
         output_shapes_[idx] = outputs[idx]->GetDimensions().GetDims();
       }
     } else {
-      VLOG(3) << "Model with mutable input shape. Input shape is not set.";
+      VLOG(1) << "[EasyDK InferServer] [Model] Model with mutable input shape. Input shape is not set.";
     }
   }
 
@@ -308,14 +312,14 @@ bool Model::GetModelInfo(const std::vector<Shape>& in_shape) noexcept {
     case DimOrder::NHWC:
     case DimOrder::HWCN:
       if (input_shapes_[0].Size() != 4) {
-        LOG(ERROR) << "Input shape and dim order is unmatched.";
+        LOG(ERROR) << "[EasyDK InferServer] [Model] Input shape and dim order is unmatched.";
         return false;
       }
       break;
     case DimOrder::NTC:
     case DimOrder::TNC:
       if (input_shapes_[0].Size() != 3) {
-        LOG(ERROR) << "Input shape and dim order is unmatched.";
+        LOG(ERROR) << "[EasyDK InferServer] [Model] Input shape and dim order is unmatched.";
         return false;
       }
       break;
@@ -339,25 +343,25 @@ bool Model::GetModelInfo(const std::vector<Shape>& in_shape) noexcept {
       break;
   }
 
-  VLOG(3) << "Model Info: input number = " << i_num_ << ";\toutput number = " << o_num_;
-  VLOG(3) << "            batch size = " << model_batch_size_;
+  VLOG(1) << "[EasyDK InferServer] [Model] Model Info: input number = " << i_num_ << ";\toutput number = " << o_num_;
+  VLOG(1) << "[EasyDK InferServer] [Model]             batch size = " << model_batch_size_;
   for (int i = 0; i < i_num_; ++i) {
-    VLOG(3) << "----- input index [" << i;
-    VLOG(3) << "      data type " << detail::DataTypeStr(i_mlu_layouts_[i].dtype);
-    VLOG(3) << "      dim order " << detail::DimOrderStr(i_mlu_layouts_[i].order);
-    VLOG(3) << "      shape " << input_shapes_[i];
+    VLOG(1) << "[EasyDK InferServer] [Model] ----- input index [" << i;
+    VLOG(1) << "[EasyDK InferServer] [Model]       data type " << detail::DataTypeStr(i_mlu_layouts_[i].dtype);
+    VLOG(1) << "[EasyDK InferServer] [Model]       dim order " << detail::DimOrderStr(i_mlu_layouts_[i].order);
+    VLOG(1) << "[EasyDK InferServer] [Model]       shape " << input_shapes_[i];
   }
   for (int i = 0; i < o_num_; ++i) {
-    VLOG(3) << "----- output index [" << i;
-    VLOG(3) << "      data type " << detail::DataTypeStr(o_mlu_layouts_[i].dtype);
-    VLOG(3) << "      dim order " << detail::DimOrderStr(o_mlu_layouts_[i].order);
-    VLOG(3) << "      shape " << output_shapes_[i];
+    VLOG(1) << "[EasyDK InferServer] [Model] ----- output index [" << i;
+    VLOG(1) << "[EasyDK InferServer] [Model]       data type " << detail::DataTypeStr(o_mlu_layouts_[i].dtype);
+    VLOG(1) << "[EasyDK InferServer] [Model]       dim order " << detail::DimOrderStr(o_mlu_layouts_[i].order);
+    VLOG(1) << "[EasyDK InferServer] [Model]       shape " << output_shapes_[i];
   }
   return true;
 }
 
 Model::~Model() {
-  VLOG(3) << "Unload model: " << model_file_;
+  VLOG(1) << "[EasyDK InferServer] [Model] Unload model: " << model_file_;
 }
 }  // namespace infer_server
 

@@ -18,6 +18,7 @@
  * THE SOFTWARE.
  *************************************************************************/
 
+#include <glog/logging.h>
 #include <map>
 #include <memory>
 #include <mutex>
@@ -26,7 +27,6 @@
 #include <utility>
 #include <vector>
 
-#include "cxxutil/log.h"
 #include "easytrack/easy_track.h"
 #include "kalmanfilter.h"
 #include "match.h"
@@ -113,12 +113,12 @@ FeatureMatchTrack::~FeatureMatchTrack() {
 void FeatureMatchTrack::SetParams(float max_cosine_distance, int nn_budget, float max_iou_distance, int max_age,
                                   int n_init) {
   // clang-format off
-  LOGD(TRACK) << "FeatureMatchTrack Params -----\n"
-              << "\n\t max cosine distance: " << max_cosine_distance
-              << "\n\t max IoU distance: " << max_iou_distance
-              << "\n\t max age: " << max_age
-              << "\n\t nn budget: " << nn_budget
-              << "\n\t n_init: " << n_init;
+  VLOG(2) << "[EasyDK EasyTrack] [FeatureMatchTrack] Params -----\n"
+          << "\n\t max cosine distance: " << max_cosine_distance
+          << "\n\t max IoU distance: " << max_iou_distance
+          << "\n\t max age: " << max_age
+          << "\n\t nn budget: " << nn_budget
+          << "\n\t n_init: " << n_init;
   // clang-format on
   max_cosine_distance_ = max_cosine_distance;
   max_iou_distance_ = max_iou_distance;
@@ -145,7 +145,8 @@ void FeatureMatchPrivate::MatchCascade() {
 
   std::set<int> remained_detections;
   remained_detections.insert(res.unmatched_detections.begin(), res.unmatched_detections.end());
-  LOGT(TRACK) << "MatchCascade) Match scale, detects " << det_objs.size() << " tracks " << confirmed_track_.size();
+  VLOG(5) << "[EasyDK EasyTrack] [FeatureMatchTrack] Match scale, detects " << det_objs.size()
+          << " tracks " << confirmed_track_.size();
 
   std::map<int, std::vector<int>> age_track_indices;
   for (size_t t = 0; t < confirmed_track_.size(); ++t) {
@@ -154,14 +155,15 @@ void FeatureMatchPrivate::MatchCascade() {
   }
 
   for (int age = 0; age < fm_->max_age_; ++age) {
-    LOGA(TRACK) << "Cascade: Number of remained detections ----- " << remained_detections.size();
+    VLOG(5) << "[EasyDK EasyTrack] [FeatureMatchTrack] Cascade: Number of remained detections ----- "
+            << remained_detections.size();
     // no remained detections or no confirmed tracks, end match
     if (remained_detections.empty() || confirmed_track_.empty()) break;
 
     // get all confirmed tracks with same age
     auto track_indices_iter = age_track_indices.find(age);
     if (track_indices_iter == age_track_indices.end()) {
-      LOGA(TRACK) << "Cascade: No tracks for age " << age << " round, continue";
+      VLOG(5) << "[EasyDK EasyTrack] [FeatureMatchTrack] Cascade: No tracks for age " << age << " round, continue";
       continue;
     }
     std::vector<int>& track_indices = track_indices_iter->second;
@@ -182,7 +184,8 @@ void FeatureMatchPrivate::MatchCascade() {
         cost_matrix(i, j) = match_algo_->Distance(tracks_[track_indices[i]].features,
                                                   Feature(det.feature, det.feat_mold));
         if (cost_matrix(i, j) > fm_->max_cosine_distance_ || gating_dist(0, j) > gating_threshold) {
-          LOGA(TRACK) << "object " << i << " - " << j << " feature distance is larger than max_cosine_distance";
+          VLOG(5) << "[EasyDK EasyTrack] [FeatureMatchTrack] object " << i << " - " << j
+                  << " feature distance is larger than max_cosine_distance";
           cost_matrix(i, j) = fm_->max_cosine_distance_ + 1e-5;
         }
       }
@@ -214,17 +217,18 @@ void FeatureMatchPrivate::MatchIou(const std::vector<int>& detect_indices,
   res.Clean();
 
   if (detect_indices.empty()) {
-    LOGD(TRACK) << "No remained detections to process IoU match";
+    VLOG(4) << "[EasyDK EasyTrack] [FeatureMatchTrack] No remained detections to process IoU match";
     res.unmatched_tracks = track_indices;
     return;
   } else if (track_indices.empty()) {
-    LOGD(TRACK) << "No remained track objects to process IoU match";
+    VLOG(4) << "[EasyDK EasyTrack] [FeatureMatchTrack] No remained track objects to process IoU match";
     res.unmatched_detections = detect_indices;
     return;
   }
   uint32_t detect_num = detect_indices.size();
   uint32_t track_num = track_indices.size();
-  LOGT(TRACK) << "MatchIoU) Match scale, detects " << detect_num << " tracks " << track_num;
+  VLOG(5) << "[EasyDK EasyTrack] [FeatureMatchTrack] (MatchIoU) Match scale, detects " << detect_num << " tracks "
+          << track_num;
   std::vector<Rect> det_rects, tra_rects;
   const Objects &det_objs = *detects_;
   std::set<int> remained_detections;
@@ -289,7 +293,8 @@ void FeatureMatchPrivate::UpdateFrame(const Objects &detects, Objects *tracks) {
 
   uint32_t detect_num = detects.size();
   uint32_t track_num = tracks_.size();
-  LOGD(TRACK) << "FeatureMatch) Track scale, detects " << detect_num << " tracks " << track_num;
+  VLOG(4) << "[EasyDK EasyTrack] [FeatureMatchTrack] (FeatureMatch) Track scale, detects " << detect_num << " tracks "
+          << track_num;
   // no tracks, first enter
   if (tracks_.empty()) {
     tracks_.reserve(detect_num);
@@ -317,9 +322,10 @@ void FeatureMatchPrivate::UpdateFrame(const Objects &detects, Objects *tracks) {
 
     // match with features
     MatchCascade();
-    LOGT(TRACK) << "FeatureMatch) Cascade result, matched " << res_feature_.matches.size()
-                << " unmatched detects " << res_feature_.unmatched_detections.size()
-                << " unmatched tracks " << res_feature_.unmatched_tracks.size();
+    VLOG(5) << "[EasyDK EasyTrack] [FeatureMatchTrack] (FeatureMatch) Cascade result, matched "
+            << res_feature_.matches.size()
+            << " unmatched detects " << res_feature_.unmatched_detections.size()
+            << " unmatched tracks " << res_feature_.unmatched_tracks.size();
 
     // give first missed object a chance
     std::vector<int> match_iou_track = unconfirmed_track_;
@@ -327,16 +333,16 @@ void FeatureMatchPrivate::UpdateFrame(const Objects &detects, Objects *tracks) {
       if (tracks_[idx].time_since_last_update == 1) {
         match_iou_track.push_back(idx);
       } else {
-        LOGT(TRACK) << "Object " << idx << " missed";
+        VLOG(5) << "[EasyDK EasyTrack] [FeatureMatchTrack] Object " << idx << " missed";
         MarkMiss(&(tracks_[idx]));
       }
     }
 
     // match with iou
     MatchIou(res_feature_.unmatched_detections, match_iou_track);
-    LOGT(TRACK) << "FeatureMatch) IoU result, matched " << res_iou_.matches.size()
-                << " unmatched detects " << res_iou_.unmatched_detections.size()
-                << " unmatched tracks " << res_iou_.unmatched_tracks.size();
+    VLOG(5) << "[EasyDK EasyTrack] [FeatureMatchTrack] (FeatureMatch) IoU result, matched " << res_iou_.matches.size()
+            << " unmatched detects " << res_iou_.unmatched_detections.size()
+            << " unmatched tracks " << res_iou_.unmatched_tracks.size();
 
     // update matched
     DetectObject tmp_obj;
@@ -365,7 +371,7 @@ void FeatureMatchPrivate::UpdateFrame(const Objects &detects, Objects *tracks) {
       ptrack_obj->time_since_last_update = 0;
       ptrack_obj->age++;
       if (ptrack_obj->state == TrackState::TENTATIVE && ptrack_obj->age > fm_->n_init_) {
-        LOGD(TRACK) << "new track: " << next_id_;
+        VLOG(4) << "[EasyDK EasyTrack] [FeatureMatchTrack] new track: " << next_id_;
         ptrack_obj->state = TrackState::CONFIRMED;
         ptrack_obj->track_id = next_id_++;
       }
@@ -381,14 +387,14 @@ void FeatureMatchPrivate::UpdateFrame(const Objects &detects, Objects *tracks) {
 
     // unmatched tracks: mark missed
     for (auto idx : res_iou_.unmatched_tracks) {
-      LOGT(TRACK) << "Object " << idx << " missed";
+      VLOG(5) << "[EasyDK EasyTrack] [FeatureMatchTrack] Object " << idx << " missed";
       MarkMiss(&(tracks_[idx]));
     }
 
     // erase dead track object
     for (auto iter = tracks_.begin(); iter != tracks_.end();) {
       if (iter->state == TrackState::DELETED || iter->time_since_last_update > fm_->max_age_) {
-        LOGD(TRACK) << "delete track: " << iter->track_id;
+        VLOG(4) << "[EasyDK EasyTrack] [FeatureMatchTrack] delete track: " << iter->track_id;
         iter = tracks_.erase(iter);
       } else {
         iter++;
@@ -399,7 +405,7 @@ void FeatureMatchPrivate::UpdateFrame(const Objects &detects, Objects *tracks) {
 
 void FeatureMatchTrack::UpdateFrame(const TrackFrame &frame, const Objects &detects, Objects *tracks) {
   if (!tracks) {
-    THROW_EXCEPTION(Exception::INVALID_ARG, "parameter 'tracks' is nullptr");
+    THROW_EXCEPTION(Exception::INVALID_ARG, "[EasyDK EasyTrack] [FeatureMatchTrack] parameter 'tracks' is nullptr");
   }
   fm_p_->UpdateFrame(detects, tracks);
 }

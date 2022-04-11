@@ -232,7 +232,7 @@ void kcf_init(KCFHandle* handle, cnrtQueue_t queue, float threshold) {
   uint32_t dft_mat_size = 0;
   half* dft_mat_half = static_cast<half*>(malloc(num_dft_mats * sizeof(half)));
   decompress_dft_mat(_dft_mat_table_zipped, dft_mat_zipped_size, dft_mat_half, &dft_mat_size);
-  printf("decompress_dft_mat ok(%u)\n", dft_mat_size);
+  VLOG(1) << "[EasyDK EasyTrack] [KcfTrack] decompress_dft_mat is ok, size: " <<  dft_mat_size;
 
   CNRT_CHECK(cnrtMemcpy(handle->dft_mat, dft_mat_half, num_dft_mats * sizeof(half), CNRT_MEM_TRANS_DIR_HOST2DEV));
   free(dft_mat_half);
@@ -316,7 +316,8 @@ void kcf_initKernel(KCFHandle* handle, half* frame, half* rois_mlu, __Rect* out_
                   detect_roi[i * 6 + 5]};
   }
   STORE_USEC_TIME_OF_DAY_TO_INT64(time_b);
-  printf("kcf function run time (init)= %ld.%ldms\n", (time_b - time_a) / 1000, (time_b - time_a) % 1000);
+  VLOG(1) << "[EasyDK EasyTrack] [KcfTrack] Kcf function run time (init) = " << (time_b - time_a) / 1000
+          << "." << (time_b - time_a) % 1000 << "ms";
 }
 
 // Wrap interface
@@ -366,7 +367,8 @@ void kcf_updateKernel(KCFHandle* handle, half* frame, __Rect* out_roi, int roi_n
                   detect_roi[i * 6 + 5]};
   }
   STORE_USEC_TIME_OF_DAY_TO_INT64(time_b);
-  printf("kcf function run time (update)= %ld.%ldms\n", (time_b - time_a) / 1000, (time_b - time_a) % 1000);
+  VLOG(5) << "[EasyDK EasyTrack] [KcfTrack] Kcf function run time (update) = " << (time_b - time_a) / 1000
+          << "." (time_b - time_a) % 1000 << "ms";
 }
 
 #endif  // ENABLE_KCF

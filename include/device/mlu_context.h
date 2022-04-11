@@ -27,8 +27,11 @@
 #ifndef EDK_MLU_CONTEXT_H_
 #define EDK_MLU_CONTEXT_H_
 
+#include <glog/logging.h>
+
 #include <functional>
 #include <memory>
+#include <string>
 #include <utility>
 
 #include "cxxutil/edk_attribute.h"
@@ -46,6 +49,23 @@ enum class CoreVersion {
   MLU370 = 3,   ///< MLU370 platform
   CE3226 = 4,   ///< CE3226 platform
 };
+
+inline std::string CoreVersionStr(CoreVersion version) noexcept {
+  switch (version) {
+#define COREVERSION2STR(version) \
+  case CoreVersion::version:     \
+    return #version;
+    COREVERSION2STR(INVALID)
+    COREVERSION2STR(MLU220)
+    COREVERSION2STR(MLU270)
+    COREVERSION2STR(MLU370)
+    COREVERSION2STR(CE3226)
+#undef PIXELFMT2STR
+    default:
+      LOG(ERROR) << "[EasyDK Device] [CoreVersionStr] Unsupported core version";
+      return "INVALID";
+  }
+}
 
 struct MluTaskQueuePrivate;
 class MluTaskQueueProxy;

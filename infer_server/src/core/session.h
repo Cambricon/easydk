@@ -58,10 +58,12 @@ class Session {
     perf_timer_.NotifyEvery(2000, [this, show_perf]() {
       profiler_.Update();
       if (show_perf) {
-        LOG(INFO) << "[" << name_ << "] Session rps (total): " << profiler_.RequestPerSecond();
-        LOG(INFO) << "[" << name_ << "] Session ups (total): " << profiler_.UnitPerSecond();
-        LOG(INFO) << "[" << name_ << "] Session rps (realtime): " << profiler_.RequestThroughoutRealtime();
-        LOG(INFO) << "[" << name_ << "] Session ups (realtime): " << profiler_.UnitThroughoutRealtime();
+        LOG(INFO) << "[EasyDK InferServer] [" << name_ << "] Session rps (total): " << profiler_.RequestPerSecond();
+        LOG(INFO) << "[EasyDK InferServer] [" << name_ << "] Session ups (total): " << profiler_.UnitPerSecond();
+        LOG(INFO) << "[EasyDK InferServer] [" << name_ << "] Session rps (realtime): "
+                  << profiler_.RequestThroughoutRealtime();
+        LOG(INFO) << "[EasyDK InferServer] [" << name_ << "] Session ups (realtime): "
+                  << profiler_.UnitThroughoutRealtime();
       }
     });
 #endif
@@ -74,7 +76,7 @@ class Session {
     auto check = [this]() { return request_list_.empty() && !in_response_.load(); };
     std::unique_lock<std::mutex> lk(request_mutex_);
     if (!check()) {
-      VLOG(3) << "session " << name_ << " wait all task done in destructor";
+      VLOG(1) << "[EasyDK InferServer] [Session] session " << name_ << " wait all task done in destructor";
       sync_cond_.wait(lk, check);
     }
     lk.unlock();
@@ -142,17 +144,17 @@ class Executor {
 
   void Link(Session_t session) noexcept {
     std::unique_lock<std::mutex> lk(link_mutex_);
-    VLOG(3) << "executor " << desc_.name << "] link session " << session->GetName();
+    VLOG(1) << "[EasyDK InferServer] [Session] Executor " << desc_.name << "] link session " << session->GetName();
     link_set_.insert(session);
   }
 
   void Unlink(Session_t session) noexcept {
     std::unique_lock<std::mutex> lk(link_mutex_);
     if (link_set_.count(session)) {
-      VLOG(3) << "executor " << desc_.name << "] unlink session " << session->GetName();
+      VLOG(1) << "[EasyDK InferServer] [Session] Executor " << desc_.name << "] unlink session " << session->GetName();
       link_set_.erase(session);
     } else {
-      LOG(WARNING) << "no such session in this executor";
+      LOG(WARNING) << "[EasyDK InferServer] [Session] Unlink session, but it is not found in this executor";
     }
   }
 
@@ -165,9 +167,9 @@ class Executor {
       if (timeout > 0) {
         return limit_cond_.wait_for(lk, std::chrono::milliseconds(timeout), idle_pred);
       } else {
-        VLOG(4) << "Wait for cache not full";
+        VLOG(2) << "[EasyDK InferServer] [WaitIfCacheFull] Wait for cache not full";
         limit_cond_.wait(lk, idle_pred);
-        VLOG(4) << "Wait for cache not full done";
+        VLOG(2) << "[EasyDK InferServer] [WaitIfCacheFull] Wait for cache not full done";
       }
     }
     return true;

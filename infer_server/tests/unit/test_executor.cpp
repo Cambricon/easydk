@@ -50,7 +50,7 @@ static SessionDesc ReturnSessionDesc(const std::string& name, std::shared_ptr<Pr
   desc.name = name;
   desc.model = InferServer::LoadModel(model_url);
   if (!desc.model) {
-    std::cout << "Load Model fail, check it!" << std::endl;
+    LOG(ERROR) << "[EasyDK Tests] [InferServer] Load Model failed, Please check it.";
   }
   desc.strategy = strategy;
   desc.postproc = Postprocessor::Create();

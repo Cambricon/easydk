@@ -20,6 +20,7 @@
 
 #include "runner.h"
 
+#include <glog/logging.h>
 #include <chrono>
 #include <iostream>
 #include <memory>
@@ -28,13 +29,11 @@
 #include <utility>
 #include <vector>
 
-#include "cxxutil/log.h"
-
 StreamRunner::StreamRunner(const std::string& data_path, const VideoDecoder::DecoderType decode_type, int dev_id)
     : decoder_(new VideoDecoder(this, decode_type, dev_id)), device_id_(dev_id), data_path_(data_path) {
   parser_.reset(new VideoParser(decoder_.get()));
   if (!parser_->Open(data_path.c_str())) {
-    THROW_EXCEPTION(edk::Exception::INIT_FAILED, "Open video source failed");
+    THROW_EXCEPTION(edk::Exception::INIT_FAILED, "[EasyDK Samples] [StreamRunner] Open video source failed");
   }
 
   // set mlu environment
@@ -59,35 +58,44 @@ void StreamRunner::DemuxLoop(const uint32_t repeat_time) {
       // frame rate control, 25 frame per second for local video
       int ret = parser_->ParseLoop(is_rtsp ? 0 : 40);
       if (ret == -1) {
-        THROW_EXCEPTION(edk::Exception::UNAVAILABLE, "no video source");
+        THROW_EXCEPTION(edk::Exception::UNAVAILABLE, "[EasyDK Samples] [StreamRunner] No video source");
       }
 
       if (ret == 1) {
         // eos
         if (repeat_time > loop_time++) {
-          parser_->Close();
-          if (!parser_->Open(data_path_.c_str())) {
-            THROW_EXCEPTION(edk::Exception::INIT_FAILED, "Open video source failed");
+          std::unique_lock<std::mutex> lk(eos_mut_);
+          if (!eos_cond_.wait_for(lk, std::chrono::milliseconds(10000), [this] { return receive_eos_.load(); })) {
+            LOG(WARNING) << "[EasyDK Samples] [StreamRunner] Wait Eos timeout in DemuxLoop ";
           }
-          std::cout << "Loop..." << std::endl;
+          lk.unlock();
+          parser_->Close();
+          lk.lock();
+          receive_eos_ = false;
+          lk.unlock();
+          if (!parser_->Open(data_path_.c_str())) {
+            THROW_EXCEPTION(edk::Exception::INIT_FAILED, "[EasyDK Samples] [StreamRunner] Open video source failed");
+          }
+          LOG(INFO) << "[EasyDK Samples] [StreamRunner] Loop...";
           continue;
         } else {
           decoder_->SendEos();
-          std::cout << "End Of Stream" << std::endl;
+          std::unique_lock<std::mutex> lk(eos_mut_);
+          if (!eos_cond_.wait_for(lk, std::chrono::milliseconds(10000), [this] { return receive_eos_.load(); })) {
+            LOG(WARNING) << "[EasyDK Samples] [StreamRunner] Wait Eos timeout in DemuxLoop";
+          }
+          LOG(INFO) << "[EasyDK Samples] [StreamRunner] End Of Stream";
           break;
         }
       }
     }
   } catch (edk::Exception& e) {
-    LOGE(SAMPLES) << e.what();
+    LOG(ERROR) << "[EasyDK Samples] [StreamRunner] DemuxLoop failed. Error: " << e.what();
     Stop();
   }
   if (Running()) decoder_->SendEos();
   parser_->Close();
-  std::this_thread::sleep_for(std::chrono::duration<float, std::milli>(1000));
-
-  std::unique_lock<std::mutex> lk(mut_);
-  if (frames_.empty()) Stop();
+  Stop();
 }
 
 bool StreamRunner::RunLoop() {
@@ -109,15 +117,9 @@ bool StreamRunner::RunLoop() {
       lk.unlock();
 
       Process(std::move(frame));
-
-      lk.lock();
-      if (frames_.size() == 0 && receive_eos_.load()) {
-        break;
-      }
-      lk.unlock();
     }
   } catch (edk::Exception& err) {
-    LOGE(SAMPLES) << err.what();
+    LOG(ERROR) << "[EasyDK Samples] [StreamRunner] RunLoop failed. Error: " << err.what();
     running_.store(false);
     in_loop_.store(false);
     return false;

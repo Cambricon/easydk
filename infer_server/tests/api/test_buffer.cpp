@@ -79,7 +79,7 @@ TEST_F(InferServerTestAPI, MluMemoryPoolBuffer) {
     for (size_t i = 0; i < kBufferNum; ++i) {
       EXPECT_NO_THROW(cache.emplace_back(pool.Request()));
     }
-    EXPECT_THROW(pool.Request(10), edk::Exception) << "pool should be empty";
+    EXPECT_THROW(pool.Request(10), edk::Exception) << "[EasyDK Tests] [InferServer] Pool should be empty";
     cache.clear();
     EXPECT_NO_THROW(pool.Request(10));
   }
@@ -119,7 +119,7 @@ TEST_F(InferServerTestAPI, MluMemoryPoolBuffer) {
       mlu_dst.CopyTo(out, kStrLength);
       EXPECT_STREQ(str, str_out);
     } catch (edk::Exception &err) {
-      EXPECT_TRUE(false) << err.what();
+      EXPECT_TRUE(false) << "[EasyDK Tests] [InferServer] Error occurs: " << err.what();
     }
   }
   delete[] str;

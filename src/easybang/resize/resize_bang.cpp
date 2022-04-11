@@ -18,10 +18,10 @@
  * THE SOFTWARE.
  *************************************************************************/
 
+#include <glog/logging.h>
 #include <string>
 
 #include "cnrt.h"
-#include "cxxutil/log.h"
 #include "resize_kernel.h"
 
 using std::string;
@@ -65,9 +65,9 @@ int PrepareKernelParam(uint32_t s_row, uint32_t s_col, uint32_t src_stride_y, ui
     (*param)->affinity = 0x02;
   }
 
-  LOGT(RESIZE) << "resize param: src_row(" << s_row << ") src_col(" << s_col << ") dst_row(" << d_row << ") dst_col("
-               << d_col << ") src_stride_y(" << (*param)->s_stride_y << ") src_stride_uv(" << (*param)->s_stride_uv
-               << ") batch(" << batch << ") channel_id(" << channel_id << ")";
+  VLOG(5) << "[EasyDK EasyBang] [MluResize] Resize param: src_row(" << s_row << ") src_col(" << s_col << ") dst_row("
+          << d_row << ") dst_col(" << d_col << ") src_stride_y(" << (*param)->s_stride_y << ") src_stride_uv("
+          << (*param)->s_stride_uv << ") batch(" << batch << ") channel_id(" << channel_id << ")";
 
   cnrtRet_t ret = cnrtCreateKernelInitParam(&(*param)->init_param);
   CHECK_CNRT_RET(ret, estr, "create kernel init param failed, error code: " + to_string(ret), {}, -1);
@@ -114,11 +114,12 @@ float InvokeResizeKernel(char** dst_y, char** dst_uv, char** srcY, char** srcUV,
     ecode = cnrtInvokeKernel_V3(reinterpret_cast<void*>(&MLUUnion1KernelResizeYuv420sp), kparam->init_param, dim,
                                 params, func_type, queue, NULL);
   }
-  CHECK_CNRT_RET(ecode, estr, "[Resize] cnrtInvokeKernel FAILED. ERRCODE:" + to_string(ecode),
+  CHECK_CNRT_RET(ecode, estr, "EasyDK EasyBang] [MluResize] cnrtInvokeKernel FAILED. ERRCODE:" + to_string(ecode),
                  { cnrtDestroyKernelParamsBuffer(params); }, -1);
 
   ecode = cnrtDestroyKernelParamsBuffer(params);
-  CHECK_CNRT_RET(ecode, estr, "[Resize] cnrtDestroyKernelParamsBuffer FAILED. ERRCODE:" + to_string(ecode), {}, -1);
+  CHECK_CNRT_RET(ecode, estr, "EasyDK EasyBang] [MluResize] cnrtDestroyKernelParamsBuffer FAILED. ERRCODE:" +
+                 to_string(ecode), {}, -1);
 
   return 0;
 }

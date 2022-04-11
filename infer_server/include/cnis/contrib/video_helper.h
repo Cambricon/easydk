@@ -29,6 +29,7 @@
 #include "cnis/buffer.h"
 #include "cnis/infer_server.h"
 #include "cnis/processor.h"
+#include "glog/logging.h"
 
 namespace infer_server {
 namespace video {
@@ -45,6 +46,27 @@ enum class PixelFmt {
   ARGB = 7,
   ABGR = 8,
 };
+
+inline std::string PixelFmtStr(PixelFmt fmt) noexcept {
+  switch (fmt) {
+#define PIXELFMT2STR(fmt) \
+  case PixelFmt::fmt:     \
+    return #fmt;
+    PIXELFMT2STR(I420)
+    PIXELFMT2STR(NV12)
+    PIXELFMT2STR(NV21)
+    PIXELFMT2STR(RGB24)
+    PIXELFMT2STR(BGR24)
+    PIXELFMT2STR(RGBA)
+    PIXELFMT2STR(BGRA)
+    PIXELFMT2STR(ARGB)
+    PIXELFMT2STR(ABGR)
+#undef PIXELFMT2STR
+    default:
+      LOG(ERROR) << "[EasyDK InferServer] [PixelFmtStr] Unsupported pixel format";
+      return "INVALID";
+  }
+}
 
 struct BoundingBox {
   float x{0.f};  ///< The x-axis coordinate in the upper left corner of the bounding box.
@@ -75,6 +97,22 @@ enum class PreprocessType {
   SCALER = 2,
   CNCV_PREPROC = 3,
 };
+
+inline std::string PreprocessTypeStr(PreprocessType type) noexcept {
+  switch (type) {
+#define PREPROCESSTYPE2STR(type) \
+  case PreprocessType::type:     \
+    return #type;
+    PREPROCESSTYPE2STR(UNKNOWN)
+    PREPROCESSTYPE2STR(RESIZE_CONVERT)
+    PREPROCESSTYPE2STR(SCALER)
+    PREPROCESSTYPE2STR(CNCV_PREPROC)
+#undef PREPROCESSTYPE2STR
+    default:
+      LOG(ERROR) << "[EasyDK InferServer] [PreprocessTypeStr] Unsupported preprocess type";
+      return "INVALID";
+  }
+}
 
 struct PreprocessorMLUPrivate;
 // assume that inference model only has one input

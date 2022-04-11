@@ -1,3 +1,23 @@
+# ==============================================================================
+# Copyright (C) [2022] by Cambricon, Inc. All rights reserved
+#
+#  Licensed under the Apache License, Version 2.0 (the "License");
+#  you may not use this file except in compliance with the License.
+#  You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# The above copyright notice and this permission notice shall be included in
+# all copies or substantial portions of the Software.
+# THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS
+# OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+# FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL
+# THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+# LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+# OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+# THE SOFTWARE.
+# ==============================================================================
+
 """InferServer test
 
 This module tests InferServer, Package, DataLayout and Device related APIs
@@ -10,10 +30,7 @@ import numpy as np
 cur_file_dir = os.path.split(os.path.realpath(__file__))[0]
 sys.path.append(cur_file_dir + "/../lib")
 import cnis
-
-tag = "stream_0"
-ssd_mlu270_model_dir = \
-    "http://video.cambricon.com/models/MLU270/Primary_Detector/ssd/vgg16_ssd_b4c4_bgra_mlu270.cambricon"
+import utils
 
 def get_model_input_wh(model):
   """Get the input width and height of the model"""
@@ -37,10 +54,14 @@ def prepare_input(model):
   # resize to model input shape
   resized_img = cv2.resize(img, (get_model_input_wh(model)))
   # convert color to model input pixel format
-  bgra_img = cv2.cvtColor(resized_img, cv2.COLOR_BGR2BGRA)
+  if cnis.get_device_core_version(dev_id=0) == cnis.CoreVersion.MLU270 or \
+     cnis.get_device_core_version(dev_id=0) == cnis.CoreVersion.MLU220:
+    result_img = cv2.cvtColor(resized_img, cv2.COLOR_BGR2BGRA)
+  else:
+    result_img = cv2.cvtColor(resized_img, cv2.COLOR_BGR2RGB)
   # Create input package and set OpenCV mat to input package
-  input_pak = cnis.Package(1, tag)
-  input_pak.data[0].set(bgra_img)
+  input_pak = cnis.Package(1, utils.tag)
+  input_pak.data[0].set(result_img)
   return input_pak
 
 class TestInferServer(object):
@@ -53,7 +74,7 @@ class TestInferServer(object):
     session_desc = cnis.SessionDesc()
     session_desc.name = "test_session"
     # Load model and set it to session description
-    session_desc.model = infer_server.load_model(ssd_mlu270_model_dir)
+    session_desc.model = infer_server.load_model(utils.model_dir)
     session_desc.show_perf = False
     # Define a TestObserver class for receiving results. Create a TestObserver object and set it to description.
     class TestObserver(cnis.Observer):
@@ -77,15 +98,15 @@ class TestInferServer(object):
     # Test request
     input_pak = prepare_input(session_desc.model)
     assert infer_server.request(session, input_pak, {"user_data":"cnis"})
-    infer_server.wait_task_done(session, tag)
+    infer_server.wait_task_done(session, utils.tag)
     assert obs.called
 
     # Test discard task
     for _ in range(10):
       input_pak = prepare_input(session_desc.model)
       assert infer_server.request(session, input_pak, {"user_data":"cnis"})
-    infer_server.discard_task(session, tag)
-    infer_server.wait_task_done(session, tag)
+    infer_server.discard_task(session, utils.tag)
+    infer_server.wait_task_done(session, utils.tag)
 
     # destroy session
     assert infer_server.destroy_session(session)
@@ -98,7 +119,7 @@ class TestInferServer(object):
     session_desc = cnis.SessionDesc()
     session_desc.name = "test_session"
     # Load model and set it to session description
-    session_desc.model = infer_server.load_model(ssd_mlu270_model_dir)
+    session_desc.model = infer_server.load_model(utils.model_dir)
     session_desc.show_perf = False
     # create a synchronous session
     session = infer_server.create_sync_session(session_desc)
@@ -106,7 +127,7 @@ class TestInferServer(object):
 
     # Test request sync
     input_pak = prepare_input(session_desc.model)
-    output = cnis.Package(1, tag)
+    output = cnis.Package(1, utils.tag)
     status = cnis.Status.SUCCESS
     assert infer_server.request_sync(session, input_pak, status, output)
     assert status == cnis.Status.SUCCESS
@@ -117,13 +138,12 @@ class TestInferServer(object):
     assert infer_server.get_model(session) == session_desc.model
     assert cnis.InferServer.unload_model(session_desc.model)
     assert not cnis.InferServer.unload_model(session_desc.model)
-    model = infer_server.load_model(ssd_mlu270_model_dir)
+    model = infer_server.load_model(utils.model_dir)
     cnis.InferServer.clear_model_cache()
     assert not cnis.InferServer.unload_model(model)
 
     # destroy session
     assert infer_server.destroy_session(session)
-
 
 class TestPackage(object):
   """TestPackage class provides several APIs for testing Package"""
@@ -131,9 +151,9 @@ class TestPackage(object):
   def test_package():
     data_num = 4
     # Create a Package with 4 data
-    input_pak = cnis.Package(data_num, tag)
+    input_pak = cnis.Package(data_num, utils.tag)
     assert len(input_pak.data) == data_num
-    assert input_pak.tag == tag
+    assert input_pak.tag == utils.tag
 
   @staticmethod
   def test_infer_data():
@@ -178,12 +198,21 @@ class TestDataLayout(object):
   def test_data_layout():
     infer_server =cnis.InferServer(dev_id=0)
     # Load model
-    model = infer_server.load_model(ssd_mlu270_model_dir)
+    model = infer_server.load_model(utils.model_dir)
     # Check model input and output data type and dim order
-    assert model.input_layout(0).dtype == cnis.DataType.UINT8
-    assert model.input_layout(0).order == cnis.DimOrder.NHWC
-    assert model.output_layout(0).dtype == cnis.DataType.FLOAT16
-    assert model.output_layout(0).order == cnis.DimOrder.NHWC
+    if cnis.get_device_core_version(dev_id=0) == cnis.CoreVersion.MLU270 or \
+     cnis.get_device_core_version(dev_id=0) == cnis.CoreVersion.MLU220:
+      assert model.input_layout(0).dtype == cnis.DataType.UINT8
+      assert model.input_layout(0).order == cnis.DimOrder.NHWC
+      assert model.output_layout(0).dtype == cnis.DataType.FLOAT16
+      assert model.output_layout(0).order == cnis.DimOrder.NHWC
+    else:
+      assert model.input_layout(0).dtype == cnis.DataType.UINT8
+      assert model.input_layout(0).order == cnis.DimOrder.NHWC
+      assert model.output_layout(0).dtype == cnis.DataType.FLOAT32
+      assert model.output_layout(0).order == cnis.DimOrder.NONE
+      assert model.output_layout(1).dtype == cnis.DataType.INT32
+      assert model.output_layout(1).order == cnis.DimOrder.NONE
 
     # Check data type size is correct
     assert cnis.get_type_size(cnis.DataType.UINT8) == 1

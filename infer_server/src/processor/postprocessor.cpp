@@ -35,14 +35,6 @@ using std::vector;
 
 namespace infer_server {
 
-#define CALL_CNRT_FUNC(func, msg)                    \
-  do {                                               \
-    cnrtRet_t ret = (func);                          \
-    if (CNRT_RET_SUCCESS != ret) {                   \
-      LOG(ERROR) << (msg) << " error code: " << ret; \
-      return Status::ERROR_BACKEND;                  \
-    }                                                \
-  } while (0)
 struct PostprocessorPrivate {
   static std::unique_ptr<EqualityThreadPool> tp;
   static std::mutex tp_mutex;
@@ -69,12 +61,13 @@ Postprocessor::~Postprocessor() {
     uint32_t idle_num = priv_->tp->IdleNumber();
     if (idle_num > priv_->increased_tp) {
       if (priv_->increased_tp == priv_->tp->Size()) {
-        VLOG(3) << "Destroy postproc worker thread pool";
+        VLOG(1) << "[EasyDK InferServer] [Postprocessor] Destroy postproc worker thread pool";
         // no any other postproc instance, ensure no task in pool
         priv_->tp->Stop(true);
         priv_->tp.reset();
       } else {
-        VLOG(3) << "Reduce " << priv_->increased_tp << " thread in postprocessor pool after destruct Postprocessor";
+        VLOG(1) << "[EasyDK InferServer] [Postprocessor] Reduce " << priv_->increased_tp
+                << " thread in postprocessor pool after destruct Postprocessor";
         priv_->tp->Resize(priv_->tp->Size() - priv_->increased_tp);
       }
     }
@@ -88,7 +81,7 @@ Status Postprocessor::Init() noexcept {
   constexpr const char* params[] = {"model_info", "device_id", "host_output_layout"};
   for (auto p : params) {
     if (!HaveParam(p)) {
-      LOG(ERROR) << p << " has not been set";
+      LOG(ERROR) << "[EasyDK InferServer] [Postprocessor] " << p << " has not been set";
       return Status::INVALID_PARAM;
     }
   }
@@ -99,7 +92,8 @@ Status Postprocessor::Init() noexcept {
     priv_->host_layout = GetParam<DataLayout>("host_output_layout");
     priv_->process_func = HaveParam("process_function") ? GetParam<ProcessFunction>("process_function") : nullptr;
     if (!priv_->process_func) {
-      LOG(WARNING) << "process_function has not been set, postprocessor will output ModelIO directly";
+      LOG(WARNING) << "[EasyDK InferServer] [Postprocessor] The process_function has not been set,"
+                   << " postprocessor will output ModelIO directly";
     }
     int device_id = GetParam<int>("device_id");
 
@@ -107,7 +101,7 @@ Status Postprocessor::Init() noexcept {
 
     if (!SetCurrentDevice(device_id)) return Status::ERROR_BACKEND;
   } catch (bad_any_cast&) {
-    LOG(ERROR) << "unmatched param type";
+    LOG(ERROR) << "[EasyDK InferServer] [Postprocessor] Unmatched param type";
     return Status::WRONG_TYPE;
   }
 
@@ -116,14 +110,15 @@ Status Postprocessor::Init() noexcept {
     priv_->increased_tp = parallel > 0 ? (parallel < 16 ? parallel : 16) : 4;
     std::unique_lock<std::mutex> lk(priv_->tp_mutex);
     if (!priv_->tp) {
-      VLOG(3) << "Create postproc worker thread pool";
+      VLOG(1) << "[EasyDK InferServer] [Postprocessor] Create postproc worker thread pool";
       priv_->tp.reset(new EqualityThreadPool(nullptr));
     }
     int th_num = priv_->tp->Size();
     static const int max_th_num = GetCpuCoreNumber();
     if (th_num < max_th_num) {
       // TODO(dmh): user set?
-      VLOG(3) << "Increase " << priv_->increased_tp << " thread in postprocessor pool when init postprocessor";
+      VLOG(1) << "[EasyDK InferServer] [Postprocessor] Increase " << priv_->increased_tp
+              << " thread in postprocessor pool when init postprocessor";
       priv_->tp->Resize(th_num + priv_->increased_tp);
     }
     lk.unlock();
@@ -139,9 +134,9 @@ Status Postprocessor::Init() noexcept {
 }
 
 Status Postprocessor::Process(PackagePtr pack) noexcept {
-  CHECK(pack);
+  CHECK(pack) << "[EasyDK InferServer] [Postprocessor] Process pack. It should not be nullptr";
   if (!pack->predict_io || !pack->predict_io->HasValue()) {
-    LOG(ERROR) << "Postprocessor can process continuous data only";
+    LOG(ERROR) << "[EasyDK InferServer] [Postprocessor] Can process continuous data only";
     return Status::INVALID_PARAM;
   }
 
@@ -222,7 +217,8 @@ Status Postprocessor::Process(PackagePtr pack) noexcept {
       DataLayout layout = {priv_->host_layout.dtype, priv_->host_layout.order};
       out_layouts.emplace_back(layout);
     } else {
-      VLOG(4) << "Not transpose output dim order to host dim order, use the original dim order";
+      VLOG(4) << "[EasyDK InferServer] [Postprocessor] Not transpose output dim order to host dim order,"
+              << " use the original dim order";
       DataLayout layout = {priv_->host_layout.dtype, priv_->layouts[out_idx].order};
       out_layouts.emplace_back(layout);
     }
@@ -240,7 +236,7 @@ Status Postprocessor::Process(PackagePtr pack) noexcept {
       res.emplace_back(priv_->tp->Push(0, priv_->process_func, pack->data[batch_idx].get(), std::move(outputs),
                                        priv_->model.get()));
     } else {
-      VLOG(5) << "do not have process_function, output ModelIO directly";
+      VLOG(4) << "[EasyDK InferServer] [Postprocessor] do not have process_function, output ModelIO directly";
       pack->data[batch_idx]->Set(std::move(outputs));
     }
   }
@@ -250,12 +246,12 @@ Status Postprocessor::Process(PackagePtr pack) noexcept {
     for (auto& fut : res) {
       fut.wait();
       if (!fut.get()) {
-        LOG(ERROR) << "postprocess failed";
+        LOG(ERROR) << "[EasyDK InferServer] [Postprocessor] Process failed";
         return Status::ERROR_BACKEND;
       }
     }
   } catch (std::exception& e) {
-    LOG(ERROR) << "Catch exception in postprocess: " << e.what();
+    LOG(ERROR) << "[EasyDK InferServer] [Postprocessor] Catch exception in process: " << e.what();
     return Status::ERROR_BACKEND;
   }
 

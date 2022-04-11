@@ -45,7 +45,7 @@ TEST(InferServerUtil, Batcher) {
   std::vector<int> batch_out;
   batch_out.reserve(set_size);
 
-  std::cout << "test without timeout\n";
+  LOG(INFO) << "[EasyDK Tests] [InferServer] Test batcher without timeout";
   for (int time = 0; time < 100; ++time) {
     constexpr uint32_t timeout = 0;
     std::uniform_int_distribution<uint32_t> bs_dis(1, 50);
@@ -69,7 +69,7 @@ TEST(InferServerUtil, Batcher) {
     batch_out.clear();
   }
 
-  std::cout << "test with timeout\n";
+  LOG(INFO) << "[EasyDK Tests] [InferServer] Test batcher with timeout";
 
   {
     constexpr uint32_t batch_size = 12;

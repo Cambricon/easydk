@@ -19,10 +19,13 @@
  *************************************************************************/
 
 #include <cnrt.h>
+#include <glog/logging.h>
 
+#include <algorithm>
 #include <atomic>
 #include <condition_variable>
 #include <cstring>
+#include <list>
 #include <memory>
 #include <mutex>
 #include <queue>
@@ -30,8 +33,8 @@
 #include <thread>
 #include <unordered_map>
 
-#include "cxxutil/log.h"
 #include "decoder.h"
+#include "cxxutil/rwlock.h"
 
 #ifdef ENABLE_MLU200_CODEC
 #include <cn_jpeg_dec.h>
@@ -87,12 +90,14 @@ class Mlu200Decoder : public Decoder {
   int ReceiveSequence(cnvideoDecSequenceInfo* info);
   void ReceiveEvent(cncodecCbEventType type);
   void ReceiveEOS();
+  void DestroyDecoder() override;
 
  private:
   void InitVideoDecode(const EasyDecode::Attr& attr);
   void InitJpegDecode(const EasyDecode::Attr& attr);
   void FeedVideoData(const CnPacket& packet);
   void FeedJpegData(const CnPacket& packet);
+  void WaitAllBuffersBack();
 
   uint32_t SetVpuTimestamp(uint64_t pts);
   bool GetVpuTimestamp(uint32_t key, uint64_t *pts);
@@ -117,12 +122,15 @@ class Mlu200Decoder : public Decoder {
   uint32_t pts_key_ = 0;
   std::unordered_map<uint32_t, uint64_t> vpu_pts_map_;
   std::mutex pts_map_mtx_;
+
+  std::mutex list_mtx_;
+  std::list<uint64_t> out_frame_list_;
 };  // class Mlu200Decoder
 
 static i32_t Mlu200EventHandler(cncodecCbEventType type, void* user_data, void* package) {
   auto handler = reinterpret_cast<Mlu200Decoder*>(user_data);
   if (handler == nullptr) {
-    LOGE(DECODE) << "Mlu200Decoder handler is nullptr";
+    LOG(ERROR) << "[EasyDK EasyCodec] [Mlu200Decoder] The handler is nullptr";
     return 0;
   }
   switch (type) {
@@ -143,7 +151,7 @@ Mlu200Decoder::Mlu200Decoder(const EasyDecode::Attr& attr) : Decoder(attr) {
   struct __ShowCodecVersion {
     __ShowCodecVersion() {
       u8_t* version = cncodecGetVersion();
-      LOGI(DECODE) << "CNCodec Version: " << static_cast<const unsigned char*>(version);
+      LOG(INFO) << "[EasyDK EasyCodec] [Mlu200Decoder] CNCodec Version: " << static_cast<const unsigned char*>(version);
     }
   };
   static __ShowCodecVersion show_version;
@@ -162,8 +170,12 @@ Mlu200Decoder::Mlu200Decoder(const EasyDecode::Attr& attr) : Decoder(attr) {
 }
 
 Mlu200Decoder::~Mlu200Decoder() {
+  Mlu200Decoder::DestroyDecoder();
+}
+
+void Mlu200Decoder::DestroyDecoder() {
   if (status_.load() == EasyDecode::Status::ERROR && handle_) {
-    Mlu200Decoder::AbortDecoder();
+    AbortDecoder();
   }
   /**
    * Decode destroied. status set to STOP.
@@ -172,45 +184,50 @@ Mlu200Decoder::~Mlu200Decoder() {
   /**
    * Release resources.
    */
+  handle_lk_.ReadLock();
   if (!handle_) {
     send_eos_.store(true);
     got_eos_.store(true);
   }
+  handle_lk_.Unlock();
   try {
     if (!got_eos_.load() && !send_eos_.load()) {
-      LOGI(DECODE) << "Send EOS in destruct";
-      Mlu200Decoder::FeedEos();
+      LOG(INFO) << "[EasyDK EasyCodec] [Mlu200Decoder] Send EOS in destruct";
+      FeedEos();
     }
 
     if (!got_eos_.load()) {
-      LOGI(DECODE) << "Wait EOS in destruct";
+      LOG(INFO) << "[EasyDK EasyCodec] [Mlu200Decoder] Wait EOS in destruct";
       std::unique_lock<std::mutex> eos_lk(eos_mtx_);
       eos_cond_.wait(eos_lk, [this]() -> bool { return got_eos_; });
     }
   } catch (Exception& e) {
-    LOGE(DECODE) << e.what();
+    LOG(ERROR) << "[EasyDK EasyCodec] [Mlu200Decoder] Feed Eos failed. error: " << e.what();
   }
 
+  WaitAllBuffersBack();
+
+  WriteLockGuard lg(handle_lk_);
   if (handle_) {
     if (jpeg_decode_) {
       // Destroy jpu decoder
-      LOGI(DECODE) << "Destroy jpeg decoder channel";
+      LOG(INFO) << "[EasyDK EasyCodec] [Mlu200Decoder] Destroy jpeg decoder channel";
       auto ecode = cnjpegDecDestroy(handle_);
       if (CNCODEC_SUCCESS != ecode) {
-        LOGE(DECODE) << "Decoder destroy failed Error Code: " << ecode;
+        LOG(ERROR) << "[EasyDK EasyCodec] [Mlu200Decoder] Decoder destroy failed Error Code: " << ecode;
       }
     } else {
       // destroy vpu decoder
-      LOGI(DECODE) << "Stop video decoder channel";
+      LOG(INFO) << "[EasyDK EasyCodec] [Mlu200Decoder] Stop video decoder channel";
       auto ecode = cnvideoDecStop(handle_);
       if (CNCODEC_SUCCESS != ecode) {
-        LOGE(DECODE) << "Decoder stop failed Error Code: " << ecode;
+        LOG(ERROR) << "[EasyDK EasyCodec] [Mlu200Decoder] Decoder stop failed Error Code: " << ecode;
       }
 
-      LOGI(DECODE) << "Destroy video decoder channel";
+      LOG(INFO) << "[EasyDK EasyCodec] [Mlu200Decoder] Destroy video decoder channel";
       ecode = cnvideoDecDestroy(handle_);
       if (CNCODEC_SUCCESS != ecode) {
-        LOGE(DECODE) << "Decoder destroy failed Error Code: " << ecode;
+        LOG(ERROR) << "[EasyDK EasyCodec] [Mlu200Decoder] Decoder destroy failed Error Code: " << ecode;
       }
     }
     handle_ = nullptr;
@@ -218,12 +235,13 @@ Mlu200Decoder::~Mlu200Decoder() {
 }
 
 bool Mlu200Decoder::FeedData(const CnPacket& packet) {
+  ReadLockGuard lg(handle_lk_);
   if (!handle_) {
-    LOGE(DECODE) << "Decoder has not been init";
+    LOG(ERROR) << "[EasyDK EasyCodec] [Mlu200Decoder] Feed Data failed, handle is null";
     return false;
   }
   if (send_eos_) {
-    LOGW(DECODE) << "EOS had been sent, won't feed data";
+    LOG(WARNING) << "[EasyDK EasyCodec] [Mlu200Decoder] EOS had been sent, won't feed data";
     return false;
   }
 
@@ -236,17 +254,22 @@ bool Mlu200Decoder::FeedData(const CnPacket& packet) {
 }
 
 bool Mlu200Decoder::FeedEos() {
+  ReadLockGuard lg(handle_lk_);
+  if (!handle_) {
+    LOG(ERROR) << "[EasyDK EasyCodec] [Mlu200Decoder] Feed EOS failed, handle is null";
+    return false;
+  }
   if (status_.load() == EasyDecode::Status::ERROR) {
-    LOGW(DECODE) << "Error had occurred, EOS won't be sent";
+    LOG(WARNING) << "[EasyDK EasyCodec] [Mlu200Decoder] Error had occurred, EOS won't be sent";
     return false;
   }
   if (send_eos_.load()) {
-    LOGW(DECODE) << "EOS had been feed, won't feed again";
+    LOG(WARNING) << "[EasyDK EasyCodec] [Mlu200Decoder] EOS had been feed, won't feed again";
     return false;
   }
 
   i32_t ecode = CNCODEC_SUCCESS;
-  LOGI(DECODE) << "Thread id: " << std::this_thread::get_id() << ", Feed EOS data";
+  LOG(INFO) << "[EasyDK EasyCodec] [Mlu200Decoder] Thread id: " << std::this_thread::get_id() << ", Feed EOS data";
   if (jpeg_decode_) {
     cnjpegDecInput input;
     input.streamBuffer = nullptr;
@@ -265,18 +288,19 @@ bool Mlu200Decoder::FeedEos() {
 
   if (-CNCODEC_TIMEOUT == ecode) {
     status_.store(EasyDecode::Status::ERROR);
-    THROW_EXCEPTION(Exception::TIMEOUT, "EasyDecode feed EOS timeout");
+    THROW_EXCEPTION(Exception::TIMEOUT, "[EasyDK EasyCodec] [Mlu200Decoder] Feed EOS timeout");
   } else if (CNCODEC_SUCCESS != ecode) {
     status_.store(EasyDecode::Status::ERROR);
-    THROW_EXCEPTION(Exception::INTERNAL, "Feed EOS failed. cncodec error code: " + std::to_string(ecode));
+    THROW_EXCEPTION(Exception::INTERNAL, "[EasyDK EasyCodec] [Mlu200Decoder] Feed EOS failed. cncodec error code: " +
+        std::to_string(ecode));
   }
-
   send_eos_ = true;
   return true;
 }
 
 void Mlu200Decoder::AbortDecoder() {
-  LOGW(DECODE) << "Abort decoder";
+  WriteLockGuard lg(handle_lk_);
+  LOG(WARNING) << "[EasyDK EasyCodec] [Mlu200Decoder] Abort decoder";
   if (handle_) {
     if (jpeg_decode_) {
       cnjpegDecAbort(handle_);
@@ -291,30 +315,65 @@ void Mlu200Decoder::AbortDecoder() {
     got_eos_.store(true);
     eos_cond_.notify_one();
   } else {
-    LOGE(DECODE) << "Won't do abort, since cndecode handler has not been initialized";
+    LOG(ERROR) << "[EasyDK EasyCodec] [Mlu200Decoder] Won't do abort, since cndecode handler has not been initialized";
   }
 }
 
+void Mlu200Decoder::WaitAllBuffersBack() {
+  LOG(INFO) << "[EasyDK EasyCodec] [Mlu200Decoder] Wait all buffers back...";
+  while (true) {
+    {
+      std::lock_guard<std::mutex> lk(list_mtx_);
+      if (out_frame_list_.empty()) break;
+    }
+    {
+      ReadLockGuard lg(handle_lk_);
+      if (!handle_) {
+        LOG(WARNING) << "[EasyDK EasyCodec] [Mlu200Decoder] Wait all buffers back failed, handle is null";
+        return;
+      }
+    }
+    std::this_thread::yield();
+  }
+  LOG(INFO) << "[EasyDK EasyCodec] [Mlu200Decoder] All buffers back";
+}
+
 bool Mlu200Decoder::ReleaseBuffer(uint64_t buf_id) {
-  int ret;
-  if (jpeg_decode_) {
-    ret = cnjpegDecReleaseReference(handle_, reinterpret_cast<cncodecFrame*>(buf_id));
+  ReadLockGuard lg(handle_lk_);
+  if (handle_) {
+    int ret;
+    std::unique_lock<std::mutex> lk(list_mtx_);
+    std::list<uint64_t>::iterator out_frame_it = std::find(out_frame_list_.begin(), out_frame_list_.end(), buf_id);
+    if (out_frame_it != out_frame_list_.end()) {
+      out_frame_list_.erase(out_frame_it);
+    } else {
+      LOG(ERROR) << "[EasyDK EasyCodec] [Mlu200Decoder] Memory is not requested from decoder on device";
+      return false;
+    }
+    lk.unlock();
+
+    if (jpeg_decode_) {
+      ret = cnjpegDecReleaseReference(handle_, reinterpret_cast<cncodecFrame*>(buf_id));
+    } else {
+      ret = cnvideoDecReleaseReference(handle_, reinterpret_cast<cncodecFrame*>(buf_id));
+    }
+    if (CNCODEC_SUCCESS == ret) {
+      return true;
+    } else {
+      LOG(ERROR) << "[EasyDK EasyCodec] [Mlu200Decoder] Release buffer failed. buf_id: " << buf_id;
+      return false;
+    }
   } else {
-    ret = cnvideoDecReleaseReference(handle_, reinterpret_cast<cncodecFrame*>(buf_id));
+    LOG(ERROR) << "[EasyDK EasyCodec] [Mlu200Decoder] Release buffer failed, handle is null.";
   }
-  if (CNCODEC_SUCCESS == ret) {
-    return true;
-  } else {
-    LOGE(DECODE) << "Release buffer failed. buf_id: " << buf_id;
-    return false;
-  }
+  return false;
 }
 
 void Mlu200Decoder::InitVideoDecode(const EasyDecode::Attr& attr) {
   memset(&vparams_, 0, sizeof(cnvideoDecCreateInfo));
   vparams_.deviceId = attr.dev_id;
   if (const char* turbo_env_p = std::getenv("VPU_TURBO_MODE")) {
-    LOGI(DECODE) << "VPU Turbo mode : " << turbo_env_p;
+    LOG(INFO) << "[EasyDK EasyCodec] [Mlu200Decoder] VPU Turbo mode : " << turbo_env_p;
     static std::mutex vpu_instance_mutex;
     std::unique_lock<std::mutex> lk(vpu_instance_mutex);
     static int _vpu_inst_cnt = 0;
@@ -336,8 +395,9 @@ void Mlu200Decoder::InitVideoDecode(const EasyDecode::Attr& attr) {
       vparams_.codec = CNCODEC_VP9;
       break;
     default: {
-      THROW_EXCEPTION(Exception::INIT_FAILED, "codec type not supported yet, codec_type:"
-          + std::to_string(static_cast<int>(attr.codec_type)));
+      THROW_EXCEPTION(Exception::INIT_FAILED,
+          "[EasyDK EasyCodec] [Mlu200Decoder] codec type not supported yet, codec_type: " +
+          CodecTypeStr(attr.codec_type));
     }
   }
   switch (attr.pixel_format) {
@@ -354,8 +414,9 @@ void Mlu200Decoder::InitVideoDecode(const EasyDecode::Attr& attr) {
       vparams_.pixelFmt = CNCODEC_PIX_FMT_P010;
       break;
     default: {
-      THROW_EXCEPTION(Exception::INIT_FAILED, "codec pixel format not supported yet, pixel format:"
-          + std::to_string(static_cast<int>(attr.pixel_format)));
+      THROW_EXCEPTION(Exception::INIT_FAILED,
+          "[EasyDK EasyCodec] [Mlu200Decoder] codec pixel format not supported yet, pixel format:" +
+          PixelFmtStr(attr.pixel_format));
     }
   }
   vparams_.width = attr.frame_geometry.w;
@@ -373,12 +434,14 @@ void Mlu200Decoder::InitVideoDecode(const EasyDecode::Attr& attr) {
 
   int ecode = cnvideoDecCreate(&handle_, &Mlu200EventHandler, &vparams_);
   if (CNCODEC_SUCCESS != ecode || !handle_) {
-    THROW_EXCEPTION(Exception::INIT_FAILED, "Create video decode failed: " + std::to_string(ecode));
+    THROW_EXCEPTION(Exception::INIT_FAILED,
+        "[EasyDK EasyCodec] [Mlu200Decoder] Create video decode failed: " + std::to_string(ecode));
   }
 
   ecode = cnvideoDecSetAttributes(handle_, CNVIDEO_DEC_ATTR_OUT_BUF_ALIGNMENT, &(attr_.stride_align));
   if (CNCODEC_SUCCESS != ecode) {
-    THROW_EXCEPTION(Exception::INIT_FAILED, "cnvideo decode set attributes faild: " + std::to_string(ecode));
+    THROW_EXCEPTION(Exception::INIT_FAILED,
+        "[EasyDK EasyCodec] [Mlu200Decoder] Set attributes to cnvideo decode failed: " + std::to_string(ecode));
   }
 }
 
@@ -400,8 +463,9 @@ void Mlu200Decoder::InitJpegDecode(const EasyDecode::Attr& attr) {
       jparams_.pixelFmt = CNCODEC_PIX_FMT_UYVY;
       break;
     default: {
-      THROW_EXCEPTION(Exception::INIT_FAILED, "codec pixel format not supported yet, pixel format:"
-          + std::to_string(static_cast<int>(attr.pixel_format)));
+      THROW_EXCEPTION(Exception::INIT_FAILED,
+          "[EasyDK EasyCodec] [Mlu200Decoder] Codec pixel format not supported yet, pixel format: " +
+          PixelFmtStr(attr.pixel_format));
     }
   }
   jparams_.width = attr.frame_geometry.w;
@@ -418,7 +482,8 @@ void Mlu200Decoder::InitJpegDecode(const EasyDecode::Attr& attr) {
   }
   int ecode = cnjpegDecCreate(&handle_, CNJPEGDEC_RUN_MODE_ASYNC, &Mlu200EventHandler, &jparams_);
   if (0 != ecode) {
-    THROW_EXCEPTION(Exception::INIT_FAILED, "Create jpeg decode failed: " + std::to_string(ecode));
+    THROW_EXCEPTION(Exception::INIT_FAILED, "[EasyDK EasyCodec] [Mlu200Decoder] Create jpeg decode failed: " +
+        std::to_string(ecode));
   }
 }
 
@@ -430,24 +495,26 @@ void Mlu200Decoder::FeedVideoData(const CnPacket& packet) {
   input.pts = SetVpuTimestamp(packet.pts);
   input.flags = CNVIDEODEC_FLAG_TIMESTAMP;
   input.flags |= CNVIDEODEC_FLAG_END_OF_FRAME;
-  LOGT(DECODE) << "Feed stream info, data: " << reinterpret_cast<void*>(input.streamBuf)
-               << ", length: " << input.streamLength << ", pts: " << input.pts << ", flag: " << input.flags;
+  VLOG(5) << "[EasyDK EasyCodec] [Mlu200Decoder] Feed stream info, data: " << reinterpret_cast<void*>(input.streamBuf)
+          << ", length: " << input.streamLength << ", pts: " << input.pts << ", flag: " << input.flags;
 
   int retry_time = 3;
   while (retry_time--) {
     auto ecode = cnvideoDecFeedData(handle_, &input, 10000);
     if (-CNCODEC_TIMEOUT == ecode) {
-      LOGW(DECODE) << "cnvideoDecFeedData timeout, retry feed data, time: " << 3 - retry_time;
+      LOG(WARNING) << "[EasyDK EasyCodec] [Mlu200Decoder] cnvideoDecFeedData timeout, retry feed data, time: "
+                   << 3 - retry_time;
       if (!retry_time) {
         GetVpuTimestamp(input.pts, nullptr);  // Failed to feeddata, erase record
         status_.store(EasyDecode::Status::ERROR);
-        THROW_EXCEPTION(Exception::TIMEOUT, "easydecode timeout");
+        THROW_EXCEPTION(Exception::TIMEOUT, "[EasyDK EasyCodec] [Mlu200Decoder] Feed video data timeout");
       }
       continue;
     } else if (CNCODEC_SUCCESS != ecode) {
       GetVpuTimestamp(input.pts, nullptr);  // Failed to feeddata, erase record
       status_.store(EasyDecode::Status::ERROR);
-      THROW_EXCEPTION(Exception::INTERNAL, "Feed data failed. cncodec error code: " + std::to_string(ecode));
+      THROW_EXCEPTION(Exception::INTERNAL,
+          "[EasyDK EasyCodec] [Mlu200Decoder] Feed video data failed. cncodec error code: " + std::to_string(ecode));
     } else {
       break;
     }
@@ -463,24 +530,27 @@ void Mlu200Decoder::FeedJpegData(const CnPacket& packet) {
   input.streamLength = packet.length;
   input.pts = packet.pts;
   input.flags = CNJPEGDEC_FLAG_TIMESTAMP;
-  LOGT(DECODE) << "Feed stream info, data: " << reinterpret_cast<void*>(input.streamBuffer)
-               << " ,length: " << input.streamLength << " ,pts: " << input.pts;
+  VLOG(5) << "[EasyDK EasyCodec] [Mlu200Decoder] Feed stream info, data: "
+          << reinterpret_cast<void*>(input.streamBuffer)
+          << " ,length: " << input.streamLength << " ,pts: " << input.pts;
 
   int retry_time = 3;
   while (retry_time--) {
     auto ecode = cnjpegDecFeedData(handle_, &input, 10000);
     if (-CNCODEC_TIMEOUT == ecode) {
-      LOGW(DECODE) << "cnjpegDecFeedData timeout, retry feed data, time: " << 3 - retry_time;
+      LOG(WARNING) << "[EasyDK EasyCodec] [Mlu200Decoder] cnjpegDecFeedData timeout, retry feed data, time: "
+                   << 3 - retry_time;
       if (!retry_time) {
         GetVpuTimestamp(input.pts, nullptr);  // Failed to feeddata, erase record
         status_.store(EasyDecode::Status::ERROR);
-        THROW_EXCEPTION(Exception::TIMEOUT, "easydecode timeout");
+        THROW_EXCEPTION(Exception::TIMEOUT, "[EasyDK EasyCodec] [Mlu200Decoder] Feed Jpeg data timeout");
       }
       continue;
     } else if (CNCODEC_SUCCESS != ecode) {
       GetVpuTimestamp(input.pts, nullptr);  // Failed to feeddata, erase record
       status_.store(EasyDecode::Status::ERROR);
-      THROW_EXCEPTION(Exception::INTERNAL, "Feedd data failed. cncodec error code: " + std::to_string(ecode));
+      THROW_EXCEPTION(Exception::INTERNAL,
+          "[EasyDK EasyCodec] [Mlu200Decoder] Feed Jpeg data failed. cncodec error code: " + std::to_string(ecode));
     } else {
       break;
     }
@@ -495,7 +565,7 @@ void Mlu200Decoder::ReceiveFrame(void* out) {
     auto o = reinterpret_cast<cnjpegDecOutput*>(out);
     finfo.pts = o->pts;
     frame = &o->frame;
-    LOGT(DECODE) << "Receive one jpeg frame, " << frame;
+    VLOG(5) << "[EasyDK EasyCodec] [Mlu200Decoder] Receive one jpeg frame, " << frame;
   } else {
     auto o = reinterpret_cast<cnvideoDecOutput*>(out);
     uint64_t usr_pts;
@@ -503,14 +573,14 @@ void Mlu200Decoder::ReceiveFrame(void* out) {
       finfo.pts = usr_pts;
     } else {
       // need to return, if GetVpuTimestamp failed?
-      LOGW(DECODE) << "Failed to query timetamp,"
+      LOG(WARNING) << "[EasyDK EasyCodec] [Mlu200Decoder] Failed to query timetamp,"
                    << ", use timestamp from vpu-decoder:" << o->pts;
     }
     frame = &o->frame;
-    LOGT(DECODE) << "Receive one video frame, " << frame;
+    VLOG(5) << "[EasyDK EasyCodec] [Mlu200Decoder] Receive one video frame, " << frame;
   }
   if (frame->width == 0 || frame->height == 0 || frame->planeNum == 0) {
-    LOGW(DECODE) << "Receive empty frame";
+    LOG(WARNING) << "[EasyDK EasyCodec] [Mlu200Decoder] Receive empty frame";
     return;
   }
   finfo.device_id = attr_.dev_id;
@@ -527,23 +597,32 @@ void Mlu200Decoder::ReceiveFrame(void* out) {
     finfo.frame_size += finfo.GetPlaneSize(pi);
   }
 
-  LOGT(DECODE) << "Frame: width " << finfo.width << " height " << finfo.height << " planes " << finfo.n_planes
-               << " frame size " << finfo.frame_size;
+  VLOG(5) << "[EasyDK EasyCodec] [Mlu200Decoder] Frame: width " << finfo.width << " height " << finfo.height
+          << " planes " << finfo.n_planes << " frame size " << finfo.frame_size;
 
   if (NULL != attr_.frame_callback) {
-    LOGD(DECODE) << "Add decode buffer Reference " << finfo.buf_id;
-    if (jpeg_decode_) {
-      cnjpegDecAddReference(handle_, frame);
+    VLOG(4) << "[EasyDK EasyCodec] [Mlu200Decoder] Add decode buffer reference " << finfo.buf_id;
+    ReadLockGuard lg(handle_lk_);
+    if (handle_) {
+      if (jpeg_decode_) {
+        cnjpegDecAddReference(handle_, frame);
+      } else {
+        cnvideoDecAddReference(handle_, frame);
+      }
+      {
+        std::lock_guard<std::mutex> lk(list_mtx_);
+        out_frame_list_.push_back(finfo.buf_id);
+      }
+      attr_.frame_callback(finfo);
+      frames_count_++;
     } else {
-      cnvideoDecAddReference(handle_, frame);
+      LOG(ERROR) << "[EasyDK EasyCodec] [Mlu200Decoder] Can not call frame callback as handle is null.";
     }
-    attr_.frame_callback(finfo);
-    frames_count_++;
   }
 }
 
 int Mlu200Decoder::ReceiveSequence(cnvideoDecSequenceInfo* info) {
-  LOGI(DECODE) << "Receive sequence";
+  LOG(INFO) << "[EasyDK EasyCodec] [Mlu200Decoder] Receive sequence";
 
   vparams_.codec = info->codec;
   vparams_.width = info->width;
@@ -559,16 +638,18 @@ int Mlu200Decoder::ReceiveSequence(cnvideoDecSequenceInfo* info) {
 
   vparams_.userContext = reinterpret_cast<void*>(this);
 
+  ReadLockGuard lg(handle_lk_);
   int ecode = cnvideoDecStart(handle_, &vparams_);
   if (ecode != CNCODEC_SUCCESS) {
-    LOGE(DECODE) << "Start Decoder failed.";
+    LOG(ERROR) << "[EasyDK EasyCodec] [Mlu200Decoder] Start Decoder failed.";
     return -1;
   }
   return 0;
 }
 
 void Mlu200Decoder::ReceiveEOS() {
-  LOGI(DECODE) << "Thread id: " << std::this_thread::get_id() << ",Received EOS from cncodec";
+  LOG(INFO) << "[EasyDK EasyCodec] [Mlu200Decoder] Thread id: " << std::this_thread::get_id()
+            << ". Received EOS from cncodec";
 
   status_.store(EasyDecode::Status::EOS);
   if (attr_.eos_callback) {
@@ -587,24 +668,24 @@ void Mlu200Decoder::ReceiveEvent(cncodecCbEventType type) {
       break;
     case CNCODEC_CB_EVENT_SW_RESET:
     case CNCODEC_CB_EVENT_HW_RESET:
-      LOGE(DECODE) << "Decode firmware crash event: " << type;
+      LOG(ERROR) << "[EasyDK EasyCodec] [Mlu200Decoder] Decode firmware crash event: " << type;
       status_.store(EasyDecode::Status::ERROR);
       break;
     case CNCODEC_CB_EVENT_OUT_OF_MEMORY:
-      LOGE(DECODE) << "Out of memory error thrown from cncodec";
+      LOG(ERROR) << "[EasyDK EasyCodec] [Mlu200Decoder] Out of memory error thrown from cncodec";
       status_.store(EasyDecode::Status::ERROR);
       break;
     case CNCODEC_CB_EVENT_ABORT_ERROR:
-      LOGE(DECODE) << "Abort error thrown from cncodec";
+      LOG(ERROR) << "[EasyDK EasyCodec] [Mlu200Decoder] Abort error thrown from cncodec";
       status_.store(EasyDecode::Status::ERROR);
       break;
 #if CNCODEC_VERSION >= 10600
     case CNCODEC_CB_EVENT_STREAM_CORRUPT:
-      LOGW(DECODE) << "Stream corrupt, discard frame";
+      LOG(WARNING) << "[EasyDK EasyCodec] [Mlu200Decoder] Stream corrupt, discard frame";
       break;
 #endif
     default:
-      LOGE(DECODE) << "Unknown event type";
+      LOG(ERROR) << "[EasyDK EasyCodec] [Mlu200Decoder] Unknown event type";
       status_.store(EasyDecode::Status::ERROR);
       break;
   }
@@ -633,6 +714,7 @@ bool Mlu200Decoder::GetVpuTimestamp(uint32_t key, uint64_t *pts) {
 }
 
 Decoder* CreateMlu200Decoder(const EasyDecode::Attr& attr) {
+  VLOG(1) << "[EasyDK EasyCodec] [CreateMlu200Decoder] Create MLU200 decoder.";
   return new Mlu200Decoder(attr);
 }
 }  // namespace edk
@@ -640,7 +722,7 @@ Decoder* CreateMlu200Decoder(const EasyDecode::Attr& attr) {
 #else
 namespace edk {
 Decoder* CreateMlu200Decoder(const EasyDecode::Attr& attr) {
-  LOGE(DECODE) << "Create mlu200 decoder failed, please install cncodec.";
+  LOG(ERROR) << "[EasyDK EasyCodec] [CreateMlu200Decoder] Create MLU200 decoder failed. Please install cncodec.";
   return nullptr;
 }
 }  // namespace edk

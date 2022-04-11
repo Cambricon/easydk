@@ -29,14 +29,6 @@
 
 namespace infer_server {
 
-#define CHECK_CNRT_RET(ret, msg, val)              \
-  do {                                             \
-    if ((ret) != CNRT_RET_SUCCESS) {               \
-      LOG(ERROR) << msg << " error code: " << ret; \
-      return val;                                  \
-    }                                              \
-  } while (0)
-
 struct PreprocessorHostPrivate {
   static std::unique_ptr<EqualityThreadPool> tp;
   static std::mutex tp_mutex;
@@ -78,12 +70,13 @@ PreprocessorHost::~PreprocessorHost() {
     uint32_t idle_num = priv_->tp->IdleNumber();
     if (idle_num > priv_->increased_tp) {
       if (priv_->increased_tp == priv_->tp->Size()) {
-        VLOG(3) << "Destroy preproc_host worker thread pool";
+        VLOG(1) << "[EasyDK InferServer] [PreprocessorHost] Destroy preproc_host worker thread pool";
         // no any other preproc instance, ensure no task in pool
         priv_->tp->Stop(true);
         priv_->tp.reset();
       } else {
-        VLOG(3) << "Reduce " << priv_->increased_tp << " thread in preprocessor pool after destruct PreprocessorHost";
+        VLOG(1) << "[EasyDK InferServer] [PreprocessorHost]Reduce " << priv_->increased_tp
+                << " thread in preprocessor pool after destruct PreprocessorHost";
         priv_->tp->Resize(priv_->tp->Size() - priv_->increased_tp);
       }
     }
@@ -96,7 +89,7 @@ Status PreprocessorHost::Init() noexcept {
   constexpr const char* params[] = {"model_info", "device_id", "host_input_layout"};
   for (auto p : params) {
     if (!HaveParam(p)) {
-      LOG(ERROR) << p << " has not been set!";
+      LOG(ERROR) << "[EasyDK InferServer] [PreprocessorHost] " << p << " has not been set!";
       return Status::INVALID_PARAM;
     }
   }
@@ -110,7 +103,7 @@ Status PreprocessorHost::Init() noexcept {
     priv_->process_func = HaveParam("process_function") ? GetParam<ProcessFunction>("process_function") : nullptr;
     parallel = HaveParam("parallel") ? GetParam<int>("parallel") : 0;
   } catch (bad_any_cast&) {
-    LOG(ERROR) << "wrong param type";
+    LOG(ERROR) << "[EasyDK InferServer] [PreprocessorHost] Wrong param type";
     return Status::WRONG_TYPE;
   }
 
@@ -120,14 +113,15 @@ Status PreprocessorHost::Init() noexcept {
     priv_->increased_tp = parallel > 0 ? (parallel < 16 ? parallel : 16) : 4;
     std::unique_lock<std::mutex> lk(priv_->tp_mutex);
     if (!priv_->tp) {
-      VLOG(3) << "Create preproc_host worker thread pool";
+      VLOG(1) << "[EasyDK InferServer] [PreprocessorHost] Create preproc_host worker thread pool";
       priv_->tp.reset(new EqualityThreadPool(nullptr));
     }
     int th_num = priv_->tp->Size();
     static const int max_th_num = GetCpuCoreNumber();
     if (th_num < max_th_num) {
       // TODO(dmh): user define?
-      VLOG(3) << "Increase " << priv_->increased_tp << " thread in preprocessor pool when init preprocessor";
+      VLOG(1) << "[EasyDK InferServer] [PreprocessorHost] Increase " << priv_->increased_tp
+              << " thread in preprocessor pool when init preprocessor";
       priv_->tp->Resize(th_num + priv_->increased_tp);
     }
     lk.unlock();
@@ -156,7 +150,7 @@ Status PreprocessorHost::Init() noexcept {
 Status PreprocessorHost::Process(PackagePtr pack) noexcept {
   size_t batch_size = pack->data.size();
   if (!priv_->process_func) {
-    VLOG(5) << "No preprocess function, package pass through";
+    VLOG(3) << "[EasyDK InferServer] [PreprocessorHost] No preprocess function, package pass through";
     return Status::SUCCESS;
   }
   size_t i_num = priv_->model->InputNum();
@@ -192,7 +186,7 @@ Status PreprocessorHost::Process(PackagePtr pack) noexcept {
       }
     }
   } catch (std::exception& e) {
-    LOG(ERROR) << "Catch exception in preprocess: " << e.what();
+    LOG(ERROR) << "[EasyDK InferServer] [PreprocessorHost] Catch exception in preprocess: " << e.what();
     return Status::ERROR_BACKEND;
   }
   // release input data
@@ -223,7 +217,8 @@ Status PreprocessorHost::Process(PackagePtr pack) noexcept {
       } else if (priv_->host_layout.order == DimOrder::NHWC) {
         s = DimNCHW2NHWC(s.Vectorize());
       } else {
-        LOG(ERROR) << "unsupported dim order: " << detail::DimOrderStr(priv_->host_layout.order);
+        LOG(ERROR) << "[EasyDK InferServer] [PreprocessorHost] Unsupported dim order: "
+                   << detail::DimOrderStr(priv_->host_layout.order);
         return Status::INVALID_PARAM;
       }
     }

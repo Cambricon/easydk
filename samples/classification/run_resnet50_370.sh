@@ -25,5 +25,7 @@ data_path="${CURRENT_DIR}/../data/videos/cars.mp4"
      --wait_time 0 \
      --repeat_time 0 \
      --decode_type mlu \
-     --dev_id 0
+     --dev_id 0 \
+     --colorlogtostderr \
+     --alsologtostderr
 popd

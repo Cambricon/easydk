@@ -38,13 +38,13 @@ namespace edk {
   do {                                                                                                       \
     cnrtRet_t ret = (func);                                                                                  \
     if (CNRT_RET_SUCCESS != ret) {                                                                           \
-      THROW_EXCEPTION(edk::Exception::INTERNAL, std::string(msg) + ", cnrt error code : " + std::to_string(ret)); \
+      THROW_EXCEPTION(edk::Exception::INTERNAL, std::string(msg) + ", CNRT error code : " + std::to_string(ret)); \
     }                                                                                                        \
   } while (0)
 
 class TimeMark {
  public:
-  TimeMark() { CALL_CNRT_FUNC(cnrt::NotifierCreate(&base_), "Create notifier failed"); }
+  TimeMark() { CALL_CNRT_FUNC(cnrt::NotifierCreate(&base_), "[EasyDK Internal] [TimeMark] Create notifier failed"); }
 
   TimeMark(TimeMark&& other) : base_(other.base_) { other.base_ = nullptr; }
 
@@ -61,7 +61,9 @@ class TimeMark {
     }
   }
 
-  void Mark(cnrtQueue_t queue) { CALL_CNRT_FUNC(cnrt::PlaceNotifier(base_, queue), "cnrt::PlaceNotifier failed"); }
+  void Mark(cnrtQueue_t queue) {
+    CALL_CNRT_FUNC(cnrt::PlaceNotifier(base_, queue), "[EasyDK Internal] [TimeMark] Place CNRT notifier failed");
+  }
 
   void Mark(MluTaskQueue_t queue);
 
@@ -70,7 +72,8 @@ class TimeMark {
   // get hardware time in ms
   static float Count(const TimeMark& start, const TimeMark& end) {
     float dura;
-    CALL_CNRT_FUNC(cnrt::NotifierDuration(start.base_, end.base_, &dura), "Calculate elapsed time failed.");
+    CALL_CNRT_FUNC(cnrt::NotifierDuration(start.base_, end.base_, &dura),
+                  "[EasyDK Internal] [TimeMark] Calculate elapsed time failed.");
     dura /= 1000;
     return dura;
   }

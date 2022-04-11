@@ -255,7 +255,7 @@ auto session = infer_server.CreateSyncSession(desc);
 
 模型输出后处理，threshold将过滤掉分数较低的结果目标。
 
-内置了Classification，SSD，YOLOv3三种后处理实现。
+内置了Classification，SSD，YOLOv3，YOLOv5四种后处理实现。
 
 使用Postprocessor作为预处理器，重载 ``operator()`` 作为处理函数，并将 ``operator()`` 传给InferServer::Postprocessor。
 
@@ -291,6 +291,27 @@ struct PostprocYolov3 {
   FrameSize GetFrameSize();
 
 };  // struct PostprocYolov3
+
+struct PostprocYolov5 {
+  float threshold;
+
+  explicit PostprocYolov5(float _threshold) : threshold(_threshold) {}
+
+  bool operator()(infer_server::InferData* result, const infer_server::ModelIO& model_output,
+                  const infer_server::ModelInfo* model);
+  void SetFrameSize(FrameSize size) {
+    size_ = size;
+    set_frame_size_ = true;
+  }
+
+  FrameSize GetFrameSize() {
+    return size_;
+  }
+
+ private:
+  bool set_frame_size_ = false;
+  FrameSize size_;
+};  // struct PostprocYolov5
 ```
 
 ### OSD
@@ -370,7 +391,12 @@ ClassificationRunner::ClassificationRunner(const VideoDecoder::DecoderType& deco
   desc.name = "classification session";
 
   // 加载离线模型
+#ifdef CNIS_USE_MAGICMIND
+  desc.model = infer_server::InferServer::LoadModel(model_path);
+#else
   desc.model = infer_server::InferServer::LoadModel(model_path, func_name);
+#endif
+
 
   // 设置预处理和后处理
   desc.preproc = infer_server::video::PreprocessorMLU::Create();
@@ -402,9 +428,9 @@ ClassificationRunner::ClassificationRunner(const VideoDecoder::DecoderType& deco
   // 创建VideoWriter
   if (save_video_) {
     video_writer_.reset(
-        new cv::VideoWriter("out.avi", cv::VideoWriter::fourcc('M', 'J', 'P', 'G'), 25, g_out_video_size));
+        new cv::VideoWriter("out0.avi", cv::VideoWriter::fourcc('M', 'J', 'P', 'G'), 25, g_out_video_size));
     if (!video_writer_->isOpened()) {
-      THROW_EXCEPTION(edk::Exception::Code::INIT_FAILED, "create output video file failed");
+      THROW_EXCEPTION(edk::Exception::Code::INIT_FAILED, "[EasyDK Samples] [ClassificationRunner] create output video file failed");
     }
   }
 
@@ -444,7 +470,7 @@ void ClassificationRunner::Process(edk::CnFrame frame) {
   if (!ret || status != infer_server::Status::SUCCESS) {
     decoder_->ReleaseFrame(std::move(frame));
     THROW_EXCEPTION(edk::Exception::INTERNAL,
-        "Request sending data to infer server failed. Status: " + std::to_string(static_cast<int>(status)));
+        "[EasyDK Samples] [ClassificationRunner] Request sending data to infer server failed. Status: " + std::to_string(static_cast<int>(status)));
   }
 
   // 将解码镇转换成CV::Mat，并释放解码帧
@@ -462,13 +488,14 @@ void ClassificationRunner::Process(edk::CnFrame frame) {
   }
 
   // 打印分类结果
-  std::cout << "----- Classification Result:\n";
+  std::cout << "[EasyDK Samples] [ClassificationRunner] ----- Classification Result:" << std::endl;
   int show_number = 2;
   for (auto& obj : detect_result) {
-    std::cout << "[Object] label: " << obj.label << " score: " << obj.score << "\n";
+    std::cout << "[EasyDK Samples] [ClassificationRunner] [Object] label: " << obj.label << " score: "
+              << obj.score << std::endl;
     if (!(--show_number)) break;
   }
-  std::cout << "-----------------------------------\n" << std::endl;
+  std::cout << "[EasyDK Samples] [ClassificationRunner] -----------------------------------" << std::endl;std::endl;
 
   // 把结果画在图上
   osd_.DrawLabel(img, detect_result);
@@ -492,13 +519,14 @@ void ClassificationRunner::Process(edk::CnFrame frame) {
 然后在main函数中创建ClassificationRunner，开始运行即可：
 
 ```C++
+  google::InitGoogleLogging(argv[0]);
   try {
     // FLAGS_* 是GFlags解析的命令行参数
     g_runner = std::make_shared<ClassificationRunner>(decode_type, FLAGS_dev_id,
                                                       FLAGS_model_path, FLAGS_func_name, FLAGS_label_path,
                                                       FLAGS_data_path, FLAGS_show, FLAGS_save_video);
   } catch (edk::Exception& e) {
-    LOG(ERROR) << "Create stream runner failed" << e.what();
+    LOG(ERROR) << "[EasyDK Samples] [Classification] Create stream runner failed" << e.what();
     return -1;
   }
 
@@ -528,8 +556,8 @@ void ClassificationRunner::Process(edk::CnFrame frame) {
     return 1;
   }
 
-  LOGI(SAMPLES) << "run classification SUCCEED!!!" << std::endl;
-  edk::log::ShutdownLogging();
+  LOG(INFO) << "[EasyDK Samples] [Classification] Run SUCCEED!!!";
+  google::ShutdownGoogleLogging();
 ```
 
 
@@ -580,7 +608,11 @@ DetectionRunner::DetectionRunner(const VideoDecoder::DecoderType& decode_type, i
   desc.name = "detection session";
 
   // 加载离线模型
+#ifdef CNIS_USE_MAGICMIND
+  desc.model = infer_server::InferServer::LoadModel(model_path);
+#else
   desc.model = infer_server::InferServer::LoadModel(model_path, func_name);
+#endif
   // 设置预处理和后处理
   desc.preproc = infer_server::video::PreprocessorMLU::Create();
   desc.postproc = infer_server::Postprocessor::Create();
@@ -595,7 +627,7 @@ DetectionRunner::DetectionRunner(const VideoDecoder::DecoderType& decode_type, i
                             "keep_aspect_ratio", true);
     desc.postproc->SetParams("process_function", infer_server::Postprocessor::ProcessFunction(PostprocYolov3MM(0.5)));
   } else {
-    THROW_EXCEPTION(edk::Exception::INVALID_ARG, "unsupported magicmind net type: " + net_type);
+    THROW_EXCEPTION(edk::Exception::INVALID_ARG, "[EasyDK Samples] [DetectionRunner] unsupported magicmind net type: " + net_type);
   }
 #else
   // MLU200系列平台，后端使用CNRT推理
@@ -611,8 +643,15 @@ DetectionRunner::DetectionRunner(const VideoDecoder::DecoderType& decode_type, i
                             "dst_format", infer_server::video::PixelFmt::ARGB,
                             "keep_aspect_ratio", true);
     desc.postproc->SetParams("process_function", infer_server::Postprocessor::ProcessFunction(PostprocYolov3(0.5)));
+  } else if (net_type == "YOLOv5") {
+    desc.preproc->SetParams("preprocess_type", infer_server::video::PreprocessType::CNCV_PREPROC,
+                            "src_format", infer_server::video::PixelFmt::NV12,
+                            "dst_format", infer_server::video::PixelFmt::RGB24,
+                            "normalize", true,
+                            "keep_aspect_ratio", true);
+    desc.postproc->SetParams("process_function", infer_server::Postprocessor::ProcessFunction(PostprocYolov5(0.5)));
   } else {
-    THROW_EXCEPTION(edk::Exception::INVALID_ARG, "unsupported net type: " + net_type);
+    THROW_EXCEPTION(edk::Exception::INVALID_ARG, "[EasyDK Samples] [DetectionRunner] unsupported net type: " + net_type);
   }
 #endif
   // 创建推理session
@@ -632,9 +671,9 @@ DetectionRunner::DetectionRunner(const VideoDecoder::DecoderType& decode_type, i
   // 初始化VideoWriter
   if (save_video_) {
     video_writer_.reset(
-        new cv::VideoWriter("out.avi", cv::VideoWriter::fourcc('M', 'J', 'P', 'G'), 25, g_out_video_size));
+        new cv::VideoWriter("out0.avi", cv::VideoWriter::fourcc('M', 'J', 'P', 'G'), 25, g_out_video_size));
     if (!video_writer_->isOpened()) {
-      THROW_EXCEPTION(edk::Exception::Code::INIT_FAILED, "create output video file failed");
+      THROW_EXCEPTION(edk::Exception::Code::INIT_FAILED, "[EasyDK Samples] [DetectionRunner] create output video file failed");
     }
   }
 
@@ -649,7 +688,7 @@ DetectionRunner::DetectionRunner(const VideoDecoder::DecoderType& decode_type, i
 void DetectionRunner::Process(edk::CnFrame frame) {
   // 准备输入数据
   infer_server::PackagePtr in = infer_server::Package::Create(1);
-  if (net_type_ == "YOLOv3") {
+  if (net_type_ == "YOLOv3" || net_type_ == "YOLOv5") {
     // Yolov3使用PreprocessorMLU作为预处理器，输入数据必须为VideoFrame类型。
     infer_server::video::VideoFrame vframe;
     vframe.plane_num = frame.n_planes;
@@ -671,7 +710,7 @@ void DetectionRunner::Process(edk::CnFrame frame) {
     // 自定义预处理，可以使用任意类型作为输入数据。预处理函数将对应的类型取出并进行预处理。
     in->data[0]->Set(frame);
   } else {
-    THROW_EXCEPTION(edk::Exception::INVALID_ARG, "unsupported net type: " + net_type_);
+    THROW_EXCEPTION(edk::Exception::INVALID_ARG, "[EasyDK Samples] [DetectionRunner] unsupported net type: " + net_type_);
   }
 
   // 推理
@@ -681,7 +720,7 @@ void DetectionRunner::Process(edk::CnFrame frame) {
   if (!ret || status != infer_server::Status::SUCCESS) {
     decoder_->ReleaseFrame(std::move(frame));
     THROW_EXCEPTION(edk::Exception::INTERNAL,
-        "Request sending data to infer server failed. Status: " + std::to_string(static_cast<int>(status)));
+        "[EasyDK Samples] [DetectionRunner] Request sending data to infer server failed. Status: " + std::to_string(static_cast<int>(status)));
   }
 
   // 获取输出结果
@@ -703,7 +742,7 @@ void DetectionRunner::Process(edk::CnFrame frame) {
   if (feature_extractor_->OnMlu()) {
     // 使用模型在MLU上做特征提取
     if (!feature_extractor_->ExtractFeatureOnMlu(frame, &detect_objs)) {
-      THROW_EXCEPTION(edk::Exception::INTERNAL, "Extract feature on Mlu failed");
+      THROW_EXCEPTION(edk::Exception::INTERNAL, "[EasyDK Samples] [DetectionRunner] Extract feature on Mlu failed");
     }
     // 解码帧转换成CV::Mat，然后释放解码帧
     img = ConvertToMatAndReleaseBuf(&frame);
@@ -712,7 +751,7 @@ void DetectionRunner::Process(edk::CnFrame frame) {
     img = ConvertToMatAndReleaseBuf(&frame);
     // 使用Opencv在CPU上做特征提取
     if (!feature_extractor_->ExtractFeatureOnCpu(img, &detect_objs)) {
-      THROW_EXCEPTION(edk::Exception::INTERNAL, "Extract feature on Cpu failed");
+      THROW_EXCEPTION(edk::Exception::INTERNAL, "[EasyDK Samples] [DetectionRunner] Extract feature on Cpu failed");
     }
   }
 
@@ -722,11 +761,11 @@ void DetectionRunner::Process(edk::CnFrame frame) {
   tracker_->UpdateFrame(edk::TrackFrame(), detect_objs, &track_result);
 
   // 打印推理和跟踪结果
-  std::cout << "----- Object detected in one frame:\n";
+  std::cout << "[EasyDK Samples] [DetectionRunner] ----- Object detected in one frame:" << std::endl;
   for (auto& obj : track_result) {
-    std::cout << obj << "\n";
+    std::cout << "[EasyDK Samples] [DetectionRunner] " << obj << std::endl;
   }
-  std::cout << "-----------------------------------\n" << std::endl;
+  std::cout << "[EasyDK Samples] [DetectionRunner] -----------------------------------" << std::endl;std::endl;
 
   osd_.DrawLabel(img, track_result);
 
@@ -750,6 +789,7 @@ void DetectionRunner::Process(edk::CnFrame frame) {
 然后在main函数中创建DetectionRunner，开始运行即可：
 
 ```C++
+  google::InitGoogleLogging(argv[0]);
   try {
     // FLAGS_* 是GFlags解析的命令行参数
     g_runner = std::make_shared<DetectionRunner>(decode_type, FLAGS_dev_id,
@@ -758,7 +798,7 @@ void DetectionRunner::Process(edk::CnFrame frame) {
                                                  FLAGS_data_path, FLAGS_net_type,
                                                  FLAGS_show, FLAGS_save_video);
   } catch (edk::Exception& e) {
-    LOG(ERROR) << "Create stream runner failed" << e.what();
+    LOG(ERROR) << "[EasyDK Samples] [stream-app] Create stream runner failed" << e.what();
     return -1;
   }
 
@@ -787,8 +827,8 @@ void DetectionRunner::Process(edk::CnFrame frame) {
   if (!process_loop_return.get()) {
     return 1;
   }
-  LOGI(SAMPLES) << "run stream app SUCCEED!!!" << std::endl;
-  edk::log::ShutdownLogging();
+  LOG(INFO) << "[EasyDK Samples] [stream-app] Run SUCCEED!!!" << std::endl;
+  google::ShutdownGoogleLogging();
 ```
 
 ## Transcode
@@ -827,7 +867,7 @@ TranscodeRunner::TranscodeRunner(const VideoDecoder::DecoderType& decode_type, i
   std::string file_name = output_file_name;
   auto dot = file_name.find_last_of(".");
   if (dot == std::string::npos) {
-    THROW_EXCEPTION(edk::Exception::INVALID_ARG, "unknown file type: " + file_name);
+    THROW_EXCEPTION(edk::Exception::INVALID_ARG, "[EasyDK Samples] [TranscodeRunner] Unknown file type: " + file_name);
   }
   std::transform(file_name.begin(), file_name.end(), file_name.begin(), ::tolower);
   if (file_name.find("hevc") != std::string::npos || file_name.find("h265") != std::string::npos) {
@@ -853,7 +893,7 @@ TranscodeRunner::TranscodeRunner(const VideoDecoder::DecoderType& decode_type, i
     attr.attr_mlu300.frame_rate_num =
         std::ceil(static_cast<int>(dst_frame_rate * attr.attr_mlu300.frame_rate_den));
   } else {
-    THROW_EXCEPTION(edk::Exception::Code::INIT_FAILED, "Not supported core version");
+    THROW_EXCEPTION(edk::Exception::Code::INIT_FAILED, "[EasyDK Samples] [TranscodeRunner] Unsupported core version");
   }
 
   // 设置 eos callback 函数
@@ -869,10 +909,12 @@ TranscodeRunner::TranscodeRunner(const VideoDecoder::DecoderType& decode_type, i
   resize_.reset(new CncvResizeYuv(device_id));
   // 初始化预处理
   if (!resize_->Init()) {
-    THROW_EXCEPTION(edk::Exception::Code::INIT_FAILED, "Create CNCV resize yuv failed");
+    THROW_EXCEPTION(edk::Exception::Code::INIT_FAILED,
+        "[EasyDK Samples] [TranscodeRunner] Create CNCV resize yuv failed");
   }
 #else
-  THROW_EXCEPTION(edk::Exception::Code::INIT_FAILED, "Create resize yuv failed, please install CNCV");
+  THROW_EXCEPTION(edk::Exception::Code::INIT_FAILED,
+      "[EasyDK Samples] [TranscodeRunner] Create resize yuv failed, please install CNCV");
 #endif
 
   // 通知StreamRunner进入running状态
@@ -881,7 +923,7 @@ TranscodeRunner::TranscodeRunner(const VideoDecoder::DecoderType& decode_type, i
 
 void TranscodeRunner::PacketCallback(const edk::CnPacket &packet) {
   if (packet.length == 0 || packet.data == 0) {
-    LOGW(SAMPLE) << "[TranscodeRunner] PacketCallback received empty packet.";
+    LOG(WARNING) << "[EasyDK Samples] [TranscodeRunner] PacketCallback received empty packet.";
     return;
   }
   if (packet.codec_type == edk::CodecType::JPEG) {
@@ -891,20 +933,25 @@ void TranscodeRunner::PacketCallback(const edk::CnPacket &packet) {
     file_.open(output_file_name_.c_str());
   }
   if (!file_.is_open()) {
-    LOGE(SAMPLE) << "[TranscodeRunner] PacketCallback open output file failed";
+    LOG(ERROR) << "[EasyDK Samples] [TranscodeRunner] PacketCallback open output file failed";
   } else {
     file_.write(reinterpret_cast<const char *>(packet.data), packet.length);
     if (packet.codec_type == edk::CodecType::JPEG) {
       file_.close();
     }
   }
-  frame_count_++;
-  std::cout << "encode frame count: " << frame_count_<< ", pts: " << packet.pts << std::endl;
+  if (packet.slice_type == edk::BitStreamSliceType::FRAME || packet.slice_type == edk::BitStreamSliceType::KEY_FRAME) {
+    frame_count_++;
+    std::cout << "[EasyDK Samples] [TranscodeRunner] encode frame count: " << frame_count_ << ", pts: "
+              << packet.pts << std::endl;
+  } else {
+    std::cout << "[EasyDK Samples] [TranscodeRunner] encode head sps/pps"  << std::endl;
+  }
   encode_->ReleaseBuffer(packet.buf_id);
 }
 
 void TranscodeRunner::EosCallback() {
-  LOGI(SAMPLE) << "[TranscodeRunner] EosCallback ... ";
+  LOG(INFO) << "[EasyDK Samples] [TranscodeRunner] EosCallback ... ";
   std::lock_guard<std::mutex>lg(encode_eos_mut_);
   encode_received_eos_ = true;
   encode_eos_cond_.notify_one();
@@ -918,12 +965,12 @@ void TranscodeRunner::Process(edk::CnFrame frame) {
   // 向编码器请求一帧frame，将编码器的输入buffer的mlu内存地址放入dst_frame的ptrs中。
   edk::CnFrame dst_frame;
   if (!encode_->RequestFrame(&dst_frame)) {
-    THROW_EXCEPTION(edk::Exception::INTERNAL, "[TranscodeRunner] Request frame from encoder failed");
+    THROW_EXCEPTION(edk::Exception::INTERNAL, "[EasyDK Samples] [TranscodeRunner] Request frame from encoder failed");
   }
 #ifdef HAVE_CNCV
   // 预处理， yuv to yuv resize
   if (!resize_->Process(frame, &dst_frame)) {
-    THROW_EXCEPTION(edk::Exception::INTERNAL, "[TranscodeRunner] Resize yuv failed");
+    THROW_EXCEPTION(edk::Exception::INTERNAL, "[EasyDK Samples] [TranscodeRunner] Resize yuv failed");
   }
 #endif
   // 释放解码帧
@@ -932,7 +979,7 @@ void TranscodeRunner::Process(edk::CnFrame frame) {
   dst_frame.pts = frame.pts;
   // 喂数据给编码器
   if (!encode_->FeedData(dst_frame)) {
-    THROW_EXCEPTION(edk::Exception::INTERNAL, "[TranscodeRunner] Feed data to encoder failed");
+    THROW_EXCEPTION(edk::Exception::INTERNAL, "[EasyDK Samples] [TranscodeRunner] Feed data to encoder failed");
   }
 }
 ```
@@ -940,12 +987,13 @@ void TranscodeRunner::Process(edk::CnFrame frame) {
 然后在main函数中创建TranscodeRunner，开始运行即可：
 
 ```C++
+  google::InitGoogleLogging(argv[0]);
   try {
     // FLAGS_* 是GFlags解析的命令行参数
     g_runner = std::make_shared<TranscodeRunner>(decode_type, FLAGS_dev_id, FLAGS_data_path, FLAGS_output_file_name,
                                                  FLAGS_dst_width, FLAGS_dst_height, FLAGS_dst_frame_rate);
   } catch (edk::Exception& e) {
-    LOG(ERROR) << "Create stream runner failed" << e.what();
+    LOG(ERROR) << "[EasyDK Samples] [transcode] Create stream runner failed" << e.what();
     return -1;
   }
 
@@ -974,8 +1022,8 @@ void TranscodeRunner::Process(edk::CnFrame frame) {
   if (!process_loop_return.get()) {
     return 1;
   }
-  LOGI(SAMPLES) << "run transcode SUCCEED!!!" << std::endl;
-  edk::log::ShutdownLogging();
+  LOG(INFO) << "[EasyDK Samples] [transcode] Run SUCCEED!!!";
+  google::ShutdownGoogleLogging();
 ```
 
 ## 移植新模型

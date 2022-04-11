@@ -115,26 +115,26 @@ class Model : public ModelInfo {
   bool HasInit() const noexcept { return has_init_; }
 
   const Shape& InputShape(int index) const noexcept override {
-    CHECK(index < i_num_ || index >= 0) << "input shape index overflow";
+    CHECK(index < i_num_ || index >= 0) << "[EasyDK InferServer] [Model] Input shape index overflow";
     return input_shapes_[index];
   }
   const Shape& OutputShape(int index) const noexcept override {
-    CHECK(index < o_num_ || index >= 0) << "output shape index overflow";
+    CHECK(index < o_num_ || index >= 0) << "[EasyDK InferServer] [Model] Output shape index overflow";
     return output_shapes_[index];
   }
   const DataLayout& InputLayout(int index) const noexcept override {
-    CHECK(index < i_num_ || index >= 0) << "input shape index overflow";
+    CHECK(index < i_num_ || index >= 0) << "[EasyDK InferServer] [Model] Input shape index overflow";
     return i_mlu_layouts_[index];
   }
   const DataLayout& OutputLayout(int index) const noexcept override {
-    CHECK(index < o_num_ || index >= 0) << "input shape index overflow";
+    CHECK(index < o_num_ || index >= 0) << "[EasyDK InferServer] [Model] Input shape index overflow";
     return o_mlu_layouts_[index];
   }
   uint32_t InputNum() const noexcept override { return i_num_; }
   uint32_t OutputNum() const noexcept override { return o_num_; }
   uint32_t BatchSize() const noexcept override { return model_batch_size_; }
 
-  bool FixedOutputShape() noexcept { return FixedShape(output_shapes_); }
+  bool FixedOutputShape() noexcept override { return FixedShape(output_shapes_); }
 
 #ifdef CNIS_USE_MAGICMIND
   MEngine* GetEngine(int device_id) noexcept {

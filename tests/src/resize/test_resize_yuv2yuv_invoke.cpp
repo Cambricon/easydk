@@ -43,7 +43,7 @@ static void Rgb2Yuv(const std::string& path, TestResizeParam p, char* cpu_input,
   cv::Mat src_image, src_yuv_image;
   // read src image
   src_image = cv::imread(exe_path + dir + path, CV_LOAD_IMAGE_COLOR);
-  ASSERT_FALSE(src_image.empty()) << "read \"" << exe_path + dir + path << "\" failed";
+  ASSERT_FALSE(src_image.empty()) << "[EasyDK Tests] [MluResize] read \"" << exe_path + dir + path << "\" failed";
   int src_img_area = p.src_w * p.src_h;
   // resize to src h x w
   cv::resize(src_image, src_image, cv::Size(p.src_w, p.src_h));
@@ -127,10 +127,10 @@ static void InvokeResizeYuv2Yuv(char* mlu_input, char* mlu_output, TestResizePar
   // create notifier
   if (print_hardware_time) {
     if (CNRT_RET_SUCCESS != cnrt::NotifierCreate(&eventBegin)) {
-      std::cout << "cnrt::NotifierCreate eventBegin failed" << std::endl;
+      LOG(ERROR) << "[EasyDK Tests] [ResizeYuv] Create CNRT Notifier failed";
     }
     if (CNRT_RET_SUCCESS != cnrt::NotifierCreate(&eventEnd)) {
-      std::cout << "cnrt::NotifierCreate eventEnd failed" << std::endl;
+      LOG(ERROR) << "[EasyDK Tests] [ResizeYuv] Create CNRT Notifier failed";
     }
   }
 
@@ -144,7 +144,7 @@ static void InvokeResizeYuv2Yuv(char* mlu_input, char* mlu_output, TestResizePar
   attr.channel_id = channel_id;
   edk::MluResize* resize = new edk::MluResize();
   if (!resize->Init(attr)) {
-    std::cerr << "resize->Init() failed: " << resize->GetLastError() << std::endl;
+    LOG(ERROR) << "[EasyDK Tests] [ResizeYuv] Init() failed. err: " << resize->GetLastError();
   }
 
   // check attr
@@ -177,7 +177,7 @@ static void InvokeResizeYuv2Yuv(char* mlu_input, char* mlu_output, TestResizePar
       cnrt::PlaceNotifier(eventEnd, resize->GetMluQueue());
       // sync queue
       if (CNRT_RET_SUCCESS != cnrt::QueueSync(resize->GetMluQueue())) {
-        std::cout << "cnrt::QueueSync failed" << std::endl;
+        LOG(ERROR) << "[EasyDK Tests] [ResizeYuv] Sync CNRT queue failed";
       }
       cnrt::NotifierDuration(eventBegin, eventEnd, &total_hardware_time);
     }
@@ -187,15 +187,14 @@ static void InvokeResizeYuv2Yuv(char* mlu_input, char* mlu_output, TestResizePar
     if (success) {
       if (print_time) {
         std::lock_guard<std::mutex> lock_g(print_mutex);
-        std::cout << "--------------------software " << diff.count() << "ms ---------------- " << std::endl;
+        VLOG(2) << "[EasyDK Tests] [ResizeYuv] ----------software " << diff.count() << "ms ------ ";
         if (print_hardware_time) {
-          std::cout << "--------------------hardware " << total_hardware_time / 1000.f << "ms ---------------- "
-                    << std::endl;
+          VLOG(2) << "[EasyDK Tests] [ResizeYuv] ----------hardware " << total_hardware_time / 1000.f << "ms ------ ";
         }
       }
     } else {
-      std::cout << resize->GetLastError();
-      ASSERT_TRUE(false) << "invoke resize kernel failed";
+      LOG(ERROR) << "[EasyDK Tests] [ResizeYuv] Error occurs: " << resize->GetLastError();
+      ASSERT_TRUE(false) << "[EasyDK Tests] [MluResize] Invoke resize kernel failed";
     }
     // control frame rate
     auto fr_end = std::chrono::high_resolution_clock::now();
@@ -250,16 +249,12 @@ static void Process(const TestResizeParam& param, std::vector<std::string> image
   }
   end_time = std::chrono::high_resolution_clock::now();
   std::chrono::duration<double, std::milli> diff = end_time - start_time;
-  std::cout << "========================== U " << param.core_num / 4 << " =============================" << std::endl;
-  std::cout << std::endl;
-  std::cout << "****** bsize = " << param.bsize << " ****** " << thread_num << " threads ***** " << batch_num
-            << " batch ******" << std::endl
-            << std::endl;
-  std::cout << "  src_h = " << param.src_h << " src_w = " << param.src_w << " dst_h = " << param.dst_h
-            << " dst_w = " << param.dst_w << std::endl
-            << std::endl;
-  std::cout << "=================== total time " << diff.count() << "ms =====================" << std::endl
-            << std::endl;
+  VLOG(2) << "[EasyDK Tests] [ResizeYuv] ================ U " << param.core_num / 4 << " ===================";
+  VLOG(2) << "[EasyDK Tests] [ResizeYuv] ****** bsize = " << param.bsize << " ****** " << thread_num
+          << " threads ***** " << batch_num << " batch ******";
+  VLOG(2) << "[EasyDK Tests] [ResizeYuv]  src_h = " << param.src_h << " src_w = " << param.src_w
+          << " dst_h = " << param.dst_h << " dst_w = " << param.dst_w;
+  VLOG(2) << "[EasyDK Tests] [ResizeYuv] ========= total time " << diff.count() << "ms ===========";
 #if SAVE_RESULT
   // uncomment to copy result to host and save image
   D2H(cpu_output, mlu_outputs[0], param);

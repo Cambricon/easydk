@@ -130,8 +130,14 @@ class EasyDecode {
   bool Resume();
 
   /**
-   * @brief Abort decoder instance at once
-   * @note aborted decoder instance cannot be used any more
+   * @brief Destroy decoder instance
+   * @note Destroyed decoder instance cannot be used any more
+   */
+  void DestroyDecoder();
+
+  /**
+   * @brief Abort decoder instance
+   * @note Aborted decoder instance cannot be used any more
    */
   void AbortDecoder();
 

@@ -20,18 +20,19 @@
 
 #include "easyinfer/model_loader.h"
 
+#include <glog/logging.h>
 #include <cstring>
 #include <iostream>
 #include <string>
 #include <vector>
 
-#include "cxxutil/log.h"
 #include "model_loader_internal.h"
 
 #define ONLY_SUPPORT_FLOAT32(layout)                                                  \
   do {                                                                                \
     if (layout.dtype != DataType::FLOAT32) {                                          \
-      THROW_EXCEPTION(Exception::INVALID_ARG, "Only support float32 for cpu layout"); \
+      THROW_EXCEPTION(Exception::INVALID_ARG,                                         \
+                      "[EasyDK EasyInfer] Only support float32 for cpu layout");      \
     }                                                                                 \
   } while (0)
 
@@ -59,7 +60,7 @@ cnrtDataType CastDataType(const DataType& type) {
     case DataType::INT32:
       return CNRT_INT32;
     default:
-      THROW_EXCEPTION(Exception::UNSUPPORTED, "Unsupported data type");
+      THROW_EXCEPTION(Exception::UNSUPPORTED, "[EasyDK EasyInfer] [CastDataType] Unsupported data type");
   }
 }
 
@@ -76,7 +77,7 @@ DataType CastDataType(const cnrtDataType& type) {
     case CNRT_INT32:
       return DataType::INT32;
     default:
-      THROW_EXCEPTION(Exception::UNSUPPORTED, "Unsupported data type");
+      THROW_EXCEPTION(Exception::UNSUPPORTED, "[EasyDK EasyInfer] [CastDataType] Unsupported CNRT data type");
   }
 }
 
@@ -89,7 +90,7 @@ cnrtDimOrder CastDimOrder(const DimOrder& order) {
     case DimOrder::NHWC:
       return CNRT_NHWC;
     default:
-      THROW_EXCEPTION(Exception::UNSUPPORTED, "Unsupported dimension order");
+      THROW_EXCEPTION(Exception::UNSUPPORTED, "[EasyDK EasyInfer] [CastDimOrder] Unsupported dimension order");
   }
 }
 
@@ -100,7 +101,7 @@ DimOrder CastDimOrder(const cnrtDimOrder& order) {
     case CNRT_NHWC:
       return DimOrder::NHWC;
     default:
-      THROW_EXCEPTION(Exception::UNSUPPORTED, "Unsupported dimension order");
+      THROW_EXCEPTION(Exception::UNSUPPORTED, "[EasyDK EasyInfer] [CastDimOrder] Unsupported CNRT dimension order");
   }
 }
 #endif
@@ -118,7 +119,7 @@ static const char* DataTypeStr(DataType type) {
     case DataType::INT32:
       return "DataType INT32";
     default:
-      THROW_EXCEPTION(Exception::UNSUPPORTED, "Unsupported data type");
+      THROW_EXCEPTION(Exception::UNSUPPORTED, "[EasyDK EasyInfer] [DataTypeStr] Unsupported data type");
   }
 }
 
@@ -129,7 +130,7 @@ static const char* DimOrderStr(DimOrder order) {
     case DimOrder::NHWC:
       return "DimOrder NHWC";
     default:
-      THROW_EXCEPTION(Exception::UNSUPPORTED, "Unsupported dimension order");
+      THROW_EXCEPTION(Exception::UNSUPPORTED, "[EasyDK EasyInfer] [DimOrderStr] Unsupported dimension order");
   }
 }
 
@@ -158,22 +159,25 @@ ModelLoader::ModelLoader(const char* model_path, const char* function_name) : d_
   if (FILE* file = fopen(model_path, "r")) {
     fclose(file);
   } else {
-    THROW_EXCEPTION(Exception::UNAVAILABLE, "Model file not exist. Please check model path");
+    THROW_EXCEPTION(Exception::UNAVAILABLE,
+        "[EasyDK EasyInfer] [ModelLoader] Model file not exist. Please check model path");
   }
 
-  LOGD(INFER) << "Load model from file: " << model_path;
+  VLOG(4) << "[EasyDK EasyInfer] [Memory] [ModelLoader] Load model from file: " << model_path;
   // 1. get cnrtModel and cnrtFunction
   cnrtRet_t error_code = cnrtLoadModel(&d_ptr_->model_, model_path);
-  CHECK_CNRT_RET(error_code, "Load model failed, cnrt error code : " + std::to_string(error_code));
+  CHECK_CNRT_RET(error_code,
+      "[EasyDK EasyInfer] [ModelLoader] Load model failed, CNRT error code : " + std::to_string(error_code));
 
   d_ptr_->LoadFunction(function_name);
 }
 
 ModelLoader::ModelLoader(void* mem_ptr, const char* function_name) : d_ptr_(new ModelLoaderPrivate(this)) {
   // 1. get cnrtModel and cnrtFunction
-  LOGI(INFER) << "Load model from memory, " << mem_ptr;
+  LOG(INFO) << "[EasyDK EasyInfer] [ModelLoader] Load model from memory, " << mem_ptr;
   cnrtRet_t error_code = cnrtLoadModelFromMem(&d_ptr_->model_, reinterpret_cast<char*>(mem_ptr));
-  CHECK_CNRT_RET(error_code, "Load model from memory failed, cnrt error code : " + std::to_string(error_code));
+  CHECK_CNRT_RET(error_code, "[EasyDK EasyInfer] [ModelLoader] Load model from memory failed, CNRT error code : " +
+      std::to_string(error_code));
 
   d_ptr_->LoadFunction(function_name);
 }
@@ -182,27 +186,32 @@ void ModelLoaderPrivate::LoadFunction(const char* function_name) {
   cnrtRet_t error_code;
 
   error_code = cnrtCreateFunction(&function_);
-  CHECK_CNRT_RET(error_code, "Create function failed, cnrt error code : " + std::to_string(error_code));
+  CHECK_CNRT_RET(error_code, "[EasyDK EasyInfer] [ModelLoader] Create function failed, CNRT error code : " +
+      std::to_string(error_code));
   error_code = cnrtExtractFunction(&function_, model_, function_name);
-  CHECK_CNRT_RET(error_code, "Extract function failed, cnrt error code : " + std::to_string(error_code));
+  CHECK_CNRT_RET(error_code, "[EasyDK EasyInfer] [ModelLoader] Extract function failed, CNRT error code : " +
+      std::to_string(error_code));
   error_code = cnrtQueryModelParallelism(model_, &model_parallelism_);
-  CHECK_CNRT_RET(error_code, "Query Model Parallelism failed, cnrt error code : " + std::to_string(error_code));
+  CHECK_CNRT_RET(error_code, "[EasyDK EasyInfer] [ModelLoader] Query Model Parallelism failed, CNRT error code : " +
+      std::to_string(error_code));
 
-  LOGI(INFER) << "Load function from offline model succeeded";
+  LOG(INFO) << "[EasyDK EasyInfer] [ModelLoader] Load function from offline model succeeded";
 
   // 2. get IO messages
   // 2.1 get io number and data size
   int64_t* input_sizes = nullptr;
   int input_num = 0;
   error_code = cnrtGetInputDataSize(&input_sizes, &input_num, function_);
-  CHECK_CNRT_RET(error_code, "Get input data size failed, cnrt error code : " + std::to_string(error_code));
+  CHECK_CNRT_RET(error_code,
+      "[EasyDK EasyInfer] [ModelLoader] Get input data size failed, CNRT error code : " + std::to_string(error_code));
   i_num_ = input_num;
   i_data_sizes_ = std::vector<int64_t>(input_sizes, input_sizes + input_num);
 
   int64_t* output_sizes = nullptr;
   int output_num = 0;
   error_code = cnrtGetOutputDataSize(&output_sizes, &output_num, function_);
-  CHECK_CNRT_RET(error_code, "Get output data size failed, cnrt error code : " + std::to_string(error_code));
+  CHECK_CNRT_RET(error_code,
+      "[EasyDK EasyInfer] [ModelLoader] Get output data size failed, CNRT error code : " + std::to_string(error_code));
   o_num_ = output_num;
   o_data_sizes_ = std::vector<int64_t>(output_sizes, output_sizes + output_num);
 
@@ -215,11 +224,14 @@ void ModelLoaderPrivate::LoadFunction(const char* function_name) {
   input_shapexs_.reserve(input_num);
   for (int i = 0; i < input_num; ++i) {
     error_code = cnrtGetInputDataShape(&input_dim_values, &dim_num, i, function_);
-    CHECK_CNRT_RET(error_code, "Get input data size failed, cnrt error code : " + std::to_string(error_code));
+    CHECK_CNRT_RET(error_code,
+        "[EasyDK EasyInfer] [ModelLoader] Get input data size failed, CNRT error code : " + std::to_string(error_code));
     // nhwc shape
     input_shapexs_.emplace_back(std::vector<ShapeEx::value_type>(input_dim_values, input_dim_values + dim_num));
 
-    if (dim_num != 4) LOGI(INFER) << "input dimension is not 4, dims in `Shape` is incorrect, use ShapeEx instead";
+    if (dim_num != 4)
+      LOG(INFO) << "[EasyDK EasyInfer] [ModelLoader] input dimension is not 4, dims in `Shape` is incorrect,"
+                << " use ShapeEx instead";
     std::vector<uint32_t> dim_value(4, 1);
     for (int i = 0; i < dim_num; ++i) {
       dim_value[i] = input_dim_values[i];
@@ -235,11 +247,15 @@ void ModelLoaderPrivate::LoadFunction(const char* function_name) {
   output_shapexs_.reserve(output_num);
   for (int i = 0; i < output_num; ++i) {
     error_code = cnrtGetOutputDataShape(&output_dim_values, &dim_num, i, function_);
-    CHECK_CNRT_RET(error_code, "Get output data shape failed, cnrt error code : " + std::to_string(error_code));
+    CHECK_CNRT_RET(error_code, "[EasyDK EasyInfer] [ModelLoader] Get output data shape failed, CNRT error code : " +
+        std::to_string(error_code));
     // nhwc shape
     output_shapexs_.emplace_back(std::vector<ShapeEx::value_type>(output_dim_values, output_dim_values + dim_num));
 
-    if (dim_num != 4) LOGI(INFER) << "output dimension is not 4, dims in `Shape` is incorrect, use ShapeEx instead";
+    if (dim_num != 4) {
+      LOG(INFO) << "[EasyDK EasyInfer] [ModelLoader] output dimension is not 4, dims in `Shape` is incorrect,"
+                << " use ShapeEx instead";
+    }
     std::vector<uint32_t> dim_value(4, 1);
     for (int i = 0; i < dim_num; ++i) {
       dim_value[i] = output_dim_values[i];
@@ -251,9 +267,10 @@ void ModelLoaderPrivate::LoadFunction(const char* function_name) {
   // 2.3 get mlu io data type
   cnrtDataType_t* input_dtypes = nullptr;
   error_code = cnrtGetInputDataType(&input_dtypes, &input_num, function_);
-  CHECK_CNRT_RET(error_code, "Get input data type failed, cnrt error code : " + std::to_string(error_code));
+  CHECK_CNRT_RET(error_code, "[EasyDK EasyInfer] [ModelLoader] Get input data type failed, CNRT error code : " +
+      std::to_string(error_code));
   CHECK_CONDITION(static_cast<size_t>(input_num) == i_data_sizes_.size(),
-                  "Internel error, maybe input number from cnrtGetInputDataType is wrong.");
+      "[EasyDK EasyInfer] [ModelLoader] Internel error, maybe input number from cnrtGetInputDataType is wrong.");
   i_mlu_layouts_.resize(i_num_);
   for (uint32_t i = 0; i < i_num_; ++i) {
     i_mlu_layouts_[i].dtype = CastDataType(input_dtypes[i]);
@@ -262,9 +279,10 @@ void ModelLoaderPrivate::LoadFunction(const char* function_name) {
 
   cnrtDataType_t* output_dtypes = nullptr;
   error_code = cnrtGetOutputDataType(&output_dtypes, &output_num, function_);
-  CHECK_CNRT_RET(error_code, "Get output data type failed, cnrt error code : " + std::to_string(error_code));
+  CHECK_CNRT_RET(error_code, "[EasyDK EasyInfer] [ModelLoader] Get output data type failed, CNRT error code : " +
+      std::to_string(error_code));
   CHECK_CONDITION(static_cast<size_t>(output_num) == o_data_sizes_.size(),
-                  "Internel error, maybe output number from cnrtGetOutputDataType is wrong.");
+      "[EasyDK EasyInfer] [ModelLoader] Internel error, maybe output number from cnrtGetOutputDataType is wrong.");
   o_mlu_layouts_.resize(o_num_);
   for (uint32_t i = 0; i < o_num_; ++i) {
     o_mlu_layouts_[i].dtype = CastDataType(output_dtypes[i]);
@@ -309,26 +327,28 @@ cnrtFunction_t ModelLoaderInternalInterface::Function() const { return model_->d
 
 void ModelLoader::SetCpuInputLayout(DataLayout layout, int data_index) {
   if (data_index < 0 || static_cast<uint32_t>(data_index) >= d_ptr_->i_num_) {
-    THROW_EXCEPTION(Exception::INVALID_ARG, "SetCpuInputLayout: Data index out of range");
+    THROW_EXCEPTION(Exception::INVALID_ARG,
+        "[EasyDK EasyInfer] [ModelLoader] SetCpuInputLayout: Data index out of range");
   }
   ONLY_SUPPORT_FLOAT32(layout);
 
   d_ptr_->i_cpu_layouts_[data_index] = layout;
 
-  LOGD(INFER) << "Set CPU input data layout";
-  LOGD(INFER) << DataTypeStr(layout.dtype) << "\t" << DimOrderStr(layout.order);
+  VLOG(4) << "[EasyDK EasyInfer] [ModelLoader] Set CPU input data layout";
+  VLOG(4) << "[EasyDK EasyInfer] [ModelLoader] " << DataTypeStr(layout.dtype) << "\t" << DimOrderStr(layout.order);
 }
 
 void ModelLoader::SetCpuOutputLayout(DataLayout layout, int data_index) {
   if (data_index < 0 || static_cast<uint32_t>(data_index) >= d_ptr_->o_num_) {
-    THROW_EXCEPTION(Exception::INVALID_ARG, "SetCpuOutputLayout: Data index out of range");
+    THROW_EXCEPTION(Exception::INVALID_ARG,
+        "[EasyDK EasyInfer] [ModelLoader] SetCpuOutputLayout: Data index out of range");
   }
   ONLY_SUPPORT_FLOAT32(layout);
 
   d_ptr_->o_cpu_layouts_[data_index] = layout;
 
-  LOGD(INFER) << "Set CPU output data layout";
-  LOGD(INFER) << DataTypeStr(layout.dtype) << "\t" << DimOrderStr(layout.order);
+  VLOG(4) << "[EasyDK EasyInfer] [ModelLoader] Set CPU output data layout";
+  VLOG(4) << "[EasyDK EasyInfer] [ModelLoader] " << DataTypeStr(layout.dtype) << "\t" << DimOrderStr(layout.order);
 }
 
 DataLayout ModelLoader::GetCpuInputLayout(int data_index) const {
@@ -346,17 +366,21 @@ bool ModelLoader::AdjustStackMemory() {
   uint32_t current_device_size;
 
   cnrtRet_t error_code = cnrtQueryModelStackSize(d_ptr_->model_, &stack_size);
-  CHECK_CNRT_RET(error_code, "Query model stack size failed. cnrt error_code : " + std::to_string(error_code));
-  LOGD(INFER) << "Model stack size is " << stack_size << " MB";
+  CHECK_CNRT_RET(error_code, "[EasyDK EasyInfer] [ModelLoader] Query model stack size failed. CNRT error_code : " +
+      std::to_string(error_code));
+  VLOG(4) << "[EasyDK EasyInfer] [ModelLoader] Model stack size is " << stack_size << " MB";
 
   error_code = cnrtGetStackMem(&current_device_size);
-  CHECK_CNRT_RET(error_code, "Get current device stack size failed. cnrt error_code : " + std::to_string(error_code));
-  LOGD(INFER) << "Current MLU stack size is " << current_device_size << " MB";
+  CHECK_CNRT_RET(error_code,
+      "[EasyDK EasyInfer] [ModelLoader] Get current device stack size failed. CNRT error_code : " +
+      std::to_string(error_code));
+  VLOG(4) << "[EasyDK EasyInfer] [ModelLoader] Current MLU stack size is " << current_device_size << " MB";
 
   if (stack_size > current_device_size) {
     error_code = cnrtSetStackMem(stack_size + 50);
-    CHECK_CNRT_RET(error_code, "set stack size failed. cnrt error_code : " + std::to_string(error_code));
-    LOGI(INFER) << "Adjust stack memory to " << stack_size + 50 << " MB";
+    CHECK_CNRT_RET(error_code, "[EasyDK EasyInfer] [ModelLoader] Set stack size failed. CNRT error_code : " +
+        std::to_string(error_code));
+    LOG(INFO) << "[EasyDK EasyInfer] [ModelLoader] Adjust stack memory to " << stack_size + 50 << " MB";
     return true;
   }
   return false;
@@ -371,12 +395,14 @@ const std::vector<Shape>& ModelLoader::InputShapes() const { return d_ptr_->inpu
 const std::vector<Shape>& ModelLoader::OutputShapes() const { return d_ptr_->output_shapes_; }
 
 const ShapeEx& ModelLoader::InputShape(uint32_t index) const {
-  if (index > d_ptr_->i_num_) THROW_EXCEPTION(Exception::INVALID_ARG, "input shape index overflow");
+  if (index > d_ptr_->i_num_)
+    THROW_EXCEPTION(Exception::INVALID_ARG, "[EasyDK EasyInfer] [ModelLoader] Input shape index overflow");
   return d_ptr_->input_shapexs_[index];
 }
 
 const ShapeEx& ModelLoader::OutputShape(uint32_t index) const {
-  if (index > d_ptr_->o_num_) THROW_EXCEPTION(Exception::INVALID_ARG, "output shape index overflow");
+  if (index > d_ptr_->o_num_)
+    THROW_EXCEPTION(Exception::INVALID_ARG, "[EasyDK EasyInfer] [ModelLoader] Output shape index overflow");
   return d_ptr_->output_shapexs_[index];
 }
 
@@ -399,15 +425,17 @@ int64_t ModelLoader::GetOutputDataBatchAlignSize(int data_index) const {
 }
 
 ModelLoader::~ModelLoader() {
-  LOGI(INFER) << "Destroy neural network function";
+  LOG(INFO) << "[EasyDK EasyInfer] [ModelLoader] Destroy neural network function";
   cnrtRet_t error_code = cnrtDestroyFunction(d_ptr_->function_);
   if (CNRT_RET_SUCCESS != error_code) {
-    LOGW(INFER) << "Destroy function failed. error_code : " << std::to_string(error_code).c_str();
+    LOG(WARNING) << "[EasyDK EasyInfer] [ModelLoader] Destroy function failed. error_code : "
+                 << std::to_string(error_code).c_str();
   }
-  LOGI(INFER) << "Unload offline model";
+  LOG(INFO) << "[EasyDK EasyInfer] [ModelLoader] Unload offline model";
   error_code = cnrtUnloadModel(d_ptr_->model_);
   if (CNRT_RET_SUCCESS != error_code) {
-    LOGE(INFER) << "Unload model failed. error_code : " << std::to_string(error_code).c_str();
+    LOG(ERROR) << "[EasyDK EasyInfer] [ModelLoader] Unload model failed. error_code : "
+               << std::to_string(error_code).c_str();
   }
 }
 
