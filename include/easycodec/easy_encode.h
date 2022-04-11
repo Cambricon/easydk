@@ -29,6 +29,7 @@
 
 #include <functional>
 #include <memory>
+#include <string>
 
 #include "cxxutil/edk_attribute.h"
 #include "cxxutil/exception.h"
@@ -120,9 +121,9 @@ struct RateControlMlu200 {
   uint32_t frame_rate_num{0};
   /// The denominator of encode frame rate of the venc channel
   uint32_t frame_rate_den{0};
-  /// Average bitrate in unit of kpbs, for cbr only.
+  /// Average bitrate in unit of bps
   uint32_t bit_rate{0};
-  /// The max bitrate in unit of kbps, for vbr only .
+  /// The max bitrate in unit of bps (not supported)
   uint32_t max_bit_rate{0};
   /// The max qp, range [min_qp, 51]
   uint32_t max_qp{0};
@@ -177,6 +178,38 @@ enum class EncodeTune {
   FAST_DECODE
 };
 
+inline std::string EncodePresetStr(EncodePreset preset) noexcept {
+  switch (preset) {
+#define ENCODEPRESET2STR(preset) \
+  case EncodePreset::preset:     \
+    return #preset;
+    ENCODEPRESET2STR(VERY_FAST)
+    ENCODEPRESET2STR(FAST)
+    ENCODEPRESET2STR(MEDIUM)
+    ENCODEPRESET2STR(SLOW)
+    ENCODEPRESET2STR(VERY_SLOW)
+#undef ENCODEPRESET2STR
+    default:
+      LOG(ERROR) << "[EasyDK EasyCodec] [EncodePresetStr] Unsupported preset type";
+      return "INVALID";
+  }
+}
+inline std::string EncodeTuneStr(EncodeTune tune) noexcept {
+  switch (tune) {
+#define ENCODETUNE2STR(tune) \
+  case EncodeTune::tune:     \
+    return #tune;
+    ENCODETUNE2STR(DEFAULT)
+    ENCODETUNE2STR(HIGH_QUALITY)
+    ENCODETUNE2STR(LOW_LATENCY)
+    ENCODETUNE2STR(LOW_LATENCY_HIGH_QUALITY)
+    ENCODETUNE2STR(FAST_DECODE)
+#undef ENCODETUNE2STR
+    default:
+      LOG(ERROR) << "[EasyDK EasyCodec] [EncodeTuneStr] Unsupported tune type";
+      return "INVALID";
+  }
+}
 /*
  * @brief cncodec_v3 GOP type, see developer guide.
  */

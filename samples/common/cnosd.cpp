@@ -110,7 +110,7 @@ static vector<string> LoadLabels(const string& filename) {
     }
     file.close();
   } else {
-    printf("[Warning]: Load labels failed: %s\n", filename.c_str());
+    LOG(WARNING) << "[EasyDK Samples] [CnOsd] Load label file [" << filename << "] failed.";
   }
   return labels;
 }

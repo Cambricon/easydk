@@ -24,6 +24,7 @@
 #include <algorithm>
 #include <memory>
 #include <string>
+#include <utility>
 #include <vector>
 
 #include "cnrt.h"
@@ -55,27 +56,27 @@ bool ModelRunner::Init(Model* model) noexcept {
   input_num_ = model->InputNum();
   output_num_ = model->OutputNum();
   cnrtRet_t ret = cnrtCreateRuntimeContext(&ctx_, model->GetFunction(), NULL);
-  CHECK_CNRT_RET(ret, "Create runtime context failed!", false);
+  CHECK_CNRT_RET(ret, "[EasyDK InferServer] [ModelRunner] Create runtime context failed!", false);
 
   cnrtChannelType_t channel = CNRT_CHANNEL_TYPE_NONE;
   ret = cnrtSetRuntimeContextChannel(ctx_, channel);
-  CHECK_CNRT_RET(ret, "Set Runtime Context Channel failed!", false);
+  CHECK_CNRT_RET(ret, "[EasyDK InferServer] [ModelRunner] Set Runtime Context Channel failed!", false);
   ret = cnrtSetRuntimeContextDeviceId(ctx_, device_id_);
-  CHECK_CNRT_RET(ret, "Set Runtime Context Device Id failed!", false);
+  CHECK_CNRT_RET(ret, "[EasyDK InferServer] [ModelRunner] Set Runtime Context Device Id failed!", false);
   ret = cnrtInitRuntimeContext(ctx_, NULL);
-  CHECK_CNRT_RET(ret, "Init runtime context failed!", false);
+  CHECK_CNRT_RET(ret, "[EasyDK InferServer] [ModelRunner] Init runtime context failed!", false);
 
-  VLOG(3) << "Create cnrt queue from runtime context";
+  VLOG(1) << "[EasyDK InferServer] [ModelRunner] Create CNRT queue from runtime context";
   ret = cnrtRuntimeContextCreateQueue(ctx_, &task_queue_);
-  CHECK_CNRT_RET(ret, "Runtime Context Create Queue failed", false);
+  CHECK_CNRT_RET(ret, "[EasyDK InferServer] [ModelRunner] Runtime Context Create Queue failed", false);
 
   params_ = new void*[input_num_ + output_num_];
 #ifdef PERF_HARDWARE_TIME
   // create notifier for hardware time
   ret = cnrt::NotifierCreate(&notifier_start_);
-  CHECK_CNRT_RET(ret, "Create notifier failed", false);
+  CHECK_CNRT_RET(ret, "[EasyDK InferServer] [ModelRunner] Create notifier failed", false);
   ret = cnrt::NotifierCreate(&notifier_end_);
-  CHECK_CNRT_RET(ret, "Create notifier failed", false);
+  CHECK_CNRT_RET(ret, "[EasyDK InferServer] [ModelRunner] Create notifier failed", false);
 #endif
   return true;
 }
@@ -85,19 +86,19 @@ bool ModelRunner::ForkFrom(const ModelRunner& other) noexcept {
   input_num_ = other.input_num_;
   output_num_ = other.output_num_;
   cnrtRet_t ret = cnrtForkRuntimeContext(&ctx_, other.ctx_, nullptr);
-  CHECK_CNRT_RET(ret, "fork cnrtRuntimeContext_t failed", false);
+  CHECK_CNRT_RET(ret, "[EasyDK InferServer] [ModelRunner] Fork cnrtRuntimeContext_t failed", false);
 
-  VLOG(3) << "Create cnrt queue from runtime context";
+  VLOG(1) << "[EasyDK InferServer] [ModelRunner] Create CNRT queue from runtime context";
   ret = cnrtRuntimeContextCreateQueue(ctx_, &task_queue_);
-  CHECK_CNRT_RET(ret, "Runtime Context Create Queue failed", false);
+  CHECK_CNRT_RET(ret, "[EasyDK InferServer] [ModelRunner] Runtime Context Create Queue failed", false);
 
   params_ = new void*[input_num_ + output_num_];
 #ifdef PERF_HARDWARE_TIME
   // create notifier for hardware time
   ret = cnrt::NotifierCreate(&notifier_start_);
-  CHECK_CNRT_RET(ret, "Create notifier failed", false);
+  CHECK_CNRT_RET(ret, "[EasyDK InferServer] [ModelRunner] Create notifier failed", false);
   ret = cnrt::NotifierCreate(&notifier_end_);
-  CHECK_CNRT_RET(ret, "Create notifier failed", false);
+  CHECK_CNRT_RET(ret, "[EasyDK InferServer] [ModelRunner] Create notifier failed", false);
 #endif
   return true;
 }
@@ -131,10 +132,11 @@ ModelRunner::~ModelRunner() {
 Status ModelRunner::Run(ModelIO* in, ModelIO* out) noexcept {  // NOLINT
   auto& input = in->buffers;
   auto& output = out->buffers;
-  CHECK_EQ(input_num_, input.size());
-  CHECK_EQ(output_num_, output.size());
+  CHECK_EQ(input_num_, input.size()) << "[EasyDK InferServer] [ModelRunner] Input number is mismatched";
+  CHECK_EQ(output_num_, output.size()) << "[EasyDK InferServer] [ModelRunner] Output number is mismatched";
 
-  VLOG(6) << "Process inference once, input num: " << input_num_ << " output num: " << output_num_;
+  VLOG(4) << "[EasyDK InferServer] [ModelRunner] Process inference once, input num: " << input_num_ << " output num: "
+          << output_num_;
   // prepare params for invokefunction
   for (size_t i = 0; i < input_num_; ++i) {
     params_[i] = input[i].MutableData();
@@ -145,23 +147,27 @@ Status ModelRunner::Run(ModelIO* in, ModelIO* out) noexcept {  // NOLINT
 
 #ifdef PERF_HARDWARE_TIME
   // place start event
-  CALL_CNRT_FUNC(cnrt::PlaceNotifier(notifier_start_, task_queue_), "Place event failed");
+  CALL_CNRT_FUNC(cnrt::PlaceNotifier(notifier_start_, task_queue_),
+                 "[EasyDK InferServer] [ModelRunner] Place event failed");
 #endif
 
-  CALL_CNRT_FUNC(cnrtInvokeRuntimeContext(ctx_, params_, task_queue_, NULL), "Invoke Runtime Context failed");
+  CALL_CNRT_FUNC(cnrtInvokeRuntimeContext(ctx_, params_, task_queue_, NULL),
+                 "[EasyDK InferServer] [ModelRunner] Invoke Runtime Context failed");
 
 #ifdef PERF_HARDWARE_TIME
   // place end event
-  CALL_CNRT_FUNC(cnrt::PlaceNotifier(notifier_end_, task_queue_), "Place event failed");
+  CALL_CNRT_FUNC(cnrt::PlaceNotifier(notifier_end_, task_queue_),
+                 "[EasyDK InferServer] [ModelRunner] Place event failed");
 #endif
 
-  CALL_CNRT_FUNC(cnrt::QueueSync(task_queue_), "Sync queue failed.");
+  CALL_CNRT_FUNC(cnrt::QueueSync(task_queue_), "[EasyDK InferServer] [ModelRunner] Sync queue failed.");
 
 #ifdef PERF_HARDWARE_TIME
   float hw_time{0};
-  CALL_CNRT_FUNC(cnrt::NotifierDuration(notifier_start_, notifier_end_, &hw_time), "Calculate elapsed time failed.");
+  CALL_CNRT_FUNC(cnrt::NotifierDuration(notifier_start_, notifier_end_, &hw_time),
+      "[EasyDK InferServer] [ModelRunner] Calculate elapsed time failed.");
   hw_time /= 1000.0f;
-  VLOG(3) << "Inference hardware time " << hw_time << " ms";
+  VLOG(4) << "[EasyDK InferServer] [ModelRunner] Inference hardware time " << hw_time << " ms";
 #endif
 
   return Status::SUCCESS;
@@ -171,8 +177,8 @@ bool Model::Init(const string& model_path, const string& func_name) noexcept {
   path_ = model_path;
   func_name_ = func_name;
   cnrtRet_t error_code = cnrtLoadModel(&model_, model_path.c_str());
-  CHECK_CNRT_RET(error_code, "Load model failed.", false);
-  VLOG(3) << "Load model from file success: " << model_path;
+  CHECK_CNRT_RET(error_code, "[EasyDK InferServer] [Model] Load model failed.", false);
+  VLOG(1) << "[EasyDK InferServer] [Model] Load model from file success: " << model_path;
 
   has_init_ = LoadFunction(func_name);
   return has_init_;
@@ -185,8 +191,8 @@ bool Model::Init(void* mem_ptr, const string& func_name) noexcept {
   path_ = ss.str();
 
   cnrtRet_t error_code = cnrtLoadModelFromMem(&model_, reinterpret_cast<char*>(mem_ptr));
-  CHECK_CNRT_RET(error_code, "Load model from memory failed.", false);
-  VLOG(3) << "Load model from memory success: " << mem_ptr;
+  CHECK_CNRT_RET(error_code, "[EasyDK InferServer] [Model] Load model from memory failed.", false);
+  VLOG(1) << "[EasyDK InferServer] [Model] Load model from memory success: " << mem_ptr;
 
   has_init_ = LoadFunction(func_name);
   return has_init_;
@@ -196,15 +202,15 @@ bool Model::LoadFunction(const string& func_name) noexcept {
   cnrtRet_t error_code;
 
   error_code = cnrtCreateFunction(&function_);
-  CHECK_CNRT_RET(error_code, "Create function failed.", false);
+  CHECK_CNRT_RET(error_code, "[EasyDK InferServer] [Model] Create function failed.", false);
   error_code = cnrtExtractFunction(&function_, model_, func_name.c_str());
-  CHECK_CNRT_RET(error_code, "Extract function failed.", false);
+  CHECK_CNRT_RET(error_code, "[EasyDK InferServer] [Model] Extract function failed.", false);
   int model_parallelism;
   error_code = cnrtQueryModelParallelism(model_, &model_parallelism);
-  CHECK_CNRT_RET(error_code, "Query Model Parallelism failed.", false);
-  CHECK_GE(model_parallelism, 0) << "model parallelism is negative";
+  CHECK_CNRT_RET(error_code, "[EasyDK InferServer] [Model] Query Model Parallelism failed.", false);
+  CHECK_GE(model_parallelism, 0) << "[EasyDK InferServer] [Model] model parallelism is negative";
 
-  LOG(INFO) << "Load function from offline model succeeded";
+  LOG(INFO) << "[EasyDK InferServer] [Model] Load function from offline model succeeded";
   return GetModelInfo();
 }
 
@@ -215,13 +221,13 @@ bool Model::GetModelInfo() noexcept {
   int64_t* input_sizes = nullptr;
   int input_num = 0;
   error_code = cnrtGetInputDataSize(&input_sizes, &input_num, function_);
-  CHECK_CNRT_RET(error_code, "Get input data size failed.", false);
+  CHECK_CNRT_RET(error_code, "[EasyDK InferServer] [Model] Get input data size failed.", false);
   i_num_ = input_num;
 
   int64_t* output_sizes = nullptr;
   int output_num = 0;
   error_code = cnrtGetOutputDataSize(&output_sizes, &output_num, function_);
-  CHECK_CNRT_RET(error_code, "Get output data size failed.", false);
+  CHECK_CNRT_RET(error_code, "[EasyDK InferServer] [Model] Get output data size failed.", false);
   o_num_ = output_num;
 
   // get io shapes
@@ -230,7 +236,7 @@ bool Model::GetModelInfo() noexcept {
   input_shapes_.clear();
   for (int i_idx = 0; i_idx < input_num; ++i_idx) {
     error_code = cnrtGetInputDataShape(&input_dim_values, &dim_num, i_idx, function_);
-    CHECK_CNRT_RET(error_code, "Get input data size failed.", false);
+    CHECK_CNRT_RET(error_code, "[EasyDK InferServer] [Model] Get input data size failed.", false);
     // nhwc shape
     std::vector<Shape::value_type> i_shape;
     std::transform(input_dim_values, input_dim_values + dim_num, std::back_inserter(i_shape),
@@ -245,7 +251,7 @@ bool Model::GetModelInfo() noexcept {
   output_shapes_.clear();
   for (int o_idx = 0; o_idx < output_num; ++o_idx) {
     error_code = cnrtGetOutputDataShape(&output_dim_values, &dim_num, o_idx, function_);
-    CHECK_CNRT_RET(error_code, "Get output data shape failed.", false);
+    CHECK_CNRT_RET(error_code, "[EasyDK InferServer] [Model] Get output data shape failed.", false);
     // nhwc shape
     std::vector<Shape::value_type> o_shape;
     std::transform(output_dim_values, output_dim_values + dim_num, std::back_inserter(o_shape),
@@ -253,14 +259,14 @@ bool Model::GetModelInfo() noexcept {
     output_shapes_.emplace_back(std::move(o_shape));
     free(output_dim_values);
   }
-  CHECK_EQ(model_batch_size_, output_shapes_[0][0]);
+  CHECK_EQ(model_batch_size_, output_shapes_[0][0]) << "[EasyDK InferServer] [Model] Batch size is mismatched";
 
   // get mlu io data type
   cnrtDataType_t* input_dtypes = nullptr;
   error_code = cnrtGetInputDataType(&input_dtypes, &input_num, function_);
-  CHECK_CNRT_RET(error_code, "Get input data type failed.", false);
+  CHECK_CNRT_RET(error_code, "[EasyDK InferServer] [Model] Get input data type failed.", false);
   CHECK_EQ(input_num, i_num_)
-      << "Internal error, maybe input number from cnrtGetInputDataType is wrong.";
+      << "[EasyDK InferServer] [Model] Internal error, maybe input number from cnrtGetInputDataType is wrong.";
   i_mlu_layouts_.resize(i_num_);
   for (int i = 0; i < i_num_; ++i) {
     i_mlu_layouts_[i].dtype = detail::CastDataType(input_dtypes[i]);
@@ -269,41 +275,41 @@ bool Model::GetModelInfo() noexcept {
 
   cnrtDataType_t* output_dtypes = nullptr;
   error_code = cnrtGetOutputDataType(&output_dtypes, &output_num, function_);
-  CHECK_CNRT_RET(error_code, "Get output data type failed.", false);
+  CHECK_CNRT_RET(error_code, "[EasyDK InferServer] [Model] Get output data type failed.", false);
   CHECK_EQ(output_num, o_num_)
-      << "Internal error, maybe output number from cnrtGetOutputDataType is wrong.";
+      << "[EasyDK InferServer] [Model] Internal error, maybe output number from cnrtGetOutputDataType is wrong.";
   o_mlu_layouts_.resize(o_num_);
   for (int i = 0; i < o_num_; ++i) {
     o_mlu_layouts_[i].dtype = detail::CastDataType(output_dtypes[i]);
     o_mlu_layouts_[i].order = DimOrder::NHWC;  // mlu data order is always NHWC
   }
 
-  VLOG(3) << "Model Info: input number = " << i_num_ << ";\toutput number = " << o_num_;
+  VLOG(1) << "[EasyDK InferServer] [Model] Model Info: input number = " << i_num_ << ";\toutput number = " << o_num_;
   for (int i = 0; i < i_num_; ++i) {
-    VLOG(3) << "----- input index [" << i;
-    VLOG(3) << "      data type " << detail::DataTypeStr(i_mlu_layouts_[i].dtype);
-    VLOG(3) << "      shape " << input_shapes_[i];
+    VLOG(1) << "[EasyDK InferServer] [Model] ----- input index [" << i;
+    VLOG(1) << "[EasyDK InferServer] [Model]       data type " << detail::DataTypeStr(i_mlu_layouts_[i].dtype);
+    VLOG(1) << "[EasyDK InferServer] [Model]       shape " << input_shapes_[i];
   }
   for (int i = 0; i < o_num_; ++i) {
-    VLOG(3) << "----- output index [" << i;
-    VLOG(3) << "      data type " << detail::DataTypeStr(o_mlu_layouts_[i].dtype);
-    VLOG(3) << "      shape " << output_shapes_[i];
+    VLOG(1) << "[EasyDK InferServer] [Model] ----- output index [" << i;
+    VLOG(1) << "[EasyDK InferServer] [Model]       data type " << detail::DataTypeStr(o_mlu_layouts_[i].dtype);
+    VLOG(1) << "[EasyDK InferServer] [Model]       shape " << output_shapes_[i];
   }
   return true;
 }
 
 Model::~Model() {
   if (has_init_) {
-    LOG(INFO) << "Destroy neural network function";
+    LOG(INFO) << "[EasyDK InferServer] [Model] Destroy neural network function";
     cnrtRet_t error_code = cnrtDestroyFunction(function_);
     if (error_code != CNRT_RET_SUCCESS) {
-      LOG(ERROR) << "Destroy function failed. error code: " << error_code;
+      LOG(ERROR) << "[EasyDK InferServer] [Model] Destroy function failed. error code: " << error_code;
     }
 
-    LOG(INFO) << "Unload offline model";
+    LOG(INFO) << "[EasyDK InferServer] [Model] Unload offline model";
     error_code = cnrtUnloadModel(model_);
     if (error_code != CNRT_RET_SUCCESS) {
-      LOG(ERROR) << "Unload model failed. error code: " << error_code;
+      LOG(ERROR) << "[EasyDK InferServer] [Model] Unload model failed. error code: " << error_code;
     }
   }
 }

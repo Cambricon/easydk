@@ -54,17 +54,17 @@ static inline std::string TransDirectionStr(cnrtMemTransDir_t direction) {
     case CNRT_MEM_TRANS_DIR_DEV2DEV:
       return "from device to device";
     default:
-      CHECK(false) << "invalid direction";
+      CHECK(false) << "[EasyDK InferServer] [TransDirectionStr] invalid direction";
       return "";
   }
 }
 
 static inline void MemcpyMLU(void* dst, const void* src, size_t size, cnrtMemTransDir_t direction) {
   cnrtRet_t error_code;
-  VLOG(6) << "copy memory, " << TransDirectionStr(direction) << ", size " << size << ", src: " << src
-          << ", dst: " << src;
+  VLOG(3) << "[EasyDK InferServer] [Buffer] Copy memory, " << TransDirectionStr(direction) << ", size " << size
+          << ", src: " << src << ", dst: " << src;
   error_code = cnrtMemcpy(dst, const_cast<void*>(src), size, direction);
-  CHECK_CNRT_RET(error_code, "Memcpy " + TransDirectionStr(direction) + " failed.");
+  CHECK_CNRT_RET(error_code, "[EasyDK InferServer] [Buffer] Memcpy " + TransDirectionStr(direction) + " failed.");
 }
 
 namespace detail {
@@ -86,17 +86,18 @@ struct Memory {
 
 Buffer::Buffer(size_t memory_size, int device_id) : memory_size_(memory_size) {
   if (!memory_size) {
-    THROW_EXCEPTION(Exception::INVALID_ARG, "memory cannot be empty");
+    THROW_EXCEPTION(Exception::INVALID_ARG, "[EasyDK InferServer] [Buffer] Memory cannot be empty");
   }
   if (!CheckDevice(device_id)) {
-    THROW_EXCEPTION(Exception::UNAVAILABLE, std::string("no such device: ") + std::to_string(device_id));
+    THROW_EXCEPTION(Exception::UNAVAILABLE, "[EasyDK InferServer] [Buffer] no such device: "
+        + std::to_string(device_id));
   }
   data_ = std::make_shared<detail::Memory>(nullptr, device_id, [](void* memory, int device_id) {
     if (!SetCurrentDevice(device_id)) return;
-    VLOG(5) << "Free memory on MLU. " << memory;
+    VLOG(3) << "[EasyDK InferServer] [Buffer] Free memory on MLU. " << memory;
     cnrtRet_t ret = cnrtFree(memory);
     if (CNRT_RET_SUCCESS != ret) {
-      LOG(ERROR) << "free memory failed, error code: " << ret;
+      LOG(ERROR) << "[EasyDK InferServer] [Buffer] Free memory failed, error code: " << ret;
     }
   });
   type_ = MemoryType::MLU;
@@ -104,10 +105,10 @@ Buffer::Buffer(size_t memory_size, int device_id) : memory_size_(memory_size) {
 
 Buffer::Buffer(size_t memory_size) : memory_size_(memory_size) {
   if (!memory_size) {
-    THROW_EXCEPTION(Exception::INVALID_ARG, "memory cannot be empty");
+    THROW_EXCEPTION(Exception::INVALID_ARG, "[EasyDK InferServer] [Buffer] Memory cannot be empty");
   }
   data_ = std::make_shared<detail::Memory>(nullptr, -1, [](void* memory, int /*unused*/) {
-    VLOG(5) << "Free memory on CPU. " << memory;
+    VLOG(3) << "[EasyDK InferServer] [Buffer] Free memory on CPU. " << memory;
     free(memory);
   });
   type_ = MemoryType::CPU;
@@ -115,10 +116,11 @@ Buffer::Buffer(size_t memory_size) : memory_size_(memory_size) {
 
 Buffer::Buffer(void* mlu_memory, size_t memory_size, MemoryDeallocator d, int device_id) : memory_size_(memory_size) {
   if (!mlu_memory || !memory_size) {
-    THROW_EXCEPTION(Exception::INVALID_ARG, "memory cannot be empty");
+    THROW_EXCEPTION(Exception::INVALID_ARG, "[EasyDK InferServer] [Buffer] Memory cannot be empty");
   }
   if (!CheckDevice(device_id)) {
-    THROW_EXCEPTION(Exception::UNAVAILABLE, std::string("no such device: ") + std::to_string(device_id));
+    THROW_EXCEPTION(Exception::UNAVAILABLE, "[EasyDK InferServer] [Buffer] No such device: "
+        + std::to_string(device_id));
   }
   data_ = std::make_shared<detail::Memory>(mlu_memory, device_id, std::move(d));
   type_ = MemoryType::MLU;
@@ -126,7 +128,7 @@ Buffer::Buffer(void* mlu_memory, size_t memory_size, MemoryDeallocator d, int de
 
 Buffer::Buffer(void* cpu_memory, size_t memory_size, MemoryDeallocator d) : memory_size_(memory_size) {
   if (!cpu_memory || !memory_size) {
-    THROW_EXCEPTION(Exception::INVALID_ARG, "memory cannot be empty");
+    THROW_EXCEPTION(Exception::INVALID_ARG, "[EasyDK InferServer] [Buffer] Memory cannot be empty");
   }
   data_ = std::make_shared<detail::Memory>(cpu_memory, -1, std::move(d));
   type_ = MemoryType::CPU;
@@ -143,20 +145,22 @@ void Buffer::LazyMalloc() {
   if (!data_->data) {
     if (type_ == MemoryType::CPU) {
       data_->data = malloc(memory_size_);
-      VLOG(5) << "Alloc memory on CPU in " << memory_size_ << " bytes. " << data_->data;
-      if (!data_->data) THROW_EXCEPTION(Exception::MEMORY, "malloc failed");
+      VLOG(3) << "[EasyDK InferServer] [Buffer] Alloc memory on CPU in " << memory_size_ << " bytes. " << data_->data;
+      if (!data_->data) THROW_EXCEPTION(Exception::MEMORY, "[EasyDK InferServer] [Buffer] Malloc failed");
     } else if (type_ == MemoryType::MLU) {
       cnrtRet_t error_code;
       SetCurrentDevice(data_->device_id);
       error_code = cnrtMalloc(&data_->data, memory_size_);
-      VLOG(5) << "Alloc memory on MLU in " << memory_size_ << " bytes. " << data_->data;
-      CHECK_CNRT_RET(error_code, "Mlu malloc failed.");
+      VLOG(3) << "[EasyDK InferServer] [Buffer] Alloc memory on MLU in " << memory_size_ << " bytes. " << data_->data;
+      CHECK_CNRT_RET(error_code, "[EasyDK InferServer] [Buffer] Mlu malloc failed.");
     }
   }
 }
 
 Buffer Buffer::operator()(size_t offset) const {
-  if (offset + this->offset_ >= memory_size_) THROW_EXCEPTION(Exception::INVALID_ARG, "Offset out of range");
+  if (offset + this->offset_ >= memory_size_) {
+    THROW_EXCEPTION(Exception::INVALID_ARG, "[EasyDK InferServer] [Buffer] Offset out of range");
+  }
   Buffer buf;
   buf.data_ = this->data_;
   buf.type_ = this->type_;
@@ -171,7 +175,9 @@ void* Buffer::MutableData() {
 }
 
 const void* Buffer::Data() const {
-  if (!data_ || !data_->data) THROW_EXCEPTION(Exception::MEMORY, "buffer not initialized");
+  if (!data_ || !data_->data) {
+    THROW_EXCEPTION(Exception::MEMORY, "[EasyDK InferServer] [Buffer] Buffer is not initialized");
+  }
   return DataOffset(data_->data, offset_);
 }
 bool Buffer::OwnMemory() const noexcept {
@@ -180,10 +186,10 @@ bool Buffer::OwnMemory() const noexcept {
 
 void Buffer::CopyFrom(const void* cpu_src, size_t copy_size) {
   if (this->MemorySize() < copy_size) {
-    THROW_EXCEPTION(Exception::INVALID_ARG, "copy: dst size less than copy size");
+    THROW_EXCEPTION(Exception::INVALID_ARG, "[EasyDK InferServer] [Buffer] copy: dst size less than copy size");
   }
   if (!cpu_src) {
-    THROW_EXCEPTION(Exception::INVALID_ARG, "copy: cpu src is null!");
+    THROW_EXCEPTION(Exception::INVALID_ARG, "[EasyDK InferServer] [Buffer] copy: cpu src is null!");
   }
 
   LazyMalloc();
@@ -197,13 +203,13 @@ void Buffer::CopyFrom(const void* cpu_src, size_t copy_size) {
 
 void Buffer::CopyTo(void* cpu_dst, size_t copy_size) const {
   if (this->MemorySize() < copy_size) {
-    THROW_EXCEPTION(Exception::INVALID_ARG, "copy: src size less than copy size");
+    THROW_EXCEPTION(Exception::INVALID_ARG, "[EasyDK InferServer] [Buffer] copy: src size less than copy size");
   }
   if (!cpu_dst) {
-    THROW_EXCEPTION(Exception::INVALID_ARG, "copy: cpu dst is null!");
+    THROW_EXCEPTION(Exception::INVALID_ARG, "[EasyDK InferServer] [Buffer] copy: cpu dst is null!");
   }
   if (!data_->data) {
-    THROW_EXCEPTION(Exception::MEMORY, "copy: buffer donot own data");
+    THROW_EXCEPTION(Exception::MEMORY, "[EasyDK InferServer] [Buffer] copy: buffer does not own data");
   }
 
   if (type_ == MemoryType::CPU) {
@@ -215,10 +221,10 @@ void Buffer::CopyTo(void* cpu_dst, size_t copy_size) const {
 
 void Buffer::CopyFrom(const Buffer& src, size_t copy_size) {
   if (src.MemorySize() < copy_size) {
-    THROW_EXCEPTION(Exception::INVALID_ARG, "copy: src size less than copy size");
+    THROW_EXCEPTION(Exception::INVALID_ARG, "[EasyDK InferServer] [Buffer] copy: src size less than copy size");
   }
   if (this->MemorySize() < copy_size) {
-    THROW_EXCEPTION(Exception::INVALID_ARG, "copy: dst size less than copy size");
+    THROW_EXCEPTION(Exception::INVALID_ARG, "[EasyDK InferServer] [Buffer] copy: dst size less than copy size");
   }
 
   LazyMalloc();
@@ -232,7 +238,7 @@ void Buffer::CopyFrom(const Buffer& src, size_t copy_size) {
   } else if (this->type_ == MemoryType::MLU && src.Type() == MemoryType::MLU) {
     MemcpyMLU(DataOffset(data_->data, offset_), src.Data(), copy_size, CNRT_MEM_TRANS_DIR_DEV2DEV);
   } else {
-    CHECK(false) << "unknown copy direction";
+    CHECK(false) << "[EasyDK InferServer] [Buffer] Unknown copy direction";
   }
 }
 
@@ -243,82 +249,85 @@ void Buffer::CopyTo(Buffer* dst, size_t copy_size) const { dst->CopyFrom(*this, 
 /* -------- MluMemoryPool -----------*/
 MluMemoryPool::MluMemoryPool(size_t memory_size, size_t max_buffer_num, int device_id)
     : memory_size_(memory_size), max_buffer_num_(max_buffer_num), buffer_num_(0), device_id_(device_id) {
-  VLOG(3) << "Init a MLU memory pool";
+  VLOG(1) << "[EasyDK InferServer] [Buffer] Init a MLU memory pool";
   if (!memory_size || !max_buffer_num) {
-    THROW_EXCEPTION(Exception::INVALID_ARG, "memory size or max buffer number is 0!");
+    THROW_EXCEPTION(Exception::INVALID_ARG, "[EasyDK InferServer] [Buffer] Memory size or max buffer number is 0!");
   }
   if (!CheckDevice(device_id)) {
-    THROW_EXCEPTION(Exception::UNAVAILABLE, std::string("no such device: ") + std::to_string(device_id));
+    THROW_EXCEPTION(Exception::UNAVAILABLE, "[EasyDK InferServer] [Buffer] No such device: "
+        + std::to_string(device_id));
   }
 
   running_.store(true);
 }
 
 MluMemoryPool::~MluMemoryPool() {
-  VLOG(3) << "Destroy MLU memory pool";
+  VLOG(1) << "[EasyDK InferServer] [Buffer] Destroy MLU memory pool";
   running_.store(false);
   size_t remain_memory = buffer_num_;
   if (!SetCurrentDevice(device_id_)) return;
   std::unique_lock<std::mutex> lk(q_mutex_);
   while (remain_memory) {
     if (cache_.empty()) {
-      VLOG(5) << "wait for memory released";
+      VLOG(3) << "[EasyDK InferServer] [Buffer] wait for memory released";
       empty_cond_.wait(lk, [this]() { return !cache_.empty(); });
     }
 
-    VLOG(5) << "Free memory on MLU " << cache_.front() << ", size = " << memory_size_;
+    VLOG(3) << "[EasyDK InferServer] [Buffer] Free memory on MLU " << cache_.front() << ", size = " << memory_size_;
     cnrtRet_t ret = cnrtFree(cache_.front());
     cache_.pop();
     if (CNRT_RET_SUCCESS != ret) {
-      LOG(ERROR) << "free memory failed, error code: " << ret;
+      LOG(ERROR) << "[EasyDK InferServer] [Buffer] Free memory failed, error code: " << ret;
     }
     --remain_memory;
   }
 }
 
 Buffer MluMemoryPool::Request(int timeout_ms) {
-  VLOG(6) << "request a piece of MLU memory";
+  VLOG(4) << "[EasyDK InferServer] [Buffer] Request a piece of MLU memory";
   if (!running_.load()) {
-    LOG(WARNING) << "pool is not running";
-    THROW_EXCEPTION(Exception::UNAVAILABLE, "pool is not running");
+    LOG(WARNING) << "[EasyDK InferServer] [MluMemoryPool] The pool is not running";
+    THROW_EXCEPTION(Exception::UNAVAILABLE, "[EasyDK InferServer] [Buffer] Pool is not running");
   }
 
   std::unique_lock<std::mutex> lk(q_mutex_);
   if (cache_.empty()) {
     if (buffer_num_ < max_buffer_num_) {
-      if (!SetCurrentDevice(device_id_)) THROW_EXCEPTION(Exception::INIT_FAILED, "Set device failed");
+      if (!SetCurrentDevice(device_id_)) {
+        THROW_EXCEPTION(Exception::INIT_FAILED, "[EasyDK InferServer] [Buffer] Set device failed");
+      }
       cnrtRet_t error_code;
       void* data{nullptr};
       error_code = cnrtMalloc(&data, memory_size_);
-      VLOG(5) << "Alloc memory on MLU in " << memory_size_ << " bytes. " << data;
-      CHECK_CNRT_RET(error_code, "MLU malloc failed");
+      VLOG(3) << "[EasyDK InferServer] [Buffer] Alloc memory on MLU in " << memory_size_ << " bytes. " << data;
+      CHECK_CNRT_RET(error_code, "[EasyDK InferServer] [Buffer] MLU malloc failed");
       cache_.push(data);
       ++buffer_num_;
     } else {
       auto not_empty = [this]() { return !cache_.empty(); };
       if (timeout_ms >= 0) {
-        VLOG(6) << "wait for idle memory, " << timeout_ms << " ms";
+        VLOG(4) << "[EasyDK InferServer] [Buffer] Wait for idle memory, " << timeout_ms << " ms";
         empty_cond_.wait_for(lk, std::chrono::milliseconds(timeout_ms), not_empty);
       } else {
-        VLOG(6) << "wait for idle memory, endlessly";
+        VLOG(4) << "[EasyDK InferServer] [Buffer] Wait for idle memory, endlessly";
         empty_cond_.wait(lk, not_empty);
       }
     }
   }
 
   if (cache_.empty()) {
-    LOG_EVERY_N(INFO, 100) << "RequestMemory timeout, to reduce timeout:\n"
+    LOG_EVERY_N(INFO, 100) << "[EasyDK InferServer] [Buffer] RequestMemory timeout, to reduce timeout:\n"
                               "     1. enlarge max_buffer_num of pool;\n"
                               "     2. release Buffer as soon as possible;\n"
                               "     3. increase timeout threshold.";
-    THROW_EXCEPTION(Exception::TIMEOUT, "request memory timeout");
+    THROW_EXCEPTION(Exception::TIMEOUT, "[EasyDK InferServer] [Buffer] Request memory timeout");
   }
 
   void* m = cache_.front();
   cache_.pop();
   return Buffer(m, memory_size_,
                 [this](void* m, int /*unused*/) {
-                  VLOG(6) << "release memory";
+                  VLOG(4) << "[EasyDK InferServer] [Buffer] Release memory";
                   std::unique_lock<std::mutex> lk(q_mutex_);
                   cache_.push(m);
                   empty_cond_.notify_one();

@@ -17,6 +17,7 @@
  * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
  * THE SOFTWARE.
  *************************************************************************/
+#include <glog/logging.h>
 #include <opencv2/highgui/highgui.hpp>
 #include <opencv2/imgproc/imgproc.hpp>
 #if (CV_MAJOR_VERSION >= 3)
@@ -32,7 +33,6 @@
 #include "cnis/infer_server.h"
 #include "cnis/processor.h"
 #include "cnis/shape.h"
-#include "cxxutil/log.h"
 
 namespace py = pybind11;
 
@@ -176,11 +176,11 @@ py::array PointerToArray(void* input, std::vector<size_t> data_shape, py::dtype 
 }
 
 bool DefaultPreprocExecute(ModelIO* model_input, const InferData& input_data, const ModelInfo* model_info) {
-  LOGD(DefaultPreprocExecute) << "PreprocessDefault::Execute()";
+  VLOG(5) << "[EasyDK InferServer] [PythonAPI] Default preprocess execute";
   uint32_t input_num = model_info->InputNum();
   if (input_num != 1) {
-    LOGE(DefaultPreprocExecute) << "[PreprocessDefault] model input number not supported. It should be 1, but "
-                                << input_num;
+    LOG(ERROR) << "[EasyDK InferServer] [PythonAPI] Model input number is not supported. It should be 1, but "
+               << input_num;
     return false;
   }
   infer_server::Shape input_shape;
@@ -198,15 +198,15 @@ bool DefaultPreprocExecute(ModelIO* model_input, const InferData& input_data, co
   int32_t dst_c = input_shape[c_idx];
   cv::Mat src_img = input_data.GetLref<cv::Mat>();
   if (src_img.cols != dst_w || src_img.rows != dst_h || src_img.channels() != dst_c) {
-    LOGE(DefaultPreprocExecute) << "[PreprocessDefault] model w, h or c unmatched with input data It should be "
-                                << dst_w << " " << dst_h << " " << dst_c << ", but " << src_img.cols << " "
-                                << src_img.rows << " " << src_img.channels();
+    LOG(ERROR) << "[EasyDK InferServer] [PythonAPI] Model w, h or c is unmatched with input data."
+               << " It should be " << dst_w << " " << dst_h << " " << dst_c
+               << ", but " << src_img.cols << " " << src_img.rows << " " << src_img.channels();
     return false;
   }
 
   cv::Mat dst_img(dst_h, dst_w, src_img.type(), model_input->buffers[0].MutableData());
   src_img.copyTo(dst_img);
-  LOGD(DefaultPreprocExecute) << "PreprocessDefault::Execute() done";
+  VLOG(5) << "[InferServer] [PythonAPI] Default preprocess execute done";
   return true;
 }
 

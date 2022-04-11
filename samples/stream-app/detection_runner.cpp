@@ -20,6 +20,7 @@
 
 #include "detection_runner.h"
 
+#include <glog/logging.h>
 #include <opencv2/opencv.hpp>
 
 #include <chrono>
@@ -29,7 +30,6 @@
 #include <utility>
 #include <vector>
 
-#include "cxxutil/log.h"
 #include "cnis/contrib/video_helper.h"
 #include "cnis/infer_server.h"
 #include "cnis/processor.h"
@@ -81,7 +81,8 @@ DetectionRunner::DetectionRunner(const VideoDecoder::DecoderType& decode_type, i
                             "keep_aspect_ratio", true);
     desc.postproc->SetParams("process_function", infer_server::Postprocessor::ProcessFunction(PostprocYolov3MM(0.5)));
   } else {
-    THROW_EXCEPTION(edk::Exception::INVALID_ARG, "unsupported magicmind net type: " + net_type);
+    THROW_EXCEPTION(edk::Exception::INVALID_ARG,
+        "[EasyDK Samples] [DetectionRunner] Unsupported magicmind net type: " + net_type);
   }
 #else
   if (net_type == "SSD") {
@@ -104,7 +105,8 @@ DetectionRunner::DetectionRunner(const VideoDecoder::DecoderType& decode_type, i
                             "keep_aspect_ratio", true);
     desc.postproc->SetParams("process_function", infer_server::Postprocessor::ProcessFunction(PostprocYolov5(0.5)));
   } else {
-    THROW_EXCEPTION(edk::Exception::INVALID_ARG, "unsupported net type: " + net_type);
+    THROW_EXCEPTION(edk::Exception::INVALID_ARG,
+        "[EasyDK Samples] [DetectionRunner] Unsupported net type: " + net_type);
   }
 #endif
   session_ = infer_server_->CreateSyncSession(desc);
@@ -121,14 +123,16 @@ DetectionRunner::DetectionRunner(const VideoDecoder::DecoderType& decode_type, i
 
   // display or video writer
   if (save_video_) {
+    // For OpenCV version 4.x with FFMPEG=OFF, the output file name must contain number 0 - 9.
 #if OPENCV_MAJOR_VERSION > 2
     video_writer_.reset(
-        new cv::VideoWriter("out.avi", cv::VideoWriter::fourcc('M', 'J', 'P', 'G'), 25, g_out_video_size));
+        new cv::VideoWriter("out001.avi", cv::VideoWriter::fourcc('M', 'J', 'P', 'G'), 25, g_out_video_size));
 #else
-    video_writer_.reset(new cv::VideoWriter("out.avi", CV_FOURCC('M', 'J', 'P', 'G'), 25, g_out_video_size));
+    video_writer_.reset(new cv::VideoWriter("out0.avi", CV_FOURCC('M', 'J', 'P', 'G'), 25, g_out_video_size));
 #endif
     if (!video_writer_->isOpened()) {
-      THROW_EXCEPTION(edk::Exception::Code::INIT_FAILED, "create output video file failed");
+      THROW_EXCEPTION(edk::Exception::Code::INIT_FAILED,
+          "[EasyDK Samples] [DetectionRunner] Create output video file failed");
     }
   }
 
@@ -160,13 +164,14 @@ cv::Mat DetectionRunner::ConvertToMatAndReleaseBuf(edk::CnFrame* frame) {
   } else if (frame->pformat == edk::PixelFmt::NV21) {
     cv::cvtColor(yuv, img, cv::COLOR_YUV2BGR_NV12);
   } else {
-    LOGE(SAMPLE) << "unsupported pixel format";
+    LOG(ERROR) << "[EasyDK Samples] [DetectionRunner] Unsupported pixel format: " << PixelFmtStr(frame->pformat);
   }
   delete[] img_data;
 
   // resize to show
-  cv::resize(img, img, cv::Size(1280, 720));
-  return img;
+  cv::Mat img_without_stride = img(cv::Rect(0, 0, frame->width, frame->height));
+  cv::resize(img_without_stride, img_without_stride, cv::Size(1280, 720));
+  return img_without_stride;
 }
 
 void DetectionRunner::Process(edk::CnFrame frame) {
@@ -191,7 +196,8 @@ void DetectionRunner::Process(edk::CnFrame frame) {
   } else if (net_type_ == "SSD") {
     in->data[0]->Set(frame);
   } else {
-    THROW_EXCEPTION(edk::Exception::INVALID_ARG, "unsupported net type: " + net_type_);
+    THROW_EXCEPTION(edk::Exception::INVALID_ARG,
+        "[EasyDK Samples] [DetectionRunner] Unsupported net type: " + net_type_);
   }
 
   infer_server::PackagePtr out = infer_server::Package::Create(1);
@@ -200,7 +206,7 @@ void DetectionRunner::Process(edk::CnFrame frame) {
   if (!ret || status != infer_server::Status::SUCCESS) {
     decoder_->ReleaseFrame(std::move(frame));
     THROW_EXCEPTION(edk::Exception::INTERNAL,
-        "Request sending data to infer server failed. Status: " + std::to_string(static_cast<int>(status)));
+        "Request sending data to infer server failed. Status: " + infer_server::StatusStr(status));
   }
   const std::vector<DetectObject>& postproc_results = out->data[0]->GetLref<std::vector<DetectObject>>();
   std::vector<edk::DetectObject> detect_objs;
@@ -220,14 +226,14 @@ void DetectionRunner::Process(edk::CnFrame frame) {
   if (feature_extractor_->OnMlu()) {
     // extract feature on mlu
     if (!feature_extractor_->ExtractFeatureOnMlu(frame, &detect_objs)) {
-      THROW_EXCEPTION(edk::Exception::INTERNAL, "Extract feature on Mlu failed");
+      THROW_EXCEPTION(edk::Exception::INTERNAL, "[EasyDK Samples] [DetectionRunner] Extract feature on Mlu failed");
     }
     img = ConvertToMatAndReleaseBuf(&frame);
   } else {
     // extract feature on cpu
     img = ConvertToMatAndReleaseBuf(&frame);
     if (!feature_extractor_->ExtractFeatureOnCpu(img, &detect_objs)) {
-      THROW_EXCEPTION(edk::Exception::INTERNAL, "Extract feature on Cpu failed");
+      THROW_EXCEPTION(edk::Exception::INTERNAL, "[EasyDK Samples] [DetectionRunner] Extract feature on Cpu failed");
     }
   }
 
@@ -236,11 +242,11 @@ void DetectionRunner::Process(edk::CnFrame frame) {
   track_result.clear();
   tracker_->UpdateFrame(edk::TrackFrame(), detect_objs, &track_result);
 
-  std::cout << "----- Object detected in one frame:\n";
+  std::cout << "[EasyDK Samples] [DetectionRunner] ----- Object detected in one frame:" << std::endl;
   for (auto& obj : track_result) {
-    std::cout << obj << "\n";
+    std::cout << "[EasyDK Samples] [DetectionRunner] " << obj << std::endl;
   }
-  std::cout << "-----------------------------------\n" << std::endl;
+  std::cout << "[EasyDK Samples] [DetectionRunner] -----------------------------------" << std::endl;
 
   osd_.DrawLabel(img, track_result);
 

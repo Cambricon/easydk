@@ -34,7 +34,7 @@
   do {                                                            \
     cncvStatus_t ret = (func);                                    \
     if (ret != CNCV_STATUS_SUCCESS) {                             \
-      LOGE(SAMPLE) << "Call " #func " failed. error code: " << ret; \
+      LOG(ERROR) << "[EasyDK Samples] Call " #func " failed. error code: " << ret; \
       return val;                                                 \
     }                                                             \
   } while (0)
@@ -42,7 +42,7 @@
   do {                                                            \
     cnrtRet_t ret = (func);                                       \
     if (ret != CNRT_RET_SUCCESS) {                                \
-      LOGE(SAMPLE) << "Call " #func " failed. error code: " << ret; \
+      LOG(ERROR) << "[EasyDK Samples] Call " #func " failed. error code: " << ret; \
       return val;                                                 \
     }                                                             \
   } while (0)
@@ -51,7 +51,7 @@ CncvResizeYuv::CncvResizeYuv(int dev_id) : device_id_(dev_id) {}
 
 bool CncvResizeYuv::Init() {
   if (initialized_) {
-    LOGE(SAMPLE) << "CncvResizeYuv is initialzed. Should not init twice.";
+    LOG(ERROR) << "[EasyDK Samples] [CncvResizeYuv] It has been initialzed. Should not init twice.";
     return false;
   }
   edk::MluContext mlu_ctx;
@@ -76,18 +76,19 @@ static cncvPixelFormat GetCncvPixFmt(edk::PixelFmt fmt) {
     case edk::PixelFmt::NV21:
       return CNCV_PIX_FMT_NV21;
     default:
-      LOGE(SAMPLE) << "Unsupported input format.";
+      LOG(ERROR) << "[EasyDK Samples] [GetCncvPixFmt] Unsupported input format.";
       return CNCV_PIX_FMT_INVALID;
   }
 }
 
 bool CncvResizeYuv::Process(const edk::CnFrame &src, edk::CnFrame *dst) {
   if (src.pformat != dst->pformat || (src.pformat != edk::PixelFmt::NV12 && src.pformat != edk::PixelFmt::NV21)) {
-    LOGE(SAMPLE) << "CncvResizeYuv unsupported pixel format. Or the src and dst pixel format do not match";
+    LOG(ERROR) << "[EasyDK Samples] [CncvResizeYuv] Unsupported pixel format."
+               << " Or the src and dst pixel format do not match";
     return false;
   }
   if (src.device_id < 0 || dst->device_id < 0) {
-    LOGE(SAMPLE) << "CncvResizeYuv the src and dst data should be on mlu.";
+    LOG(ERROR) << "[EasyDK Samples] [CncvResizeYuv] The source and destination data should be on MLU.";
     return false;
   }
   edk::MluContext mlu_ctx;

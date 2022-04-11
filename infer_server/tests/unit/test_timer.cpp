@@ -18,6 +18,7 @@
  * THE SOFTWARE.
  *************************************************************************/
 
+#include <glog/logging.h>
 #include <gtest/gtest.h>
 
 #include <chrono>
@@ -29,7 +30,7 @@
 
 TEST(InferServerUtil, Timer) {
   infer_server::Timer t1;
-  auto task = [](const std::string& msg) { std::cout << msg << "\n"; };
+  auto task = [](const std::string& msg) { VLOG(2) << "[EasyDK Tests] [InferServer] " << msg; };
   EXPECT_TRUE(t1.NotifyEvery(10, task, "timer1: print every 10ms"));
   EXPECT_FALSE(t1.NotifyAfter(10, task, "timer1: this line should not be printed"));
   infer_server::Timer t2;
@@ -39,7 +40,7 @@ TEST(InferServerUtil, Timer) {
   auto start = std::chrono::steady_clock::now();
   int wait_time = 100;
   EXPECT_TRUE(t3.NotifyAfter(wait_time, [&pro1]() {
-    std::cout << "timer3: after 100 ms" << std::endl;
+    VLOG(1) << "[EasyDK Tests] [InferServer] timer3: after 100 ms";
     pro1.set_value();
   }));
   pro1.get_future().get();
@@ -47,21 +48,22 @@ TEST(InferServerUtil, Timer) {
   std::chrono::duration<double, std::milli> dura = end - start;
   EXPECT_GE(dura.count(), wait_time);
   EXPECT_NEAR(dura.count(), wait_time, 1);
-  std::cout << "cancel timer1 and timer2\n";
+  VLOG(1) << "[EasyDK Tests] [InferServer] cancel timer1 and timer2";
   t1.Cancel();
   t2.Cancel();
 
-  std::cout << "timer1: will say 'I'm back' after 5ms\n";
+  VLOG(1) << "[EasyDK Tests] [InferServer] timer1: will say 'I'm back' after 5ms";
   std::promise<void> pro2;
   wait_time = 5;
   start = std::chrono::steady_clock::now();
   EXPECT_TRUE(t1.NotifyAfter(wait_time, [&pro2]() {
-    std::cout << "timer1: I'm back\n";
+    VLOG(1) << "[EasyDK Tests] [InferServer] timer1: I'm back";
     pro2.set_value();
   }));
-  EXPECT_TRUE(t2.NotifyAfter(wait_time - 1, task, "timer2: this line should not be printed"));
+  EXPECT_TRUE(t2.NotifyAfter(wait_time - 1, task,
+      "[EasyDK Tests] [InferServer] timer2: this line should not be printed"));
   t2.Cancel();
-  EXPECT_TRUE(t2.NotifyAfter(0, task, "timer2: speak at once"));
+  EXPECT_TRUE(t2.NotifyAfter(0, task, "[EasyDK Tests] [InferServer] timer2: speak at once"));
   pro2.get_future().get();
   end = std::chrono::steady_clock::now();
   dura = end - start;
@@ -72,10 +74,10 @@ TEST(InferServerUtil, Timer) {
   wait_time = 26;
   start = std::chrono::steady_clock::now();
   EXPECT_TRUE(t1.NotifyAfter(wait_time, [&pro3]() {
-    std::cout << "timer1: final print after 26ms" << std::endl;
+    VLOG(1) << "[EasyDK Tests] [InferServer] timer1: final print after 26ms";
     pro3.set_value();
   }));
-  EXPECT_TRUE(t2.NotifyEvery(5, task, "timer2: print every 5ms"));
+  EXPECT_TRUE(t2.NotifyEvery(5, task, "[EasyDK Tests] [InferServer] timer2: print every 5ms"));
   pro3.get_future().get();
   end = std::chrono::steady_clock::now();
   dura = end - start;

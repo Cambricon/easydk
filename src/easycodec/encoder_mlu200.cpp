@@ -19,6 +19,7 @@
  *************************************************************************/
 
 #include <cnrt.h>
+#include <glog/logging.h>
 
 #include <algorithm>
 #include <condition_variable>
@@ -30,7 +31,6 @@
 #include <string>
 #include <thread>
 
-#include "cxxutil/log.h"
 #include "easyinfer/mlu_memory_op.h"
 #include "encoder.h"
 
@@ -261,7 +261,7 @@ Mlu200Encoder::Mlu200Encoder(const EasyEncode::Attr &attr) : Encoder(attr) {
   struct __ShowCodecVersion {
     __ShowCodecVersion() {
       u8_t* version = cncodecGetVersion();
-      LOGI(DECODE) << "CNCodec Version: " << static_cast<const unsigned char*>(version);
+      LOG(INFO) << "[EasyDK EasyCodec] [Mlu200Encoder] CNCodec Version: " << static_cast<const unsigned char*>(version);
     }
   };
   static __ShowCodecVersion show_version;
@@ -293,8 +293,9 @@ void Mlu200Encoder::InitVideoEncode(const EasyEncode::Attr &attr) {
       vcreate_params_.codec = CNCODEC_HEVC;
       break;
     default: {
-      THROW_EXCEPTION(Exception::INIT_FAILED, "codec type not supported yet, codec_type:"
-          + to_string(static_cast<int>(attr.codec_type)));
+      THROW_EXCEPTION(Exception::INIT_FAILED,
+          "[EasyDK EasyCodec] [Mlu200Encoder] Codec type not supported yet, codec_type:" +
+          CodecTypeStr(attr.codec_type));
     }
   }
   switch (attr.pixel_format) {
@@ -307,12 +308,6 @@ void Mlu200Encoder::InitVideoEncode(const EasyEncode::Attr &attr) {
     case PixelFmt::I420:
       vcreate_params_.pixelFmt = CNCODEC_PIX_FMT_I420;
       break;
-    case PixelFmt::YUYV:
-      vcreate_params_.pixelFmt = CNCODEC_PIX_FMT_YUYV;
-      break;
-    case PixelFmt::UYVY:
-      vcreate_params_.pixelFmt = CNCODEC_PIX_FMT_UYVY;
-      break;
     case PixelFmt::RGBA:
       vcreate_params_.pixelFmt = CNCODEC_PIX_FMT_RGBA;
       break;
@@ -322,12 +317,10 @@ void Mlu200Encoder::InitVideoEncode(const EasyEncode::Attr &attr) {
     case PixelFmt::ARGB:
       vcreate_params_.pixelFmt = CNCODEC_PIX_FMT_ARGB;
       break;
-    case PixelFmt::P010:
-      vcreate_params_.pixelFmt = CNCODEC_PIX_FMT_P010;
-      break;
     default: {
-      THROW_EXCEPTION(Exception::INIT_FAILED, "codec pixel format not supported yet, pixel format:"
-          + to_string(static_cast<int>(attr.pixel_format)));
+      THROW_EXCEPTION(Exception::INIT_FAILED,
+          "[EasyDK EasyCodec] [Mlu200Encoder] Codec pixel format not supported yet, pixel format: " +
+          PixelFmtStr(attr.pixel_format));
     }
   }
   vcreate_params_.instance = CNVIDEOENC_INSTANCE_AUTO;
@@ -360,13 +353,13 @@ void Mlu200Encoder::InitVideoEncode(const EasyEncode::Attr &attr) {
   if (vcreate_params_.codec == CNCODEC_H264) {
     memset(&vcreate_params_.uCfg.h264, 0x0, sizeof(vcreate_params_.uCfg.h264));
     if (static_cast<int>(attr.attr_mlu200.profile) > static_cast<int>(VideoProfile::H264_HIGH_10)) {
-      LOGW(ENCODE) << "Invalid H264 profile, using H264_MAIN as default";
+      LOG(WARNING) << "[EasyDK EasyCodec] [Mlu200Encoder] Invalid H264 profile, using H264_MAIN as default";
       vcreate_params_.uCfg.h264.profile = CNVIDEOENC_PROFILE_H264_HIGH;
     } else {
       vcreate_params_.uCfg.h264.profile = ProfileCast(attr.attr_mlu200.profile);
     }
     if (static_cast<int>(attr.attr_mlu200.level) > static_cast<int>(VideoLevel::H264_51)) {
-      LOGW(ENCODE) << "Invalid H264 level, using H264_41 as default";
+      LOG(WARNING) << "[EasyDK EasyCodec] [Mlu200Encoder] Invalid H264 level, using H264_41 as default";
       vcreate_params_.uCfg.h264.level = CNVIDEOENC_LEVEL_H264_41;
     } else {
       vcreate_params_.uCfg.h264.level = LevelCast(attr.attr_mlu200.level);
@@ -378,13 +371,13 @@ void Mlu200Encoder::InitVideoEncode(const EasyEncode::Attr &attr) {
   } else if (vcreate_params_.codec == CNCODEC_HEVC) {
     memset(&vcreate_params_.uCfg.h265, 0x0, sizeof(vcreate_params_.uCfg.h265));
     if (static_cast<int>(attr.attr_mlu200.profile) < static_cast<int>(VideoProfile::H265_MAIN)) {
-      LOGW(ENCODE) << "Invalid H265 profile, using H265_MAIN as default";
+      LOG(WARNING) << "[EasyDK EasyCodec] [Mlu200Encoder] Invalid H265 profile, using H265_MAIN as default";
       vcreate_params_.uCfg.h265.profile = CNVIDEOENC_PROFILE_H265_MAIN;
     } else {
       vcreate_params_.uCfg.h265.profile = ProfileCast(attr.attr_mlu200.profile);
     }
     if (static_cast<int>(attr.attr_mlu200.level) < static_cast<int>(VideoLevel::H265_MAIN_1)) {
-      LOGW(ENCODE) << "Invalid H265 level, using H265_MAIN_41 as default";
+      LOG(WARNING) << "[EasyDK EasyCodec] [Mlu200Encoder] Invalid H265 level, using H265_MAIN_41 as default";
       vcreate_params_.uCfg.h265.level = CNVIDEOENC_LEVEL_H265_HIGH_41;
     } else {
       vcreate_params_.uCfg.h265.level = LevelCast(attr.attr_mlu200.level);
@@ -393,7 +386,8 @@ void Mlu200Encoder::InitVideoEncode(const EasyEncode::Attr &attr) {
     vcreate_params_.uCfg.h265.insertSpsPpsWhenIDR = attr.attr_mlu200.insert_spspps_when_idr ? 1 : 0;
     vcreate_params_.uCfg.h265.gopType = GopTypeCast(attr.attr_mlu200.gop_type);
   } else {
-    THROW_EXCEPTION(Exception::UNSUPPORTED, "Encoder only support format H264/H265/JPEG");
+    THROW_EXCEPTION(Exception::UNSUPPORTED,
+        "[EasyDK EasyCodec] [Mlu200Encoder] Encoder only support format H264/H265/JPEG");
   }
 
   if (!attr.silent) {
@@ -403,9 +397,10 @@ void Mlu200Encoder::InitVideoEncode(const EasyEncode::Attr &attr) {
   int ecode = cnvideoEncCreate(reinterpret_cast<cnvideoEncoder *>(&handle_), EventHandler, &vcreate_params_);
   if (CNCODEC_SUCCESS != ecode) {
     handle_ = nullptr;
-    THROW_EXCEPTION(Exception::INIT_FAILED, "Initialize video encoder failed. cncodec error code: " + to_string(ecode));
+    THROW_EXCEPTION(Exception::INIT_FAILED,
+        "[EasyDK EasyCodec] [Mlu200Encoder] Initialize video encoder failed. cncodec error code: " + to_string(ecode));
   }
-  LOGI(ENCODE) << "Init video encoder succeeded";
+  LOG(INFO) << "[EasyDK EasyCodec] [Mlu200Encoder] Init video encoder succeeded";
 }
 
 void Mlu200Encoder::InitJpegEncode(const EasyEncode::Attr &attr) {
@@ -420,8 +415,9 @@ void Mlu200Encoder::InitJpegEncode(const EasyEncode::Attr &attr) {
       jcreate_params_.pixelFmt = CNCODEC_PIX_FMT_NV21;
       break;
     default: {
-      THROW_EXCEPTION(Exception::INIT_FAILED, "codec pixel format not supported yet, pixel format:"
-          + to_string(static_cast<int>(attr.pixel_format)));
+      THROW_EXCEPTION(Exception::INIT_FAILED,
+          "[EasyDK EasyCodec] [Mlu200Encoder] Codec pixel format not supported yet, pixel format:" +
+          PixelFmtStr(attr.pixel_format));
     }
   }
   jcreate_params_.width = attr.frame_geometry.w;
@@ -442,9 +438,10 @@ void Mlu200Encoder::InitJpegEncode(const EasyEncode::Attr &attr) {
                               &jcreate_params_);
   if (CNCODEC_SUCCESS != ecode) {
     handle_ = nullptr;
-    THROW_EXCEPTION(Exception::INIT_FAILED, "Initialize jpeg encoder failed. cncodec error code: " + to_string(ecode));
+    THROW_EXCEPTION(Exception::INIT_FAILED,
+        "[EasyDK EasyCodec] [Mlu200Encoder] Initialize jpeg encoder failed. cncodec error code: " + to_string(ecode));
   }
-  LOGI(ENCODE) << "Init JPEG encoder succeeded";
+  LOG(INFO) << "[EasyDK EasyCodec] [Mlu200Encoder] Init JPEG encoder succeeded";
 }
 
 Mlu200Encoder::~Mlu200Encoder() {
@@ -453,7 +450,7 @@ Mlu200Encoder::~Mlu200Encoder() {
     if (!got_eos_) {
       if (!send_eos_ && handle_) {
         eos_lk.unlock();
-        LOGI(ENCODE) << "Send EOS in destruct";
+        LOG(INFO) << "[EasyDK EasyCodec] [Mlu200Encoder] Send EOS in destruct";
         Mlu200Encoder::FeedEos();
       } else {
         if (!handle_) got_eos_ = true;
@@ -465,7 +462,7 @@ Mlu200Encoder::~Mlu200Encoder() {
     }
 
     if (!got_eos_) {
-      LOGI(ENCODE) << "Wait EOS in destruct";
+      LOG(INFO) << "[EasyDK EasyCodec] [Mlu200Encoder] Wait EOS in destruct";
       eos_cond_.wait(eos_lk, [this]() -> bool { return got_eos_; });
     }
 
@@ -502,37 +499,37 @@ Mlu200Encoder::~Mlu200Encoder() {
         ecode = cnvideoEncDestroy(reinterpret_cast<cnvideoEncoder>(handle_));
       }
       if (CNCODEC_SUCCESS != ecode) {
-        LOGE(ENCODE) << "Destroy encoder failed. Error code: " << ecode;
+        LOG(ERROR) << "[EasyDK EasyCodec] [Mlu200Encoder] Destroy encoder failed. Error code: " << ecode;
       }
     }
   } catch (std::system_error &e) {
-    LOGE(ENCODE) << e.what();
+    LOG(ERROR) << "[EasyDK EasyCodec] [Mlu200Encoder] Error occurs: " << e.what();
   } catch (Exception &e) {
-    LOGE(ENCODE) << e.what();
+    LOG(ERROR) << "[EasyDK EasyCodec] [Mlu200Encoder] Error occurs: " << e.what();
   }
 }
 
 bool Mlu200Encoder::ReleaseBuffer(uint64_t buf_id) {
-  LOGD(ENCODE) << "Release buffer, " << reinterpret_cast<void *>(buf_id);
+  VLOG(4) << "[EasyDK EasyCodec] [Mlu200Encoder] Release buffer, " << reinterpret_cast<void *>(buf_id);
   delete[] reinterpret_cast<uint8_t *>(buf_id);
   return true;
 }
 
 void Mlu200Encoder::ReceivePacket(void *_packet) {
-  LOGT(ENCODE) << "Encode receive packet " << _packet;
+  VLOG(5) << "[EasyDK EasyCodec] [Mlu200Encoder] Encode receive packet " << _packet;
   // packet callback
   if (attr_.packet_callback) {
     CnPacket cn_packet;
     if (jpeg_encode_) {
       auto packet = reinterpret_cast<cnjpegEncOutput *>(_packet);
       if (packet->result != 0) {
-        LOGE(ENCODE) << "Encode receive a wrong packet. pts [" << packet->pts << "]";
+        LOG(ERROR) << "[EasyDK EasyCodec] [Mlu200Encoder] Encode receive a wrong packet. pts [" << packet->pts << "]";
       }
       cn_packet.data = new uint8_t[packet->streamLength];
       auto ret = cnrtMemcpy(cn_packet.data, reinterpret_cast<void *>(packet->streamBuffer.addr + packet->dataOffset),
                             packet->streamLength, CNRT_MEM_TRANS_DIR_DEV2HOST);
       if (ret != CNRT_RET_SUCCESS) {
-        LOGE(ENCODE) << "Copy bitstream failed, DEV2HOST";
+        LOG(ERROR) << "[EasyDK EasyCodec] [Mlu200Encoder] Copy bitstream failed, DEV2HOST";
         AbortEncoder();
         return;
       }
@@ -548,7 +545,7 @@ void Mlu200Encoder::ReceivePacket(void *_packet) {
       auto ret = cnrtMemcpy(cn_packet.data, reinterpret_cast<void *>(packet->streamBuffer.addr + packet->dataOffset),
                             packet->streamLength, CNRT_MEM_TRANS_DIR_DEV2HOST);
       if (ret != CNRT_RET_SUCCESS) {
-        LOGE(ENCODE) << "Copy bitstream failed, DEV2HOST";
+        LOG(ERROR) << "[EasyDK EasyCodec] [Mlu200Encoder] Copy bitstream failed, DEV2HOST";
         AbortEncoder();
         return;
       }
@@ -569,7 +566,7 @@ void Mlu200Encoder::ReceivePacket(void *_packet) {
 
 void Mlu200Encoder::ReceiveEOS() {
   // eos callback
-  LOGI(ENCODE) << "Encode receive EOS";
+  LOG(INFO) << "[EasyDK EasyCodec] [Mlu200Encoder] Encode receive EOS";
 
   if (attr_.eos_callback) {
     attr_.eos_callback();
@@ -599,18 +596,18 @@ void Mlu200Encoder::CopyFrame(cncodecFrame *dst, const CnFrame &input) {
     switch (attr_.pixel_format) {
       case PixelFmt::NV12:
       case PixelFmt::NV21: {
-        LOGT(ENCODE) << "Copy frame luminance";
+        VLOG(5) << "[EasyDK EasyCodec] [Mlu200Encoder] Copy frame luminance";
         mem_op.MemcpyH2D(reinterpret_cast<void *>(dst->plane[0].addr), input.ptrs[0], frame_size);
-        LOGT(ENCODE) << "Copy frame chroma";
+        VLOG(5) << "[EasyDK EasyCodec] [Mlu200Encoder] Copy frame chroma";
         mem_op.MemcpyH2D(reinterpret_cast<void *>(dst->plane[1].addr), input.ptrs[1], uv_size);
         break;
       }
       case PixelFmt::I420: {
-        LOGT(ENCODE) << "Copy frame luminance";
+        VLOG(5) << "[EasyDK EasyCodec] [Mlu200Encoder] Copy frame luminance";
         mem_op.MemcpyH2D(reinterpret_cast<void *>(dst->plane[0].addr), input.ptrs[0], frame_size);
-        LOGT(ENCODE) << "Copy frame chroma 0";
+        VLOG(5) << "[EasyDK EasyCodec] [Mlu200Encoder] Copy frame chroma 0";
         mem_op.MemcpyH2D(reinterpret_cast<void *>(dst->plane[1].addr), input.ptrs[1], uv_size >> 1);
-        LOGT(ENCODE) << "Copy frame chroma 1";
+        VLOG(5) << "[EasyDK EasyCodec] [Mlu200Encoder] Copy frame chroma 1";
         mem_op.MemcpyH2D(reinterpret_cast<void *>(dst->plane[2].addr), input.ptrs[2], uv_size >> 1);
         break;
       }
@@ -618,11 +615,11 @@ void Mlu200Encoder::CopyFrame(cncodecFrame *dst, const CnFrame &input) {
       case PixelFmt::ABGR:
       case PixelFmt::RGBA:
       case PixelFmt::BGRA:
-        LOGT(ENCODE) << "Copy frame RGB family";
+        VLOG(5) << "[EasyDK EasyCodec] [Mlu200Encoder] Copy frame RGB family";
         mem_op.MemcpyH2D(reinterpret_cast<void *>(dst->plane[0].addr), input.ptrs[0], frame_size << 2);
         break;
       default:
-        THROW_EXCEPTION(Exception::UNSUPPORTED, "Unsupported pixel format");
+        THROW_EXCEPTION(Exception::UNSUPPORTED, "[EasyDK EasyCodec] [Mlu200Encoder] Unsupported pixel format");
         break;
     }
   }
@@ -637,10 +634,11 @@ bool Mlu200Encoder::RequestFrame(CnFrame* frame) {
     cn_frame = &je_input.frame;
     int ecode = cnjpegEncWaitAvailInputBuf(reinterpret_cast<cnjpegEncoder>(handle_), cn_frame, 10000);
     if (-CNCODEC_TIMEOUT == ecode) {
-      LOGE(ENCODE) << "cnjpegEncWaitAvailInputBuf timeout";
+      LOG(ERROR) << "[EasyDK EasyCodec] [Mlu200Encoder] cnjpegEncWaitAvailInputBuf timeout";
       return false;
     } else if (CNCODEC_SUCCESS != ecode) {
-      LOGE(ENCODE) << "Get jpeg enc avaliable input buffer failed. Error code: " + to_string(ecode);
+      LOG(ERROR) << "[EasyDK EasyCodec] [Mlu200Encoder] Get jpeg enc avaliable input buffer failed. Error code: "
+                 << to_string(ecode);
       return false;
     }
   } else {
@@ -648,10 +646,11 @@ bool Mlu200Encoder::RequestFrame(CnFrame* frame) {
     cn_frame = &ve_input.frame;
     int ecode = cnvideoEncWaitAvailInputBuf(reinterpret_cast<cnvideoEncoder>(handle_), cn_frame, 10000);
     if (-CNCODEC_TIMEOUT == ecode) {
-      LOGE(ENCODE) << "cnvideoEncWaitAvailInputBuf timeout";
+      LOG(ERROR) << "[EasyDK EasyCodec] [Mlu200Encoder] cnvideoEncWaitAvailInputBuf timeout";
       return false;
     } else if (CNCODEC_SUCCESS != ecode) {
-      LOGE(ENCODE) << "Get video enc avaliable input buffer failed. Error code: " + to_string(ecode);
+      LOG(ERROR) << "[EasyDK EasyCodec] [Mlu200Encoder] Get video enc avaliable input buffer failed. Error code: "
+                 << to_string(ecode);
       return false;
     }
   }
@@ -686,12 +685,12 @@ bool Mlu200Encoder::RequestFrame(CnFrame* frame) {
 
 bool Mlu200Encoder::FeedEos() {
   if (send_eos_) {
-    LOGW(ENCODE) << "EOS had been feed, won't feed again";
+    LOG(WARNING) << "[EasyDK EasyCodec] [Mlu200Encoder] EOS had been feed, won't feed again";
     return false;
   }
 
   i32_t ecode = CNCODEC_SUCCESS;
-  LOGI(ENCODE) << "Thread id: " << std::this_thread::get_id() << ", Feed EOS data";
+  LOG(INFO) << "[EasyDK EasyCodec] [Mlu200Encoder] Thread id: " << std::this_thread::get_id() << ". Feed EOS data";
   if (jpeg_encode_) {
     cnjpegEncInput input;
     memset(&input, 0, sizeof(cnjpegEncInput));
@@ -710,10 +709,11 @@ bool Mlu200Encoder::FeedEos() {
   }
 
   if (-CNCODEC_TIMEOUT == ecode) {
-    LOGE(ENCODE) << "Feed EOS timeout";
+    LOG(ERROR) << "[EasyDK EasyCodec] [Mlu200Encoder] Feed EOS timeout";
     return false;
   } else if (CNCODEC_SUCCESS != ecode) {
-    THROW_EXCEPTION(Exception::INTERNAL, "Encode feed EOS failed. cncodec error code: " + to_string(ecode));
+    THROW_EXCEPTION(Exception::INTERNAL,
+       "[EasyDK EasyCodec] [Mlu200Encoder] Encode feed EOS failed. cncodec error code: " + to_string(ecode));
   }
 
   send_eos_ = true;
@@ -722,7 +722,7 @@ bool Mlu200Encoder::FeedEos() {
 
 bool Mlu200Encoder::FeedData(const CnFrame &frame) {
   if (send_eos_) {
-    LOGW(ENCODE) << "EOS had been sent, won't feed data or EOS";
+    LOG(WARNING) << "[EasyDK EasyCodec] [Mlu200Encoder] EOS had been sent, won't feed data or EOS";
     return false;
   }
   if (jpeg_encode_) {
@@ -740,10 +740,11 @@ bool Mlu200Encoder::FeedJpegData(const CnFrame &frame) {
   if (frame.device_id < 0) {
     ecode = cnjpegEncWaitAvailInputBuf(reinterpret_cast<cnjpegEncoder>(handle_), &input.frame, 10000);
     if (-CNCODEC_TIMEOUT == ecode) {
-      LOGE(ENCODE) << "cnjpegEncWaitAvailInputBuf timeout";
+      LOG(ERROR) << "[EasyDK EasyCodec] [Mlu200Encoder] cnjpegEncWaitAvailInputBuf timeout";
       return false;
     } else if (CNCODEC_SUCCESS != ecode) {
-      LOGE(ENCODE) << "Get jpeg enc avaliable input buffer failed. Error code: " + to_string(ecode);
+      LOG(ERROR) << "[EasyDK EasyCodec] [Mlu200Encoder] Get jpeg enc avaliable input buffer failed. Error code: "
+                 << to_string(ecode);
       return false;
     }
 
@@ -752,7 +753,7 @@ bool Mlu200Encoder::FeedJpegData(const CnFrame &frame) {
   } else {
     std::lock_guard<std::mutex> lk(list_mtx_);
     if (ji_list_.empty()) {
-      LOGE(ENCODE) << "Request memory from encoder if data is from device.";
+      LOG(ERROR) << "[EasyDK EasyCodec] [Mlu200Encoder] Request memory from encoder if data is from device.";
       return false;
     }
     auto je_input = std::find_if(ji_list_.begin(), ji_list_.end(),
@@ -772,23 +773,24 @@ bool Mlu200Encoder::FeedJpegData(const CnFrame &frame) {
       input = *je_input;
       ji_list_.erase(je_input);
     } else {
-      LOGE(ENCODE) << "Memory is not requested from encoder on device";
+      LOG(ERROR) << "[EasyDK EasyCodec] [Mlu200Encoder] Memory is not requested from encoder on device";
       return false;
     }
   }
   // set params for codec
-  LOGT(ENCODE) << "Feed jpeg frame info data: " << frame.ptrs[0] << " length: " << frame.frame_size
-               << " pts: " << frame.pts;
+  VLOG(5) << "[EasyDK EasyCodec] [Mlu200Encoder] Feed jpeg frame info data: " << frame.ptrs[0] << " length: "
+          << frame.frame_size << " pts: " << frame.pts;
   input.pts = frame.pts;
   params.quality = attr_.attr_mlu200.jpeg_qfactor;
   params.restartInterval = 0;
   // send data to codec
   ecode = cnjpegEncFeedFrame(reinterpret_cast<cnjpegEncoder>(handle_), &input, &params, 10000);
   if (-CNCODEC_TIMEOUT == ecode) {
-    LOGE(ENCODE) << "cnjpegEncFeedData timeout";
+    LOG(ERROR) << "[EasyDK EasyCodec] [Mlu200Encoder] cnjpegEncFeedData timeout";
     return false;
   } else if (CNCODEC_SUCCESS != ecode) {
-    THROW_EXCEPTION(Exception::INTERNAL, "cnjpegEncFeedFrame failed. cncodec error code: " + to_string(ecode));
+    THROW_EXCEPTION(Exception::INTERNAL,
+        "[EasyDK EasyCodec] [Mlu200Encoder] cnjpegEncFeedFrame failed. cncodec error code: " + to_string(ecode));
   }
 
   return true;
@@ -801,10 +803,11 @@ bool Mlu200Encoder::FeedVideoData(const CnFrame &frame) {
   if (frame.device_id < 0) {
     ecode = cnvideoEncWaitAvailInputBuf(reinterpret_cast<cnvideoEncoder>(handle_), &input.frame, 10000);
     if (-CNCODEC_TIMEOUT == ecode) {
-      LOGE(ENCODE) << "cnvideoEncWaitAvailInputBuf timeout";
+      LOG(ERROR) << "[EasyDK EasyCodec] [Mlu200Encoder] cnvideoEncWaitAvailInputBuf timeout";
       return false;
     } else if (CNCODEC_SUCCESS != ecode) {
-      LOGE(ENCODE) << "Get video enc avaliable input buffer failed. Error code: " + to_string(ecode);
+      LOG(ERROR) << "[EasyDK EasyCodec] [Mlu200Encoder] Get video enc avaliable input buffer failed. Error code: "
+                 << to_string(ecode);
       return false;
     }
 
@@ -813,7 +816,7 @@ bool Mlu200Encoder::FeedVideoData(const CnFrame &frame) {
   } else {
     std::lock_guard<std::mutex> lk(list_mtx_);
     if (vi_list_.empty()) {
-      LOGE(ENCODE) << "Request memory from encoder if data is from device.";
+      LOG(ERROR) << "[EasyDK EasyCodec] [Mlu200Encoder] Request memory from encoder if data is from device.";
       return false;
     }
     auto vi_input = std::find_if(vi_list_.begin(), vi_list_.end(),
@@ -833,28 +836,29 @@ bool Mlu200Encoder::FeedVideoData(const CnFrame &frame) {
       input = *vi_input;
       vi_list_.erase(vi_input);
     } else {
-      LOGE(ENCODE) << "Memory is not requested from encoder on device";
+      LOG(ERROR) << "[EasyDK EasyCodec] [Mlu200Encoder] Memory is not requested from encoder on device";
       return false;
     }
   }
   // set params for codec
-  LOGT(ENCODE) << "Feed video frame info data: " << frame.ptrs[0] << " length: " << frame.frame_size
-              << " pts: " << frame.pts;
+  VLOG(5) << "[EasyDK EasyCodec] [Mlu200Encoder] Feed video frame info data: " << frame.ptrs[0] << " length: "
+          << frame.frame_size << " pts: " << frame.pts;
   input.pts = frame.pts;
 
   // send data to codec
   ecode = cnvideoEncFeedFrame(reinterpret_cast<cnvideoEncoder>(handle_), &input, 10000);
   if (-CNCODEC_TIMEOUT == ecode) {
-    LOGE(ENCODE) << "cnvideoEncFeedData timeout";
+    LOG(ERROR) << "[EasyDK EasyCodec] [Mlu200Encoder] cnvideoEncFeedData timeout";
     return false;
   } else if (CNCODEC_SUCCESS != ecode) {
-    THROW_EXCEPTION(Exception::INTERNAL, "cnvideoEncFeedFrame failed. cncodec error code: " + to_string(ecode));
+    THROW_EXCEPTION(Exception::INTERNAL,
+        "[EasyDK EasyCodec] [Mlu200Encoder] cnvideoEncFeedFrame failed. cncodec error code: " + to_string(ecode));
   }
   return true;
 }
 
 void Mlu200Encoder::AbortEncoder() {
-  LOGW(ENCODE) << "Abort encoder";
+  LOG(WARNING) << "[EasyDK EasyCodec] [Mlu200Encoder] Abort encoder";
   if (handle_) {
     if (jpeg_encode_) {
       cnjpegEncAbort(handle_);
@@ -870,7 +874,7 @@ void Mlu200Encoder::AbortEncoder() {
     got_eos_ = true;
     eos_cond_.notify_one();
   } else {
-    LOGE(ENCODE) << "Won't do abort, since cnencode handler has not been initialized";
+    LOG(ERROR) << "[EasyDK EasyCodec] [Mlu200Encoder] Won't do abort, since cnencode handler has not been initialized";
   }
 }
 
@@ -900,24 +904,24 @@ void Mlu200Encoder::EventTaskRunner() {
         break;
       case CNCODEC_CB_EVENT_SW_RESET:
       case CNCODEC_CB_EVENT_HW_RESET:
-        LOGE(ENCODE) << "Encode firmware crash event: " << type;
+        LOG(ERROR) << "[EasyDK EasyCodec] [Mlu200Encoder] Encode firmware crash event: " << type;
         AbortEncoder();
         break;
       case CNCODEC_CB_EVENT_OUT_OF_MEMORY:
-        LOGE(ENCODE) << "Out of memory error thrown from cncodec";
+        LOG(ERROR) << "[EasyDK EasyCodec] [Mlu200Encoder] Out of memory error thrown from cncodec";
         AbortEncoder();
         break;
       case CNCODEC_CB_EVENT_ABORT_ERROR:
-        LOGE(ENCODE) << "Abort error thrown from cncodec";
+        LOG(ERROR) << "[EasyDK EasyCodec] [Mlu200Encoder] Abort error thrown from cncodec";
         AbortEncoder();
         break;
 #if CNCODEC_VERSION >= 10600
       case CNCODEC_CB_EVENT_STREAM_CORRUPT:
-        LOGW(ENCODE) << "Stream corrupt, discard frame";
+        LOG(WARNING) << "[EasyDK EasyCodec] [Mlu200Encoder] Stream corrupt, discard frame";
         break;
 #endif
       default:
-        LOGE(ENCODE) << "Unknown event type";
+        LOG(ERROR) << "[EasyDK EasyCodec] [Mlu200Encoder] Unknown event type";
         AbortEncoder();
         break;
     }
@@ -941,6 +945,7 @@ static int32_t EventHandler(cncodecCbEventType type, void *user_data, void *pack
 }
 
 Encoder* CreateMlu200Encoder(const EasyEncode::Attr& attr) {
+  VLOG(1) << "[EasyDK EasyCodec] [CreateMlu200Encoder] Create mlu200 encoder.";
   return new Mlu200Encoder(attr);
 }
 
@@ -948,7 +953,7 @@ Encoder* CreateMlu200Encoder(const EasyEncode::Attr& attr) {
 #else
 namespace edk {
 Encoder* CreateMlu200Encoder(const EasyEncode::Attr& attr) {
-  LOGE(DECODE) << "Create mlu200 encoder failed, please install cncodec.";
+  LOG(ERROR) << "[EasyDK EasyCodec] [CreateMlu200Encoder] Create mlu200 encoder failed, please install cncodec.";
   return nullptr;
 }
 }  // namespace edk

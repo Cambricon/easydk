@@ -27,6 +27,7 @@
 #ifndef EASYTRACK_MATRIX_H_
 #define EASYTRACK_MATRIX_H_
 
+#include <glog/logging.h>
 #include <iostream>
 #include <string>
 #include <utility>
@@ -63,14 +64,14 @@ class MatrixPrototype {
   MatrixPrototype(const underlying_type& init_list, uint32_t rows, uint32_t cols)
       : arrays_(init_list), rows_(rows), cols_(cols) {
     if (arrays_.size() != rows_ * cols_) {
-      THROW_EXCEPTION(Exception::INVALID_ARG, "matrix size mismatch with rows and cols");
+      THROW_EXCEPTION(Exception::INVALID_ARG, "[EasyDK EasyTrack] [Matrix] Size mismatch with rows and cols");
     }
   }
 
   MatrixPrototype(underlying_type&& init_list, uint32_t rows, uint32_t cols)
       : arrays_(std::forward<underlying_type>(init_list)), rows_(rows), cols_(cols) {
     if (arrays_.size() != rows_ * cols_) {
-      THROW_EXCEPTION(Exception::INVALID_ARG, "matrix size mismatch with rows and cols");
+      THROW_EXCEPTION(Exception::INVALID_ARG, "[EasyDK EasyTrack] [Matrix] Size mismatch with rows and cols");
     }
   }
 
@@ -206,7 +207,7 @@ class Matrix : public MatrixPrototype<float> {
    */
   Matrix& operator=(const underlying_type& init_list) {
     if (init_list.size() != Size()) {
-      THROW_EXCEPTION(Exception::INVALID_ARG, "matrix size mismatch with rows and cols");
+      THROW_EXCEPTION(Exception::INVALID_ARG, "[EasyDK EasyTrack] [Matrix] Size mismatches with rows and cols");
     }
     arrays_ = init_list;
     return *this;
@@ -214,8 +215,8 @@ class Matrix : public MatrixPrototype<float> {
 
   Matrix& operator=(underlying_type&& init_list) {
     if (init_list.size() != Size()) {
-      std::cout << "list_size: " << init_list.size() << " | matrix size: " << Size() << std::endl;
-      THROW_EXCEPTION(Exception::INVALID_ARG, "matrix size mismatch with rows and cols");
+      VLOG(5) << "[EasyDK EasyTrack] [Matrix] list_size: " << init_list.size() << ", matrix size: " << Size();
+      THROW_EXCEPTION(Exception::INVALID_ARG, "[EasyDK EasyTrack] [Matrix] Size mismatches with rows and cols");
     }
     arrays_ = std::move(init_list);
     return *this;

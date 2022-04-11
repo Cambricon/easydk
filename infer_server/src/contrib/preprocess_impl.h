@@ -120,8 +120,8 @@ bool ResizeConvert::RefreshOp(PixelFmt src_fmt) noexcept {
       {YUV2ABGR_NV12, edk::MluResizeConvertOp::ColorMode::YUV2ABGR_NV12}};
 
   LOG_IF(FATAL, cvt_mode_map.count(color_cvt_mode) == 0)
-      << "Unsupport color convert mode. src pixel format : " << static_cast<int>(src_fmt)
-      << ", dst pixel format : " << static_cast<int>(dst_fmt_);
+      << "[EasyDK InferServer] [ResizeConvert] Unsupported color convert mode, src pixel format : "
+      << PixelFmtStr(src_fmt) << ", dst pixel format : " << PixelFmtStr(dst_fmt_);
 
   edk::MluResizeConvertOp::Attr op_attr;
   // image shape is always nhwc
@@ -133,7 +133,7 @@ bool ResizeConvert::RefreshOp(PixelFmt src_fmt) noexcept {
   op_attr.keep_aspect_ratio = keep_aspect_ratio_;
   op_attr.core_number = core_number_;
   if (!op->Init(op_attr)) {
-    LOG(ERROR) << "Init resize convert op failed: " << op->GetLastError();
+    LOG(ERROR) << "[EasyDK InferServer] [ResizeConvert] Init operator failed, error: " << op->GetLastError();
     return false;
   }
   return true;
@@ -146,12 +146,14 @@ bool ResizeConvert::Execute(Package* pack, Buffer* model_input) {
     if (i == 0) {
       src_fmt = frame.format;
     } else if (src_fmt != frame.format) {
-      LOG(ERROR) << "ResizeConvert donot support image of different pixel format in one batch!";
+      LOG(ERROR) << "[EasyDK InferServer] [ResizeConvert] images with different pixel formats in one batch"
+                 << " is not supported";
       return false;
     }
   }
   if (src_fmt != PixelFmt::NV12 && src_fmt != PixelFmt::NV21) {
-    LOG(ERROR) << "Not supported!";
+    LOG(ERROR) << "[EasyDK InferServer] [ResizeConvert] The source pixel format is not supported, format: "
+               << PixelFmtStr(src_fmt) << ". Only YUV420sp NV12 or NV21 is supported";
     return false;
   }
   if (!op || src_fmt != src_fmt_) {
@@ -269,7 +271,7 @@ static cncodecPixelFormat GetCNCodecPixelFormat(PixelFmt fmt) noexcept {
     case PixelFmt::RGBA:
       return CNCODEC_PIX_FMT_RGBA;
     default:
-      LOG(ERROR) << "Unsupport pixel format";
+      LOG(ERROR) << "[EasyDK InferServer] [GetCNCodecPixelFormat] Unsupported pixel format: " << PixelFmtStr(fmt);
       return CNCODEC_PIX_FMT_TOTAL_COUNT;
   }
 }
@@ -300,7 +302,7 @@ class Scaler : virtual public PreprocessBase {
 
 #define ALIGN(x, a) (((x) + (a) - 1) & ~((a) - 1))
 bool Scaler::Process(VideoFrame* frame, Buffer* model_input, int instance_id, int batch_idx) {
-  CHECK(frame->plane[0].OnMlu()) << "memory is on CPU, which shoule be on MLU";
+  CHECK(frame->plane[0].OnMlu()) << "[EasyDK InferServer] [Scaler] Memory is on CPU, which shoule be on MLU";
   void* src_y = frame->plane[0].MutableData();
   void* src_uv = frame->plane[1].MutableData();
   void* dst = (*model_input)(shape_.DataCount() * batch_idx).MutableData();
@@ -373,7 +375,7 @@ bool Scaler::Process(VideoFrame* frame, Buffer* model_input, int instance_id, in
   }
 
   if (CNCODEC_SUCCESS != ret) {
-    LOG(ERROR) << "scaler failed, error code:" << ret;
+    LOG(ERROR) << "[EasyDK InferServer] [Scaler] Process failed, error code: " << ret;
     return false;
   }
   return true;
@@ -421,7 +423,7 @@ bool Scaler::Fill(int instance_id, size_t width, size_t height, size_t stride, c
   i32_t ret = cncodecImageTransform(&dst_frame, nullptr, &src_frame, nullptr, CNCODEC_Filter_BiLinear, &work_info);
 
   if (CNCODEC_SUCCESS != ret) {
-    LOG(ERROR) << "scaler fill failed, error code:" << ret;
+    LOG(ERROR) << "[EasyDK InferServer] [Scaler] Fill failed, error code:" << ret;
     return false;
   }
   return true;
@@ -448,21 +450,21 @@ bool Scaler::Execute(Package* pack, Buffer* model_input) {
 #endif  // ENABLE_MLU200_CODEC
 
 #ifdef HAVE_CNCV
-#define CNRT_SAFE_CALL(func, val)                                 \
-  do {                                                            \
-    cnrtRet_t ret = (func);                                       \
-    if (ret != CNRT_RET_SUCCESS) {                                \
-      LOG(ERROR) << "Call " #func " failed. error code: " << ret; \
-      return val;                                                 \
-    }                                                             \
+#define CNRT_SAFE_CALL(func, val)                                                      \
+  do {                                                                                 \
+    cnrtRet_t ret = (func);                                                            \
+    if (ret != CNRT_RET_SUCCESS) {                                                     \
+      LOG(ERROR) << "[EasyDK InferServer] Call " #func " failed. error code: " << ret; \
+      return val;                                                                      \
+    }                                                                                  \
   } while (0)
-#define CNCV_SAFE_CALL(func, val)                                 \
-  do {                                                            \
-    cncvStatus_t ret = (func);                                    \
-    if (ret != CNCV_STATUS_SUCCESS) {                             \
-      LOG(ERROR) << "Call " #func " failed. error code: " << ret; \
-      return val;                                                 \
-    }                                                             \
+#define CNCV_SAFE_CALL(func, val)                                                      \
+  do {                                                                                 \
+    cncvStatus_t ret = (func);                                                         \
+    if (ret != CNCV_STATUS_SUCCESS) {                                                  \
+      LOG(ERROR) << "[EasyDK InferServer] Call " #func " failed. error code: " << ret; \
+      return val;                                                                      \
+    }                                                                                  \
   } while (0)
 
 class PreprocessCncvBase {
@@ -512,7 +514,7 @@ uint32_t PreprocessCncvBase::GetCncvDepthSize(cncvDepth_t depth) {
     case CNCV_DEPTH_32F:
       return 4;
     default:
-      LOG(ERROR) << "Unsupport Depth, Size = 0 by default.";
+      LOG(ERROR) << "[EasyDK InferServer] [GetCncvDepthSize] Unsupported Depth, size = 0 by default.";
       return 0;
   }
 }
@@ -538,7 +540,7 @@ cncvPixelFormat PreprocessCncvBase::GetCncvPixFmt(PixelFmt fmt) {
     case PixelFmt::ARGB:
       return CNCV_PIX_FMT_ARGB;
     default:
-      LOG(ERROR) << "Unsupport input format, error occurs in CncvResizeConvert";
+      LOG(ERROR) << "[EasyDK InferServer] [GetCncvPixFmt] Unsupported input format, error occurs in CncvResizeConvert";
       return CNCV_PIX_FMT_INVALID;
   }
 }
@@ -567,7 +569,7 @@ void PreprocessCncvBase::SetStride(cncvImageDescriptor* desc) {
       desc->stride[0] = depth * desc->width * 4;
       break;
     default:
-      LOG(ERROR) << "Unsupport input format, error occurs in CncvResizeConvert";
+      LOG(ERROR) << "[EasyDK InferServer] [SetStride] Unsupported input format, error occurs in CncvResizeConvert";
       return;
   }
 }
@@ -608,7 +610,7 @@ cncvDepth_t PreprocessCncvBase::GetCncvDepth(const DataType& type) {
       return CNCV_DEPTH_32S;
     case DataType::INVALID:
     default:
-      LOG(ERROR) << "Unsupport Depth! Please Check!";
+      LOG(ERROR) << "[EasyDK InferServer] [GetCncvDepth] Unsupported Depth! Please Check!";
   }
   return CNCV_DEPTH_INVALID;
 }
@@ -691,7 +693,8 @@ bool CncvResizeConvert::Execute(Package* pack, Buffer* output) {
   for (size_t i = 0; i < batch_size; ++i) {
     VideoFrame& frame = pack->data[i]->GetLref<VideoFrame>();
     if (frame.format != PixelFmt::NV12 && frame.format != PixelFmt::NV21) {
-      LOG(ERROR) << "[ResizeConvert] Pixel format " << static_cast<int>(frame.format) << " not supported!";
+      LOG(ERROR) << "[EasyDK InferServer] [CncvResizeConvert] Pixel format " << PixelFmtStr(frame.format)
+                 << " is not supported!";
       return false;
     }
     // init cpu ptr
@@ -775,7 +778,8 @@ static inline uint32_t GetChannelNum(PixelFmt fmt) {
     case PixelFmt::ABGR:
       return 4;
     default:
-      std::cerr << "Unsupport dst_fmt in CNCV Preproc." << std::endl;
+      LOG(ERROR) << "[EasyDK InferServerSamples] [MultiStreamDemo] Get channel number failed."
+                 << " Unsupported dst_fmt [" << PixelFmtStr(fmt) << "] in CNCV Preproc.";
   }
   return 0;
 }
@@ -815,7 +819,7 @@ class CncvMeanStd : public PreprocessCncvBase {
   bool CheckParam() noexcept {
     uint32_t chn_num = GetChannelNum(fmt_);
     if (mean_.size() < chn_num || std_.size() < chn_num) {
-      LOG(ERROR) << "wrong param -- mean: " << mean_ << ", std: " << std_;
+      LOG(ERROR) << "[EasyDK InferServer] [CncvMeanStd] wrong param -- mean: " << mean_ << ", std: " << std_;
       return false;
     }
     return true;
@@ -852,7 +856,8 @@ bool CncvMeanStd::Execute(Package* pack, Buffer* output) {
   for (size_t i = 0; i < batch_size; ++i) {
     VideoFrame& frame = pack->data[i]->GetLref<VideoFrame>();
     if (static_cast<int>(frame.format) < 3 || static_cast<int>(frame.format) > 8) {
-      LOG(ERROR) << "[MeanStd] Pixel format " << static_cast<int>(frame.format) << " not supported!";
+      LOG(ERROR) << "[EasyDK InferServer] [CncvMeanStd] Pixel format " << PixelFmtStr(frame.format)
+                 << " is not supported!";
       return false;
     }
     // init cpu ptr
@@ -928,13 +933,13 @@ class PreprocessCNCV : public PreprocessBase {
                  uint8_t pad_value = 0, cncvDepth_t depth = CNCV_DEPTH_8U,
                  cncvColorSpace colorspace = CNCV_COLOR_SPACE_BT_601)
       : model_(model), dev_id_(dev_id), dst_fmt_(dst_fmt) {
-    VLOG(3) << "PreprocessCNCV params: "
+    VLOG(1) << "[EasyDK InferServer] [PreprocessCNCV] params: "
             << "\n\tdevice id: " << dev_id
-            << "\n\tdst format: " << static_cast<int>(dst_fmt)  // TODO(dmh): print string of dst format
+            << "\n\tdst format: " << PixelFmtStr(dst_fmt)
             << "\n\tnormalize: " << normalize << "\n\tkeep_aspect_ratio: " << keep_aspect_ratio
             << "\n\tpad_value: " << static_cast<int>(pad_value) << "\n\tdepth: " << depth;
-    VLOG_IF(3, !mean.empty()) << "mean: " << mean;
-    VLOG_IF(3, !std.empty()) << "std: " << std;
+    VLOG_IF(1, !mean.empty()) << "[EasyDK InferServer] [PreprocessCNCV] mean: " << mean;
+    VLOG_IF(1, !std.empty()) << "[EasyDK InferServer] [PreprocessCNCV] std: " << std;
     rc_ptr_.reset(new CncvResizeConvert(model, dev_id, dst_fmt, keep_aspect_ratio, pad_value, colorspace));
     // normalize: img / 255.f
     // mean_std: (pixel - mean) / std
@@ -959,15 +964,15 @@ class PreprocessCNCV : public PreprocessBase {
 
   bool Init() override {
     if (CNRT_RET_SUCCESS != cnrt::QueueCreate(&queue_)) {
-      LOG(ERROR) << "Create cnrtQueue failed";
+      LOG(ERROR) << "[EasyDK InferServer] [PreprocessCNCV] Create cnrtQueue failed";
       return false;
     }
     if (CNCV_STATUS_SUCCESS != cncvCreate(&handle_)) {
-      LOG(ERROR) << "Create cncvHandle failed";
+      LOG(ERROR) << "[EasyDK InferServer] [PreprocessCNCV] Create cncvHandle failed";
       return false;
     }
     if (CNCV_STATUS_SUCCESS != cncvSetQueue(handle_, queue_)) {
-      LOG(ERROR) << "Set cnrtQueue to cncvHandle failed";
+      LOG(ERROR) << "[EasyDK InferServer] [PreprocessCNCV] Set cnrtQueue to cncvHandle failed";
       return false;
     }
     if (rc_ptr_) rc_ptr_->SetCncvHandle(queue_, handle_);
@@ -981,11 +986,15 @@ class PreprocessCNCV : public PreprocessBase {
   ~PreprocessCNCV() {
     if (handle_) {
       cncvStatus_t ret = cncvDestroy(handle_);
-      if (ret != CNCV_STATUS_SUCCESS) LOG(ERROR) << "cncvDestroy failed, error code: " << ret;
+      if (ret != CNCV_STATUS_SUCCESS) {
+        LOG(ERROR) << "[EasyDK InferServer] [PreprocessCNCV] cncvDestroy failed, error code: " << ret;
+      }
     }
     if (queue_) {
       cnrtRet_t ret = cnrt::QueueDestroy(queue_);
-      if (ret != CNRT_RET_SUCCESS) LOG(ERROR) << "cnrt::QueueDestroy failed, error code: " << ret;
+      if (ret != CNRT_RET_SUCCESS) {
+        LOG(ERROR) << "[EasyDK InferServer] [PreprocessCNCV] Destroy CNRT queue failed, error code: " << ret;
+      }
     }
   }
   bool Execute(Package* pack, Buffer* output) override;
@@ -1027,7 +1036,8 @@ bool PreprocessCNCV::Execute(Package* pack, Buffer* output) {
   } else if (!use_resize_convert && ms_ptr_) {
     ret = ms_ptr_->Execute(pack, output);
   } else {
-    LOG(ERROR) << "unsupport preprocess";
+    LOG(ERROR) << "[EasyDK InferServer] [PreprocessCNCV] Unsupported preprocess."
+               << " Neither ResizeConvert nor MeanStd is needed.";
     return false;
   }
   CNRT_SAFE_CALL(cnrt::QueueSync(queue_), false);

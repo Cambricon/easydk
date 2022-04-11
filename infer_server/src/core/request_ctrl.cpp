@@ -31,7 +31,7 @@ namespace infer_server {
 void RequestControl::ProcessDone(Status status, InferDataPtr output, uint32_t index,
                                  std::map<std::string, float>&& perf) noexcept {
   if (output) {
-    CHECK_LT(index, data_num_);
+    CHECK_LT(index, data_num_) << "[EasyDK InferServer] [RequestControl] index overflows";
     output_->data[index] = std::move(output);
   }
 
@@ -48,10 +48,11 @@ void RequestControl::ProcessDone(Status status, InferDataPtr output, uint32_t in
     status_.store(status);
   }
 
-  VLOG(6) << "one data ready) request id: " << request_id_ << ", remain: " << wait_num_ - 1;
+  VLOG(4) << "[EasyDK InferServer] [RequestControl] One data ready, request id: " << request_id_ << ", remain: "
+          << wait_num_ - 1;
   assert(wait_num_ != 0u);
   if (--wait_num_ == 0) {
-    VLOG(5) << "all data ready) request id: " << request_id_;
+    VLOG(3) << "[EasyDK InferServer] [RequestControl] All data ready, request id: " << request_id_;
     process_finished_.store(true);
     done_notifier_(this);
   }

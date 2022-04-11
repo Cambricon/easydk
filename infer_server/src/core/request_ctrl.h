@@ -90,7 +90,7 @@ class RequestControl {
   void Response() noexcept {
     output_->tag = tag_;
     response_(status_.load(), std::move(output_));
-    VLOG(6) << "response end) request id: " << request_id_;
+    VLOG(4) << "[EasyDK InferServer] [RequestControl] Response end, request id: " << request_id_;
   }
 
   std::future<void> ResponseDonePromise() noexcept { return response_done_flag_.get_future(); }

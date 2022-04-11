@@ -42,23 +42,24 @@ class PrintResult : public infer_server::Observer {
   void Response(infer_server::Status status, infer_server::PackagePtr out, infer_server::any user_data) noexcept {
     int frame_index = infer_server::any_cast<int>(user_data);
     if (status != infer_server::Status::SUCCESS) {
-      std::cerr << "Infer failed for frame index " << frame_index << std::endl;
+      LOG(ERROR) << "[EasyDK InferServerSamples] [Demo] Infer failed for frame index " << frame_index;
       return;
     }
     for (auto& it : out->data) {
       const std::vector<DetectObject>& objs = it->GetLref<std::vector<DetectObject>>();
       if (objs.empty()) {
-        std::cout << "@@@@@@@@@@@ No objects detected in frame " << frame_index << std::endl;
+        std::cout << "[EasyDK InferServerSamples] [Demo] @@@@@@@@@@@ No objects detected in frame " << frame_index
+                  << std::endl;
         continue;
       }
-      std::cout << "------------ Detected objects in frame " << frame_index << std::endl;
+      std::cout << "[EasyDK InferServerSamples] [Demo] ------------ Detected objects in frame " << frame_index
+                << std::endl;
       for (auto& obj : objs) {
-        std::cout << "label: " << obj.label
-                  << "\t score: " << obj.score
+        std::cout <<  "[EasyDK InferServerSamples] [Demo] label: " << obj.label << "\t score: " << obj.score
                   << "\t bbox: " << obj.bbox.x << ", " << obj.bbox.y << ", " << obj.bbox.w << ", " << obj.bbox.h
                   << std::endl;
       }
-      std::cout << "------------ Detected objects end -----------" << std::endl;
+      std::cout << "[EasyDK InferServerSamples] [Demo] ------------ Detected objects end -----------" << std::endl;
     }
   }
 };
@@ -66,13 +67,13 @@ class PrintResult : public infer_server::Observer {
 
 int main(int argc, char** argv) {
   if (argc != 2) {
-    std::cerr << "USAGE: " << argv[0] << " path-to-video-file" << std::endl;
+    LOG(ERROR) << "[EasyDK InferServerSamples] [Demo] USAGE: " << argv[0] << " path-to-video-file";
     return 0;
   }
 
   cv::VideoCapture source(argv[1]);
   if (!source.isOpened()) {
-    std::cerr << "!!!!!!!! cannot open video file: " << argv[1] << std::endl;
+    LOG(ERROR) << "[EasyDK InferServerSamples] [Demo] Cannot open video file: " << argv[1];
     return -1;
   }
 
@@ -99,8 +100,9 @@ int main(int argc, char** argv) {
   #else
   desc.model = infer_server::InferServer::LoadModel(g_model_path);
   desc.preproc->SetParams("process_function",
-                          infer_server::video::OpencvPreproc::GetFunction(infer_server::video::PixelFmt::RGBA));
-  desc.postproc->SetParams("process_function", infer_server::Postprocessor::ProcessFunction(PostprocSSD(0.5)));
+                          infer_server::video::OpencvPreproc::GetFunction(infer_server::video::PixelFmt::RGBA,
+                                                                          {}, {}, false, false));
+  desc.postproc->SetParams("process_function", infer_server::Postprocessor::ProcessFunction(PostprocSSD(0.3)));
   #endif
 
   infer_server::Session_t session = server.CreateSession(desc, std::make_shared<PrintResult>());
@@ -129,7 +131,7 @@ int main(int argc, char** argv) {
 #endif
     input->tag = tag;
     if (!server.Request(session, input, frame_index++)) {
-      std::cerr << "request failed" << std::endl;
+      LOG(ERROR) << "[EasyDK InferServerSamples] [Demo] Request failed";
       server.DestroySession(session);
       return -2;
     }

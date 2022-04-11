@@ -20,11 +20,11 @@
 
 #include "easycodec/easy_encode.h"
 
+#include <glog/logging.h>
 #include <cstring>
 #include <memory>
 #include <string>
 
-#include "cxxutil/log.h"
 #include "device/mlu_context.h"
 #include "encoder.h"
 
@@ -52,11 +52,11 @@ EasyEncode::EasyEncode(const Attr& attr) {
       handler_ = CreateMlu200Encoder(attr);
     } else {
       THROW_EXCEPTION(Exception::INIT_FAILED,
-                      "Device not supported yet, core version: " + std::to_string(static_cast<int>(core_version)));
+          "[EasyDK EasyCodec] [EasyEncode] Device not supported yet, core version: " + CoreVersionStr(core_version));
     }
     if (nullptr == handler_) {
       THROW_EXCEPTION(Exception::INIT_FAILED,
-                      "New decoder failed, core version: " + std::to_string(static_cast<int>(core_version)));
+          "[EasyDK EasyCodec] [EasyEncode] New decoder failed, core version: " + CoreVersionStr(core_version));
     }
   } catch (...) {
     delete handler_;
@@ -86,11 +86,11 @@ void EasyEncode::ReleaseBuffer(uint64_t buf_id) { handler_->ReleaseBuffer(buf_id
 
 bool EasyEncode::SendDataCPU(const CnFrame &frame, bool eos) {
   if (!handler_) {
-    LOGE(ENCODE) << "Encoder has not been init";
+    LOG(ERROR) << "[EasyDK EasyCodec] [EasyEncode] Encoder has not been init";
     return false;
   }
   if (frame.device_id >= 0) {
-    LOGW(ENCODE) << "frame data on cpu, but device id is not negative";
+    LOG(WARNING) << "[EasyDK EasyCodec] [EasyEncode] Frame data on cpu, device id should be negative";
     return false;
   }
 

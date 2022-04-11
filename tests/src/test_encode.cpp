@@ -11,6 +11,7 @@
 #include "cnrt.h"
 #include "device/mlu_context.h"
 #include "easycodec/easy_encode.h"
+#include "easycodec/vformat.h"
 #include "test_base.h"
 
 using edk::CodecType;
@@ -31,36 +32,6 @@ static uint32_t frame_count = 0;
 
 #define TEST_1080P_JPG "../../tests/data/1080p.jpg"
 #define TEST_500x500_JPG "../../tests/data/500x500.jpg"
-
-static const char *pf_str(const PixelFmt &fmt) {
-  switch (fmt) {
-    case PixelFmt::NV21:
-      return "NV21";
-    case PixelFmt::NV12:
-      return "NV12";
-    case PixelFmt::I420:
-      return "I420";
-    default:
-      return "UnknownType";
-  }
-}
-
-static const char *cc_str(const CodecType &mode) {
-  switch (mode) {
-    case CodecType::MPEG4:
-      return "MPEG4";
-    case CodecType::H264:
-      return "H264";
-    case CodecType::H265:
-      return "H265";
-    case CodecType::JPEG:
-      return "JPEG";
-    case CodecType::MJPEG:
-      return "MJPEG";
-    default:
-      return "UnknownType";
-  }
-}
 
 static int frames_output = 0;
 
@@ -120,10 +91,10 @@ void eos_callback() {
     context.SetDeviceId(0);
     context.BindDevice();
   } catch (edk::Exception &err) {
-    printf("set mlu env failed\n");
+    LOG(ERROR) << "[EasyDK Tests] [Encode] Set mlu env failed";
     return;
   }
-  printf("eos_callback()\n");
+  VLOG(4) << "[EasyDK Tests] [Encode] eos_callback()";
   if (p_output_file) {
     fflush(p_output_file);
     fclose(p_output_file);
@@ -131,9 +102,9 @@ void eos_callback() {
   }
   frames_output = 0;
   if (g_encoder->GetAttr().codec_type != CodecType::JPEG) {
-    printf("encode video pass\n");
+    VLOG(4) << "[EasyDK Tests] [Encode] Encode video pass";
   } else {
-    printf("encode jpeg pass\n");
+    VLOG(4) << "[EasyDK Tests] [Encode] Encode jpeg pass";
   }
   std::unique_lock<std::mutex> lk(enc_mutex);
   is_eos = true;
@@ -151,26 +122,28 @@ void packet_callback(const edk::CnPacket &packet) {
     context.BindDevice();
   } catch (edk::Exception &err) {
     g_encoder->ReleaseBuffer(packet.buf_id);
-    printf("set mlu env failed\n");
+    LOG(ERROR) << "[EasyDK Tests] [Encode] Set mlu env failed";
     return;
   }
 
   if (packet.codec_type == CodecType::JPEG) {
-    snprintf(str, sizeof(str), "./encoded_%s_%02d.jpg", pf_str(input_pixel_format), frames_output);
+    snprintf(str, sizeof(str), "./encoded_%s_%02d.jpg", PixelFmtStr(input_pixel_format).c_str(), frames_output);
     output_file = str;
   } else if (packet.codec_type == CodecType::H264) {
-    snprintf(str, sizeof(str), "./encoded_%s_%lu.h264", pf_str(input_pixel_format), packet.length);
+    snprintf(str, sizeof(str), "./encoded_%s_%lu.h264", PixelFmtStr(input_pixel_format).c_str(), packet.length);
     output_file = str;
   } else if (packet.codec_type == CodecType::H265) {
-    snprintf(str, sizeof(str), "./encoded_%s_%lu.h265", pf_str(input_pixel_format), packet.length);
+    snprintf(str, sizeof(str), "./encoded_%s_%lu.h265", PixelFmtStr(input_pixel_format).c_str(), packet.length);
     output_file = str;
   } else {
-    printf("ERROR: unknown output codec type <%d>\n", static_cast<int>(packet.codec_type));
+    LOG(ERROR) << "[EasyDK Tests] [Encode] Unknown output codec type: " << CodecTypeStr(packet.codec_type);
   }
 
   if (p_output_file == NULL) p_output_file = fopen(output_file, "wb");
   if (p_output_file == NULL) {
-    printf("ERROR: open output file failed\n");
+    LOG(ERROR) << "[EasyDK Tests] [Encode] Open output file failed";
+    g_encoder->ReleaseBuffer(packet.buf_id);
+    return;
   }
 
   frames_output++;
@@ -178,7 +151,7 @@ void packet_callback(const edk::CnPacket &packet) {
 
   written = fwrite(packet.data, 1, length, p_output_file);
   if (written != length) {
-    printf("ERROR: written size(%u) != data length(%u)\n", (unsigned int)written, length);
+    LOG(WARNING) << "[EasyDK Tests] [Encode] Written size " << written << " != data length " << length;
   }
   g_encoder->ReleaseBuffer(packet.buf_id);
 }
@@ -193,7 +166,7 @@ bool SendData(edk::EasyEncode *encoder, PixelFmt pixel_format, CodecType codec_t
 
   cv_image = cv::imread(image_path);
   if (cv_image.empty()) {
-    std::cerr << "Invalid image, image path" << image_path << std::endl;
+    LOG(ERROR) << "[EasyDK Tests] [Encode] Invalid image, image path" << image_path;
     return false;
   }
 
@@ -205,7 +178,7 @@ bool SendData(edk::EasyEncode *encoder, PixelFmt pixel_format, CodecType codec_t
     input_length = width * height * 3 / 2;
     p_data_buffer = new (std::nothrow) uint8_t[input_length];
     if (p_data_buffer == NULL) {
-      printf("ERROR: malloc buffer for input file failed\n");
+      LOG(ERROR) << "[EasyDK Tests] [Encode] Malloc buffer for input file failed";
       return false;
     }
     cvt_bgr_to_yuv420sp(cv_image, align, pixel_format, p_data_buffer);
@@ -236,7 +209,7 @@ bool SendData(edk::EasyEncode *encoder, PixelFmt pixel_format, CodecType codec_t
       }
     }
   } else {
-    printf("ERROR: Input pixel format(%d) invalid\n", static_cast<int>(pixel_format));
+    LOG(ERROR) << "[EasyDK Tests] [Encode] Input pixel format invalid. fmt: " << PixelFmtStr(pixel_format);
     return false;
   }
 
@@ -245,7 +218,7 @@ bool SendData(edk::EasyEncode *encoder, PixelFmt pixel_format, CodecType codec_t
   bool ret = true;
   bool eos = false;
   if (end) {
-    printf("Set EOS flag to encoder\n");
+    VLOG(2) << "[EasyDK Tests] [Encode] Set EOS flag to encoder";
     eos = true;
   }
   if (!eos) {
@@ -262,7 +235,8 @@ bool SendData(edk::EasyEncode *encoder, PixelFmt pixel_format, CodecType codec_t
 bool test_EasyEncode(const char *input_file, uint32_t w, uint32_t h, PixelFmt pixel_format, CodecType codec_type,
                      bool mlu_data, int rc_mode, int preset = 0/*only for mlu370*/, int tune = 2/*only for mlu370*/,
                      bool mismatch_config = false, uint32_t max_mb_per_slice = 0, bool _abort = false) {
-  printf("\nTesting encode %s image to %s\n", pf_str(pixel_format), cc_str(codec_type));
+  VLOG(4) << "[EasyDK Tests] [Encode] Testing encode " << PixelFmtStr(pixel_format) << " image to "
+          << CodecTypeStr(codec_type);
 
   p_output_file = NULL;
   frame_count = 0;
@@ -277,7 +251,7 @@ bool test_EasyEncode(const char *input_file, uint32_t w, uint32_t h, PixelFmt pi
     context.BindDevice();
     core_version = context.GetCoreVersion();
   } catch (edk::Exception &err) {
-    printf("set mlu env failed\n");
+    LOG(ERROR) << "[EasyDK Tests] [Encode] Set mlu env failed";
     return false;
   }
 
@@ -352,7 +326,7 @@ bool test_EasyEncode(const char *input_file, uint32_t w, uint32_t h, PixelFmt pi
         break;
     }
   } else {
-    THROW_EXCEPTION(edk::Exception::INTERNAL, "Not supported core version");
+    THROW_EXCEPTION(edk::Exception::INTERNAL, "[EasyDK Tests] [Encode] Not supported core version");
     return false;
   }
 
@@ -360,7 +334,7 @@ bool test_EasyEncode(const char *input_file, uint32_t w, uint32_t h, PixelFmt pi
   try {
     bool ret = false;
     encoder = edk::EasyEncode::New(attr);
-    if (!encoder) THROW_EXCEPTION(edk::Exception::INTERNAL, "Create EasyEncode failed");
+    if (!encoder) THROW_EXCEPTION(edk::Exception::INTERNAL, "[EasyDK Tests] [Encode] Create EasyEncode failed");
     g_encoder = encoder.get();
 
     if (codec_type == CodecType::H264 || codec_type == CodecType::H265 || codec_type == CodecType::JPEG) {
@@ -373,10 +347,10 @@ bool test_EasyEncode(const char *input_file, uint32_t w, uint32_t h, PixelFmt pi
         }
       }
     } else {
-      THROW_EXCEPTION(edk::Exception::INVALID_ARG, "Unsupport format");
+      THROW_EXCEPTION(edk::Exception::INVALID_ARG, "[EasyDK Tests] [Encode] Unsupported format");
     }
     if (!ret) {
-      THROW_EXCEPTION(edk::Exception::INTERNAL, "Send data failed");
+      THROW_EXCEPTION(edk::Exception::INTERNAL, "[EasyDK Tests] [Encode] Send data failed");
     }
 
     if (_abort) {
@@ -387,7 +361,7 @@ bool test_EasyEncode(const char *input_file, uint32_t w, uint32_t h, PixelFmt pi
       enc_cond.wait(lk, [] { return is_eos; });
     }
   } catch (edk::Exception &err) {
-    std::cerr << err.what() << std::endl;
+    LOG(ERROR) << "[EasyDK Tests] [InferServer] Error occurs: " << err.what();
     return false;
   }
 

@@ -115,7 +115,7 @@ struct OpencvPreproc {
       dst_width = s[2];
       dst_height = s[1];
     } else {
-      std::cerr << "not supported dim order";
+      LOG(ERROR) << "[EasyDK InferServer] [OpencvPreproc] Unsupported dim order";
       return false;
     }
 
@@ -129,7 +129,7 @@ struct OpencvPreproc {
         } else if (dst_fmt_ == PixelFmt::RGB24 || dst_fmt_ == PixelFmt::BGR24) {
           tmp_resize = cv::Mat(dst_height, dst_width, CV_8UC3, cv::Scalar(pad_value_));
         } else {
-          std::cerr << "unsupported format for model input." << std::endl;
+          LOG(ERROR) << "[EasyDK InferServer] [OpencvPreproc] Unsupported format for model input.";
         }
         auto rect = KeepAspectRatio(src_width, src_height, dst_width, dst_height);
         cv::Mat resize_keepaspectratio = tmp_resize(rect);
@@ -143,7 +143,7 @@ struct OpencvPreproc {
 
     uint32_t channel_num = GetChannelNum();
     if (channel_num == 0) {
-      std::cerr << "unsupported format for model input." << std::endl;
+      LOG(ERROR) << "[EasyDK InferServer] [OpencvPreproc] Channel number is 0.";
       return false;
     }
     DataType dst_dtype = m->InputLayout(0).dtype;
@@ -151,12 +151,13 @@ struct OpencvPreproc {
     cv::Mat dst(dst_height, dst_width, cv_code, b.MutableData());
     if (mean_std_) {
       if (dst_dtype == DataType::UINT8) {
-        std::cerr << "Opencv preproc not support normalization, means or std with UINT8 data type" << std::endl;
+        LOG(ERROR) << "[EasyDK InferServer] [OpencvPreproc] Not support normalization, means or std"
+                   << " with UINT8 data type";
         return false;
       }
       if (channel_num != mean_.size() || channel_num != std_.size()) {
-        std::cerr << "expect the size of mean or std is " << channel_num << " but mean_ size is " << mean_.size()
-                  << " and std_ size is " << std_.size() << "." << std::endl;
+        LOG(ERROR) << "[EasyDK InferServer] [OpencvPreproc] expect the size of mean or std is " << channel_num
+                   << " but mean_ size is " << mean_.size() << " and std_ size is " << std_.size() << ".";
         return false;
       }
       MeanStd(tmp_resize, dst);
@@ -207,7 +208,7 @@ inline uint32_t OpencvPreproc::GetChannelNum() {
     case PixelFmt::BGRA:
       return 4;
     default:
-      std::cerr << "unsupported destination format in OpencvPreproc." << std::endl;
+      LOG(ERROR) << "[EasyDK InferServer] [OpencvPreproc] Unsupported destination format.";
   }
   return 0;
 }
@@ -312,7 +313,7 @@ inline int OpencvPreproc::GetCvtCode(PixelFmt src_fmt) {
   try {
     return color_cvt_map.at(dst_fmt_).at(src_fmt);
   } catch (std::out_of_range& e) {
-    std::cerr << "Unsupport code for cvtcolor." << std::endl;
+    LOG(ERROR) << "[EasyDK InferServer] [OpencvPreproc] Unsupported code for cvtcolor.";
     return -1;
   }
 }

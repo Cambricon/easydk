@@ -17,12 +17,12 @@
  * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
  * THE SOFTWARE.
  *************************************************************************/
+#include <glog/logging.h>
 #ifdef HAVE_CNCV
 #include "cncv.h"
 #endif
 #include "cnis/contrib/video_helper.h"
 #include "cnis/infer_server.h"
-#include "cxxutil/log.h"
 
 #include "preproc.h"
 
@@ -48,7 +48,7 @@ cncvPixelFormat GetCncvPixFmt(edk::PixelFmt fmt) {
     case edk::PixelFmt::ARGB:
       return CNCV_PIX_FMT_ARGB;
     default:
-      LOGE(SAMPLE) << "Unsupported input format.";
+      LOG(ERROR) << "[EasyDK Samples] [GetCncvPixFmt] Unsupported input format.";
       return CNCV_PIX_FMT_INVALID;
   }
 }
@@ -67,7 +67,7 @@ uint32_t GetCncvDepthSize(cncvDepth_t depth) {
     case CNCV_DEPTH_32F:
       return 4;
     default:
-      LOGE(SAMPLE) << "Unsupported Depth, Size = 0 by default.";
+      LOG(ERROR) << "[EasyDK Samples] [GetCncvDepthSize] Unsupported Depth, Size = 0 by default.";
       return 0;
   }
 }
@@ -96,7 +96,7 @@ void SetCncvStride(cncvImageDescriptor* desc) {
       desc->stride[0] = depth * desc->width * 4;
       break;
     default:
-      LOGE(SAMPLE) << "Unsupported input format.";
+      LOG(ERROR) << "[EasyDK Samples] [SetCncvStride] Unsupported input format.";
       return;
   }
 }

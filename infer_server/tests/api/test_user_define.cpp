@@ -66,7 +66,7 @@ class MyProcessor : public ProcessorForkable<MyProcessor> {
     constexpr const char* params[] = {"model_info", "device_id"};
     for (auto p : params) {
       if (!HaveParam(p)) {
-        LOG(ERROR) << p << " has not been set!";
+        LOG(ERROR) << "[EasyDK Tests] [InferServer] " << p << " has not been set!";
         return Status::INVALID_PARAM;
       }
     }
@@ -80,7 +80,7 @@ class MyProcessor : public ProcessorForkable<MyProcessor> {
       auto layout = model_->InputLayout(0);
       pool_.reset(new MluMemoryPool(shape.BatchDataCount() * GetTypeSize(layout.dtype), 3, dev_id_));
     } catch (bad_any_cast&) {
-      LOG(ERROR) << "Unmatched data type";
+      LOG(ERROR) << "[EasyDK Tests] [InferServer] Unmatched data type";
       return Status::WRONG_TYPE;
     }
 
@@ -95,7 +95,7 @@ class MyProcessor : public ProcessorForkable<MyProcessor> {
 
 TEST_F(InferServerTestAPI, UserDefine) {
   auto model = server_->LoadModel(model_url);
-  ASSERT_TRUE(model) << "load model failed";
+  ASSERT_TRUE(model) << "[EasyDK Tests] [InferServer] Load model failed";
   auto preproc = MyProcessor::Create();
   SessionDesc desc;
   desc.name = "test user define";

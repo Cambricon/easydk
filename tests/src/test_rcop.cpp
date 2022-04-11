@@ -1,3 +1,4 @@
+#include <glog/logging.h>
 #include <gtest/gtest.h>
 #include <opencv2/opencv.hpp>
 #include <sys/time.h>
@@ -13,7 +14,6 @@
 #include <utility>
 #include <vector>
 
-#include "cxxutil/log.h"
 #include "device/mlu_context.h"
 #include "easybang/resize_and_colorcvt.h"
 #include "easyinfer/mlu_memory_op.h"
@@ -77,7 +77,7 @@ ImgInfo GenerateRandomImage(uint32_t w, uint32_t h, Fmt fmt) {
     case YUV420SP_NV12:
     case YUV420SP_NV21:
       if (h % 2) {
-        EXPECT_TRUE(false) << "yuv420sp: height must be a positive even number.";
+        EXPECT_TRUE(false) << "[EasyDK Tests] [MluResizeConvertOp] yuv420sp: height must be a positive even number.";
       } else {
         data_len = h * w * 3 / 2;
       }
@@ -138,7 +138,8 @@ bool MluResizeAndCvt(const std::vector<ImgInfo> &src_imgs,
                      std::vector<ImgInfo> *pdst_imgs,
                      const OperatorParams &params) {
   if (gmode_map.find(params.cvt_mode) == gmode_map.end()) {
-    LOGE(TEST) << "Unkonw color space convert mode." << static_cast<uint64_t>(params.cvt_mode);
+    LOG(ERROR) << "[EasyDK Tests] [MluResizeConvertOp] Unknown color space convert mode."
+               << static_cast<uint64_t>(params.cvt_mode);
     return false;
   }
 
@@ -162,7 +163,7 @@ bool MluResizeAndCvt(const std::vector<ImgInfo> &src_imgs,
   attr.keep_aspect_ratio = params.keep_aspect_ratio;
   attr.batch_size = batchsize;
   if (!op.Init(attr)) {
-    LOGE(TEST) << "Init mlu resize convert op failed.";
+    LOG(ERROR) << "[EasyDK Tests] [MluResizeConvertOp] Init mlu resize convert op failed.";
     return false;
   }
 
@@ -202,12 +203,12 @@ bool MluResizeAndCvt(const std::vector<ImgInfo> &src_imgs,
   EXPECT_NO_THROW(output_mlu = mem_op.AllocMlu(output_size));
   EXPECT_EQ(CNRT_RET_SUCCESS, cnrtMemset(output_mlu, 0, output_size));  // keep aspect ratio: pad value not verified.
   if (!op.SyncOneOutput(output_mlu)) {
-    LOGE(TEST) << "invoke kernel failed.";
+    LOG(ERROR) << "[EasyDK Tests] [MluResizeConvertOp] Invoke kernel failed.";
     return false;
   }
 
   uint8_t *output_cpu = new (std::nothrow) uint8_t[output_size];
-  EXPECT_TRUE(output_cpu) << "alloc memory on cpu failed.";
+  EXPECT_TRUE(output_cpu) << "[EasyDK Tests] [MluResizeConvertOp] Alloc memory on cpu failed.";
 
   EXPECT_NO_THROW(mem_op.MemcpyD2H(static_cast<void *>(output_cpu), output_mlu, output_size));
 
@@ -305,7 +306,7 @@ bool CpuResizeAndCvt(const std::vector<ImgInfo> &src_imgs,
         break;
       }
       default:
-        EXPECT_TRUE(false) << "It's not supposed to be here.";
+        EXPECT_TRUE(false) << "[EasyDK Tests] [MluResizeConvertOp] It's not supposed to be here.";
         break;
     }
 
@@ -379,8 +380,8 @@ bool CompareData(const ImgInfo &cpu_data, const ImgInfo &mlu_data,
 
   if (mae > thres || mse > thres) {
     ret = false;
-    std::cout << "COMPARE DATA FAILED! "
-              << "mae:" << mae << " mse:" << mse << std::endl;
+    LOG(ERROR) << "[EasyDK Tests] [EasyBang] MluReszieConvertOp compare data failed! "
+               << "MAE: " << mae << ", MSE: " << mse;
   } else {
     ret = true;
   }
@@ -424,7 +425,7 @@ bool TestFunc(const std::vector<ImgInfo> &src_imgs, const OperatorParams &op_par
         ofs.close();
       }
     } else {
-      LOGE(TEST) << "Dump input data failed. Check directory permissions.";
+      LOG(ERROR) << "[EasyDK Tests] [MluResizeConvertOp] Dump input data failed. Check directory permissions.";
     }
   }
 

@@ -35,9 +35,9 @@ namespace infer_server {
 Executor::Executor(const SessionDesc& desc, PriorityThreadPool* tp, int device_id)
     : desc_(desc), tp_(tp), device_id_(device_id) {
   CHECK(tp);
-  CHECK_GE(device_id, 0);
-  CHECK_GT(desc_.engine_num, 0u) << "engine number cannot be 0";
-  CHECK(desc_.preproc) << "preprocess cannot be null";
+  CHECK_GE(device_id, 0) << "[EasyDK InferServer] [Executor] Device id is less than 0. device id: " << device_id;
+  CHECK_GT(desc_.engine_num, 0u) << "[EasyDK InferServer] [Executor] Engine number cannot be 0";
+  CHECK(desc_.preproc) << "[EasyDK InferServer] [Executor] Preprocess cannot be null";
 
   // init processors
   auto predictor = Predictor::Create();
@@ -75,7 +75,7 @@ Executor::Executor(const SessionDesc& desc, PriorityThreadPool* tp, int device_i
   } else if (desc_.strategy == BatchStrategy::STATIC) {
     cache_.reset(new CacheStatic(desc_.model->BatchSize(), Priority(desc_.priority)));
   } else {
-    CHECK(false) << "Unsupport BatchStrategy";
+    CHECK(false) << "[EasyDK InferServer] [Executor] Unsupported BatchStrategy";
   }
   cache_->Start();
 
@@ -90,13 +90,13 @@ Executor::~Executor() {
   link_set_.clear();
   lk.unlock();
   cache_->Stop();
-  VLOG(3) << desc_.name << "] Processed Task:\n\t"
+  VLOG(1) << "[EasyDK InferServer] [Executor] " << desc_.name << "] Processed Task:\n\t"
           << " | total " << static_cast<uint32_t>(batch_record_.total) << " | batch number " << batch_record_.unit_cnt
           << " | average tasks per batch " << batch_record_.total / batch_record_.unit_cnt;
   // dispatch thread won't quit until cache is empty
   dispatch_thread_.join();
   cache_.reset();
-  CHECK(link_set_.empty()) << "Executor should not have any session in destructor";
+  CHECK(link_set_.empty()) << "[EasyDK InferServer] [Executor] Should not have any session in destructor";
   idle_.store(nullptr);
   engines_.clear();
 }
@@ -133,7 +133,7 @@ void Executor::DispatchLoop() noexcept {
         idle = idle_.exchange(idle);
       }
     }
-    VLOG(4) << desc_.name << "] dispatch to engine " << idle_;
+    VLOG(2) << "[EasyDK InferServer] [Executor] " << desc_.name << "] dispatch to engine " << idle_;
     idle->Run(std::move(pack));
   }
 }
@@ -142,7 +142,7 @@ void Executor::DispatchLoop() noexcept {
 constexpr uint32_t Profiler::period_interval_;
 
 void Session::WaitTaskDone(const std::string& tag) noexcept {
-  VLOG(3) << "session " << name_ << " wait [" << tag << "] task done";
+  VLOG(1) << "[EasyDK InferServer] [Session] session " << name_ << " wait [" << tag << "] task done";
   std::vector<std::string> match = {tag};
   if (!executor_->GetDesc().batch_timeout) executor_->FlushCache();
   std::unique_lock<std::mutex> lk(request_mutex_);
@@ -166,7 +166,7 @@ void Session::WaitTaskDone(const std::string& tag) noexcept {
 }
 
 void Session::DiscardTask(const std::string& tag) noexcept {
-  VLOG(3) << "session " << name_ << " discard [" << tag << "] task";
+  VLOG(1) << "[EasyDK InferServer] [Session] session " << name_ << " discard [" << tag << "] task";
   if (!executor_->GetDesc().batch_timeout) executor_->FlushCache();
   std::unique_lock<std::mutex> lk(request_mutex_);
   std::for_each(request_list_.begin(), request_list_.end(), [&tag](RequestControl* it) {
@@ -181,17 +181,19 @@ void Session::DiscardTask(const std::string& tag) noexcept {
 
 RequestControl* Session::Send(PackagePtr&& pack, std::function<void(Status, PackagePtr)>&& response) noexcept {
   if (!running_.load()) {
-    LOG(ERROR) << "Session not running [" << name_;
+    LOG(ERROR) << "[EasyDK InferServer] [Session] This session is not running [" << name_ << "]";
     return nullptr;
   }
 
   if (pack->predict_io && pack->predict_io->HasValue()) {
     if (executor_->GetDesc().strategy != BatchStrategy::STATIC) {
-      LOG(ERROR) << "Input continuous data to skip preprocess is only supported under BatchStrategy::STATIC";
+      LOG(ERROR) << "[EasyDK InferServer] [Session] Input continuous data to skip preprocess is only supported under"
+                 << " BatchStrategy::STATIC";
       return nullptr;
     }
     if (pack->data.size() > executor_->GetModel()->BatchSize()) {
-      LOG(ERROR) << "Input continuous data to skip preprocess is only supported when data number <= model batch size";
+      LOG(ERROR) << "[EasyDK InferServer] [Session] Input continuous data to skip preprocess is only supported when"
+                 << " data number <= model batch size";
       return nullptr;
     }
   }
@@ -217,10 +219,11 @@ RequestControl* Session::Send(PackagePtr&& pack, std::function<void(Status, Pack
   lk.unlock();
 
   if (data_size) {
-    CHECK(executor_->Upload(std::move(pack), ctrl)) << "Cache should be running";
+    CHECK(executor_->Upload(std::move(pack), ctrl)) << "[EasyDK InferServer] [Session] Cache should be running";
   } else {
-    VLOG(3) << "session: " << name_ << " | No data in package with tag [" << pack->tag << "]";
-    CHECK(executor_->Upload(std::move(pack), ctrl)) << "Cache should be running";
+    VLOG(2) << "[EasyDK InferServer] [Session] session: " << name_ << " | No data in package with tag ["
+            << pack->tag << "]";
+    CHECK(executor_->Upload(std::move(pack), ctrl)) << "[EasyDK InferServer] [Session] Cache should be running";
     CheckAndResponse(ctrl);
   }
   return ctrl;
@@ -232,7 +235,7 @@ void Session::CheckAndResponse(const RequestControl* caller) noexcept {
 
   // check request finished processing
   if (request_list_.empty()) {
-    VLOG(3) << "No request in this Session " << name_ << this;
+    VLOG(2) << "[EasyDK InferServer] [Session] No request in this Session " << name_ << this;
     // notify blocked thread by destructor
     sync_cond_.notify_one();
     return;

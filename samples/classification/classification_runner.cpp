@@ -20,6 +20,7 @@
 
 #include "classification_runner.h"
 
+#include <glog/logging.h>
 #include <opencv2/opencv.hpp>
 
 #include <chrono>
@@ -29,7 +30,6 @@
 #include <utility>
 #include <vector>
 
-#include "cxxutil/log.h"
 #include "cnis/contrib/video_helper.h"
 #include "cnis/infer_server.h"
 #include "cnis/processor.h"
@@ -86,14 +86,16 @@ desc.preproc->SetParams("preprocess_type", infer_server::video::PreprocessType::
 
   // video writer
   if (save_video_) {
+    // For OpenCV version 4.x with FFMPEG=OFF, the output file name must contain number 0 - 9.
 #if OPENCV_MAJOR_VERSION > 2
     video_writer_.reset(
-        new cv::VideoWriter("out.avi", cv::VideoWriter::fourcc('M', 'J', 'P', 'G'), 25, g_out_video_size));
+        new cv::VideoWriter("out001.avi", cv::VideoWriter::fourcc('M', 'J', 'P', 'G'), 25, g_out_video_size));
 #else
-    video_writer_.reset(new cv::VideoWriter("out.avi", CV_FOURCC('M', 'J', 'P', 'G'), 25, g_out_video_size));
+    video_writer_.reset(new cv::VideoWriter("out001.avi", CV_FOURCC('M', 'J', 'P', 'G'), 25, g_out_video_size));
 #endif
     if (!video_writer_->isOpened()) {
-      THROW_EXCEPTION(edk::Exception::Code::INIT_FAILED, "create output video file failed");
+      THROW_EXCEPTION(edk::Exception::Code::INIT_FAILED,
+          "[EasyDK Samples] [ClassificationRunner] Create output video file failed");
     }
   }
 
@@ -125,7 +127,7 @@ cv::Mat ClassificationRunner::ConvertToMatAndReleaseBuf(edk::CnFrame* frame) {
   } else if (frame->pformat == edk::PixelFmt::NV21) {
     cv::cvtColor(yuv, img, cv::COLOR_YUV2BGR_NV12);
   } else {
-    LOGE(SAMPLE) << "unsupported pixel format";
+    LOG(ERROR) << "[EasyDK Samples] [ClassificationRunner] unsupported pixel format";
   }
   delete[] img_data;
 
@@ -157,7 +159,8 @@ void ClassificationRunner::Process(edk::CnFrame frame) {
   if (!ret || status != infer_server::Status::SUCCESS) {
     decoder_->ReleaseFrame(std::move(frame));
     THROW_EXCEPTION(edk::Exception::INTERNAL,
-        "Request sending data to infer server failed. Status: " + std::to_string(static_cast<int>(status)));
+        "[EasyDK Samples] [ClassificationRunner] Request sending data to  infer server failed. Status: " +
+        StatusStr(status));
   }
 
   cv::Mat img = ConvertToMatAndReleaseBuf(&frame);
@@ -170,13 +173,14 @@ void ClassificationRunner::Process(edk::CnFrame frame) {
     detect_obj.score = obj.score;
     detect_result.emplace_back(std::move(detect_obj));
   }
-  std::cout << "----- Classification Result:\n";
+  std::cout << "[EasyDK Samples] [ClassificationRunner] ----- Classification Result:" << std::endl;
   int show_number = 2;
   for (auto& obj : detect_result) {
-    std::cout << "[Object] label: " << obj.label << " score: " << obj.score << "\n";
+    std::cout << "[EasyDK Samples] [ClassificationRunner] [Object] label: " << obj.label << " score: "
+              << obj.score << std::endl;
     if (!(--show_number)) break;
   }
-  std::cout << "-----------------------------------\n" << std::endl;
+  std::cout << "[EasyDK Samples] [ClassificationRunner] -----------------------------------" << std::endl;
 
   osd_.DrawLabel(img, detect_result);
 

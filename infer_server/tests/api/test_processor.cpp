@@ -15,12 +15,14 @@ std::map<std::string, int> g_param_set{{"number1", 1}, {"number2", 2}, {"number4
 
 class TestProcessor : public ProcessorForkable<TestProcessor> {
  public:
-  TestProcessor() noexcept : ProcessorForkable("TestProcessor") { std::cout << "[TestProcessor] Construct\n"; }
+  TestProcessor() noexcept : ProcessorForkable("TestProcessor") {
+    VLOG(1) << "[EasyDK Tests] [InferServer]TestProcessor Construct";
+  }
 
-  ~TestProcessor() { std::cout << "[TestProcessor] Destruct\n"; }
+  ~TestProcessor() { VLOG(1) << "[EasyDK Tests] [InferServer] TestProcessor Destruct"; }
 
   Status Process(PackagePtr data) noexcept override {
-    std::cout << "[TestProcessor] Process\n";
+    VLOG(4) << "[EasyDK Tests] [InferServer] TestProcessor Process\n";
     if (!initialized_) return Status::ERROR_BACKEND;
     for (auto& it : g_param_set) {
       if (!HaveParam(it.first)) return Status::INVALID_PARAM;
@@ -30,7 +32,7 @@ class TestProcessor : public ProcessorForkable<TestProcessor> {
   }
 
   Status Init() noexcept override {
-    std::cout << "[TestProcessor] Init\n";
+    VLOG(1) << "[EasyDK Tests] [InferServer] TestProcessor Init";
     initialized_ = true;
     return Status::SUCCESS;
   }

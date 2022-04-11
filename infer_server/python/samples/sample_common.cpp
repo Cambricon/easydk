@@ -18,6 +18,8 @@
  * THE SOFTWARE.
  *************************************************************************/
 
+#include <glog/logging.h>
+
 #include <pybind11/pybind11.h>
 #include <pybind11/stl.h>
 
@@ -27,7 +29,6 @@
 #include <vector>
 
 #include "cnis/contrib/video_helper.h"
-#include "cxxutil/log.h"
 
 namespace py = pybind11;
 
@@ -47,13 +48,13 @@ struct PostprocSSD {
   inline float Clip(float x) { return x < 0 ? 0 : (x > 1 ? 1 : x); }
 
   bool Execute(InferData* result, const ModelIO& model_output, const ModelInfo* model) {
-    LOGD(PostprocSSD) << "PostprcessSSD::Execute()";
+    VLOG(5) << "[EasyDK InferServer] [PythonAPISamples] PostprcessSSD::Execute()";
     std::vector<DetectObject> objs;
     const float* data = reinterpret_cast<const float*>(model_output.buffers[0].Data());
     int box_num = data[0];
     data += 64;
 
-    LOGD(PostprocSSD) << "--------------------------box num: " << box_num;
+    VLOG(5) << "[EasyDK InferServer] [PythonAPISamples] PostprocSSD: ----------------box num: " << box_num;
     for (int bi = 0; bi < box_num; ++bi) {
       DetectObject obj;
       if (data[1] == 0) continue;
@@ -64,12 +65,9 @@ struct PostprocSSD {
       obj.bbox.y = Clip(data[4]);
       obj.bbox.w = Clip(data[5]) - obj.bbox.x;
       obj.bbox.h = Clip(data[6]) - obj.bbox.y;
-      LOGD(PostprocSSD) << "obj.label " << obj.label
-                        << " obj.score " << obj.score
-                        << " obj.bbox.x " << obj.bbox.x
-                        << " obj.bbox.y " << obj.bbox.y
-                        << " obj.bbox.w " << obj.bbox.w
-                        << " obj.bbox.h " << obj.bbox.h;
+      VLOG(5) << "[EasyDK InferServer] [PythonAPISamples] PostprocSSD: obj.label " << obj.label << " obj.score "
+              << obj.score << " obj.bbox.x " << obj.bbox.x << " obj.bbox.y " << obj.bbox.y << " obj.bbox.w "
+              << obj.bbox.w << " obj.bbox.h " << obj.bbox.h;
       objs.emplace_back(std::move(obj));
       data += 7;
     }
@@ -82,7 +80,7 @@ struct PostprocSSD {
     });
     (*dict)["objs"] = objs;
     result->Set(dict);
-    LOGD(PostprocSSD) << "PostprcessSSD::Execute() done";
+    VLOG(5) << "[EasyDK InferServer] [PythonAPISamples] PostprcessSSD::Execute() done";
     return true;
   }
 };  // struct PostprocSSD
@@ -95,7 +93,7 @@ struct PostprocYolov3 {
   inline float Clip(float x) { return x < 0 ? 0 : (x > 1 ? 1 : x); }
 
   bool Execute(InferData* result, const ModelIO& model_output, const ModelInfo* model) {
-    LOGD(PostprocYolov3) << "PostprcessYolov3:Execute()";
+    VLOG(5) << "[EasyDK InferServer] [PythonAPISamples] PostprocYolov3:Execute()";
     std::vector<DetectObject> objs;
     py::gil_scoped_acquire gil;
     std::shared_ptr<py::dict> user_data = result->GetUserData<std::shared_ptr<py::dict>>();
@@ -118,7 +116,7 @@ struct PostprocYolov3 {
 
     const float* data = reinterpret_cast<const float*>(model_output.buffers[0].Data());
     int box_num = data[0];
-    LOGD(PostprocYolov3) << "--------------------------box num: " << box_num;
+    VLOG(5) << "[EasyDK InferServer] [PythonAPISamples] PostprocYolov3: ----------------box num: " << box_num;
     constexpr int box_step = 7;
     for (int bi = 0; bi < box_num; ++bi) {
       float left = Clip(data[64 + bi * box_step + 3]);
@@ -143,12 +141,9 @@ struct PostprocYolov3 {
       obj.bbox.y = top;
       obj.bbox.w = std::min(1.0f - obj.bbox.x, right - left);
       obj.bbox.h = std::min(1.0f - obj.bbox.y, bottom - top);
-      LOGD(PostprocYolov3) << "obj.label " << obj.label
-                           << " obj.score " << obj.score
-                           << " obj.bbox.x " << obj.bbox.x
-                           << " obj.bbox.y " << obj.bbox.y
-                           << " obj.bbox.w " << obj.bbox.w
-                           << " obj.bbox.h " << obj.bbox.h;
+      VLOG(5) << "[EasyDK InferServer] [PythonAPISamples] PostprocYolov3: obj.label " << obj.label << " obj.score "
+              << obj.score << " obj.bbox.x " << obj.bbox.x << " obj.bbox.y " << obj.bbox.y << " obj.bbox.w "
+              << obj.bbox.w << " obj.bbox.h " << obj.bbox.h;
       if ((threshold > 0 && obj.score < threshold) || obj.bbox.w <= 0 || obj.bbox.h <= 0) continue;
       objs.emplace_back(std::move(obj));
     }
@@ -160,10 +155,86 @@ struct PostprocYolov3 {
     });
     (*dict)["objs"] = objs;
     result->Set(dict);
-    // LOGD(PostprocYolov3) << "PostprcessYolov3::Execute() done";
+    VLOG(5) << "[EasyDK InferServer] [PythonAPISamples] PostprocYolov3::Execute() done";
     return true;
   }
 };  // struct PostprocYolov3
+
+struct PostprocYolov3MM {
+  float threshold;
+
+  explicit PostprocYolov3MM(float _threshold) : threshold(_threshold) {}
+
+  inline float Clip(float x) { return x < 0 ? 0 : (x > 1 ? 1 : x); }
+
+  bool Execute(InferData* result, const ModelIO& model_output, const ModelInfo* model) {
+    VLOG(5) << "[EasyDK InferServer] [PythonAPISamples] PostprocYolov3MM::Execute()";
+    std::vector<DetectObject> objs;
+    py::gil_scoped_acquire gil;
+    std::shared_ptr<py::dict> user_data = result->GetUserData<std::shared_ptr<py::dict>>();
+    int image_w = py::cast<int>((*user_data)["image_width"]);
+    int image_h = py::cast<int>((*user_data)["image_height"]);
+    py::gil_scoped_release release;
+    int model_input_w = model->InputShape(0)[2];
+    int model_input_h = model->InputShape(0)[1];
+    if (model->InputLayout(0).order == DimOrder::NCHW) {
+      model_input_w = model->InputShape(0)[3];
+      model_input_h = model->InputShape(0)[2];
+    }
+
+    float scaling_factors = std::min(1.0 * model_input_w / image_w, 1.0 * model_input_h / image_h);
+
+    // scaled size
+    const int scaled_w = scaling_factors * image_w;
+    const int scaled_h = scaling_factors * image_h;
+
+    // second output contains box_num
+    const int box_num = reinterpret_cast<const int*>(model_output.buffers[1].Data())[0];
+    VLOG(5) << "[EasyDK InferServer] [PythonAPISamples] PostprocYolov3MM: ----------------box num: " << box_num;
+    constexpr int box_step = 7;
+    // first output contains box, score and label
+    const float* data = reinterpret_cast<const float*>(model_output.buffers[0].Data());
+    for (int bi = 0; bi < box_num; ++bi) {
+      float left = Clip(data[bi * box_step + 3]);
+      float right = Clip(data[bi * box_step + 5]);
+      float top = Clip(data[bi * box_step + 4]);
+      float bottom = Clip(data[bi * box_step + 6]);
+
+      // rectify
+      left = (left * model_input_w - (model_input_w - scaled_w) / 2) / scaled_w;
+      right = (right * model_input_w - (model_input_w - scaled_w) / 2) / scaled_w;
+      top = (top * model_input_h - (model_input_h - scaled_h) / 2) / scaled_h;
+      bottom = (bottom * model_input_h - (model_input_h - scaled_h) / 2) / scaled_h;
+      left = std::max(0.0f, left);
+      right = std::max(0.0f, right);
+      top = std::max(0.0f, top);
+      bottom = std::max(0.0f, bottom);
+
+      DetectObject obj;
+      obj.label = static_cast<int>(data[bi * box_step + 1]);
+      obj.score = data[bi * box_step + 2];
+      obj.bbox.x = left;
+      obj.bbox.y = top;
+      obj.bbox.w = std::min(1.0f - obj.bbox.x, right - left);
+      obj.bbox.h = std::min(1.0f - obj.bbox.y, bottom - top);
+      VLOG(5) << "[EasyDK InferServer] [PythonAPISamples] PostprocYolov3MM: obj.label " << obj.label << " obj.score "
+              << obj.score << " obj.bbox.x " << obj.bbox.x << " obj.bbox.y " << obj.bbox.y << " obj.bbox.w "
+              << obj.bbox.w << " obj.bbox.h " << obj.bbox.h;
+      if ((threshold > 0 && obj.score < threshold) || obj.bbox.w <= 0 || obj.bbox.h <= 0) continue;
+      objs.emplace_back(std::move(obj));
+    }
+    py::gil_scoped_acquire gil_dict;
+    std::shared_ptr<py::dict> dict = std::shared_ptr<py::dict>(new py::dict(), [] (py::dict* t) {
+      // py::dict destruct in c++ thread without gil resource, it is important to get gil
+      py::gil_scoped_acquire gil;
+      delete t;
+    });
+    (*dict)["objs"] = objs;
+    result->Set(dict);
+    VLOG(5) << "[EasyDK InferServer] [PythonAPISamples] PostprocYolov3MM::Execute() done";
+    return true;
+  }
+};  // struct PostprocYolov3MM
 
 void SampleWrapper(const py::module &m) {
   py::class_<DetectObject>(m, "DetectObject")
@@ -182,6 +253,12 @@ void SampleWrapper(const py::module &m) {
   py::class_<PostprocYolov3>(m, "PostprocYolov3")
       .def(py::init<float>())
       .def("execute", [] (PostprocYolov3 postproc, InferData* result, std::reference_wrapper<ModelIO> model_output,
+                          const ModelInfo* model) {
+          return postproc.Execute(result, model_output.get(), model);
+      }, py::call_guard<py::gil_scoped_release>());
+  py::class_<PostprocYolov3MM>(m, "PostprocYolov3MM")
+      .def(py::init<float>())
+      .def("execute", [] (PostprocYolov3MM postproc, InferData* result, std::reference_wrapper<ModelIO> model_output,
                           const ModelInfo* model) {
           return postproc.Execute(result, model_output.get(), model);
       }, py::call_guard<py::gil_scoped_release>());

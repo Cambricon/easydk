@@ -27,5 +27,7 @@ track_model_path="cpu"
      --wait_time 0 \
      --repeat_time 0 \
      --decode_type mlu \
-     --dev_id 0
+     --dev_id 0 \
+     --colorlogtostderr \
+     --alsologtostderr
 popd

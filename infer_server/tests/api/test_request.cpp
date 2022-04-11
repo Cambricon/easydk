@@ -126,7 +126,7 @@ class InferServerRequestTest : public InferServerTestAPI {
     SetMluContext();
     model_ = server_->LoadModel(model_url);
     if (!model_) {
-      std::cerr << "load model failed";
+      LOG(ERROR) << "[EasyDK Tests] [InferServer] Load model failed";
       std::terminate();
     }
     preproc_mlu_ = PreprocessorMLU::Create();
@@ -174,7 +174,7 @@ class InferServerRequestTest : public InferServerTestAPI {
 
   PackagePtr PrepareOpenCVInput(const std::string& image_path, size_t data_num) {
     PackagePtr in = std::make_shared<Package>();
-    std::cout << "image path: " << image_path << std::endl;
+    VLOG(5) << "[EasyDK Tests] [InferServer] Image path: " << image_path;
     cv::Mat img = cv::imread(GetExePath() + image_path);
     for (size_t i = 0; i < data_num; ++i) {
       video::OpencvFrame cvframe;
@@ -208,7 +208,7 @@ class InferServerRequestTest : public InferServerTestAPI {
     edk::MluContext context(device_id_);
     auto version = context.GetCoreVersion();
     if (version != edk::CoreVersion::MLU220 && version != edk::CoreVersion::MLU270) {
-      std::cerr << "Unsupport core version" << static_cast<int>(version) << std::endl;
+      LOG(ERROR) << "[EasyDK Tests] [InferServer] Unsupported core version" << CoreVersionStr(version);
       return nullptr;
     }
     auto p_type = cncv_used ? PreprocessType::CNCV_PREPROC : PreprocessType::RESIZE_CONVERT;
@@ -224,7 +224,8 @@ class InferServerRequestTest : public InferServerTestAPI {
 
   void WaitAsyncDone() {
     auto f = get_response_.get_future();
-    ASSERT_NE(f.wait_for(std::chrono::seconds(30)), std::future_status::timeout) << "wait for response timeout";
+    ASSERT_NE(f.wait_for(std::chrono::seconds(30)), std::future_status::timeout)
+        << "[EasyDK Tests] [InferServer] Wait for response timeout";
     EXPECT_EQ(f.get(), Status::SUCCESS);
   }
 
@@ -260,7 +261,7 @@ class MyPostprocessor : public ProcessorForkable<MyPostprocessor> {
     constexpr const char* params[] = {"model_info", "device_id"};
     for (auto p : params) {
       if (!HaveParam(p)) {
-        LOG(ERROR) << p << " has not been set!";
+        LOG(ERROR) << "[EasyDK Tests] [InferServer] " << p << " has not been set!";
         return Status::INVALID_PARAM;
       }
     }
@@ -268,7 +269,7 @@ class MyPostprocessor : public ProcessorForkable<MyPostprocessor> {
       model_ = GetParam<ModelPtr>("model_info");
       dev_id_ = GetParam<int>("device_id");
     } catch (bad_any_cast&) {
-      LOG(ERROR) << "Unmatched data type";
+      LOG(ERROR) << "[EasyDK Tests] [InferServer] Unmatched data type";
       return Status::WRONG_TYPE;
     }
     return Status::SUCCESS;

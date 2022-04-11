@@ -56,19 +56,19 @@ class InferServerTest : public testing::Test {
 class TestProcessor : public infer_server::ProcessorForkable<TestProcessor> {
  public:
   TestProcessor() noexcept : infer_server::ProcessorForkable<TestProcessor>("TestProcessor") {
-    std::cout << "[TestProcessor] Construct\n";
+    VLOG(1) << "[EasyDK Tests] [InferServer] TestProcessor Construct";
   }
 
-  ~TestProcessor() { std::cout << "[TestProcessor] Destruct\n"; }
+  ~TestProcessor() { VLOG(1) << "[EasyDK Tests] [InferServer] TestProcessor Destruct"; }
 
   infer_server::Status Process(infer_server::PackagePtr data) noexcept override {
-    std::cout << "[TestProcessor] Process\n";
+    VLOG(4) << "[EasyDK Tests] [InferServer] TestProcessor Process";
     if (!initialized_) return infer_server::Status::ERROR_BACKEND;
     return infer_server::Status::SUCCESS;
   }
 
   infer_server::Status Init() noexcept override {
-    std::cout << "[TestProcessor] Init\n";
+    VLOG(1) << "[EasyDK Tests] [InferServer] TestProcessor Init";
     initialized_ = true;
     return infer_server::Status::SUCCESS;
   }

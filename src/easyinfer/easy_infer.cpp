@@ -20,10 +20,10 @@
 
 #include "easyinfer/easy_infer.h"
 
+#include <glog/logging.h>
 #include <memory>
 #include <utility>
 
-#include "cxxutil/log.h"
 #include "internal/mlu_task_queue.h"
 #include "model_loader_internal.h"
 
@@ -62,31 +62,33 @@ void EasyInfer::Init(std::shared_ptr<ModelLoader> model, int dev_id) {
   ModelLoaderInternalInterface interface(d_ptr_->model_.get());
 
   // clang-format off
-  LOGD(INFER) << "Init inference context:"
-              << "\n\t device id: " << dev_id
-              << "\n\t model: " << reinterpret_cast<void*>(d_ptr_->model_.get());
+  VLOG(4) << "[EasyDK EasyInfer] Init inference context:"
+          << "\n\t device id: " << dev_id
+          << "\n\t model: " << reinterpret_cast<void*>(d_ptr_->model_.get());
   // clang-format on
 
   // init function
-  CALL_CNRT_FUNC(cnrtCreateFunction(&d_ptr_->function_), "Create function failed.");
+  CALL_CNRT_FUNC(cnrtCreateFunction(&d_ptr_->function_), "[EasyDK EasyInfer] Create function failed.");
 
-  CALL_CNRT_FUNC(cnrtCopyFunction(&d_ptr_->function_, interface.Function()), "Copy function failed.");
+  CALL_CNRT_FUNC(cnrtCopyFunction(&d_ptr_->function_, interface.Function()),
+                 "[EasyDK EasyInfer] Copy function failed.");
 
   d_ptr_->batch_size_ = 1;
   cnrtChannelType_t channel = CNRT_CHANNEL_TYPE_NONE;
   CALL_CNRT_FUNC(cnrtCreateRuntimeContext(&d_ptr_->runtime_context_, d_ptr_->function_, NULL),
-                 "Create runtime context failed!");
+                 "[EasyDK EasyInfer] Create runtime context failed!");
 
   CALL_CNRT_FUNC(cnrtSetRuntimeContextChannel(d_ptr_->runtime_context_, channel),
-                 "Set Runtime Context Channel failed!");
+                 "[EasyDK EasyInfer] Set Runtime Context Channel failed!");
   CALL_CNRT_FUNC(cnrtSetRuntimeContextDeviceId(d_ptr_->runtime_context_, dev_id),
-                 "Set Runtime Context Device Id failed!");
-  CALL_CNRT_FUNC(cnrtInitRuntimeContext(d_ptr_->runtime_context_, NULL), "Init runtime context failed!");
+                 "[EasyDK EasyInfer] Set Runtime Context Device Id failed!");
+  CALL_CNRT_FUNC(cnrtInitRuntimeContext(d_ptr_->runtime_context_, NULL),
+                 "[EasyDK EasyInfer] Init runtime context failed!");
 
-  LOGI(INFER) << "Create MLU task queue from runtime context";
+  LOG(INFO) << "[EasyDK EasyInfer] Create MLU task queue from runtime context";
   cnrtQueue_t cnrt_queue;
   CALL_CNRT_FUNC(cnrtRuntimeContextCreateQueue(d_ptr_->runtime_context_, &cnrt_queue),
-                 "Runtime Context Create Queue failed");
+                 "[EasyDK EasyInfer] Runtime Context Create Queue failed");
   d_ptr_->queue_ = MluTaskQueueProxy::Wrap(cnrt_queue);
   // init param
   d_ptr_->param_ = new void*[d_ptr_->model_->InputNum() + d_ptr_->model_->OutputNum()];
@@ -99,8 +101,8 @@ void EasyInfer::Run(void** input, void** output, float* hw_time) const {
   int i_num = d_ptr_->model_->InputNum();
   int o_num = d_ptr_->model_->OutputNum();
 
-  LOGT(INFER) << "Process inference on one frame, input num: " << i_num << " output num: " << o_num;
-  LOGT(INFER) << "Inference, input: " << input << " output: " << output;
+  VLOG(5) << "[EasyDK EasyInfer] Process inference on one frame, input num: " << i_num << " output num: " << o_num;
+  VLOG(5) << "[EasyDK EasyInfer] Inference, input: " << input << " output: " << output;
   // prepare params for invokefunction
   for (int i = 0; i < i_num; ++i) {
     d_ptr_->param_[i] = input[i];
@@ -115,7 +117,7 @@ void EasyInfer::Run(void** input, void** output, float* hw_time) const {
   }
 
   CALL_CNRT_FUNC(cnrtInvokeRuntimeContext(d_ptr_->runtime_context_, d_ptr_->param_, q, NULL),
-                 "Invoke Runtime Context failed");
+                 "[EasyDK EasyInfer] Invoke Runtime Context failed");
 
   if (hw_time) {
     // place end event
@@ -124,7 +126,7 @@ void EasyInfer::Run(void** input, void** output, float* hw_time) const {
   d_ptr_->queue_->Sync();
   if (hw_time) {
     *hw_time = TimeMark::Count(*d_ptr_->mark_start_, *d_ptr_->mark_end_);
-    LOGI(INFER) << "Inference hardware time " << *hw_time << " ms";
+    LOG(INFO) << "[EasyDK EasyInfer] Inference hardware time " << *hw_time << " ms";
   }
 }
 
@@ -132,8 +134,8 @@ void EasyInfer::RunAsync(void** input, void** output, MluTaskQueue_t task_queue)
   int i_num = d_ptr_->model_->InputNum();
   int o_num = d_ptr_->model_->OutputNum();
 
-  LOGT(INFER) << "Process inference on one frame, input num: " << i_num << " output num: " << o_num;
-  LOGT(INFER) << "Inference, input: " << input << " output: " << output;
+  VLOG(5) << "[EasyDK EasyInfer] Process inference on one frame, input num: " << i_num << " output num: " << o_num;
+  VLOG(5) << "[EasyDK EasyInfer] Inference, input: " << input << " output: " << output;
   // prepare params for invokefunction
   for (int i = 0; i < i_num; ++i) {
     d_ptr_->param_[i] = input[i];
@@ -151,7 +153,7 @@ void EasyInfer::RunAsync(void** input, void** output, MluTaskQueue_t task_queue)
 
   cnrtQueue_t q = MluTaskQueueProxy::GetCnrtQueue(task_queue);
   CALL_CNRT_FUNC(cnrtInvokeRuntimeContext(d_ptr_->runtime_context_, d_ptr_->param_, q, extra),
-                 "Invoke Runtime Context failed");
+                 "[EasyDK EasyInfer] Invoke Runtime Context failed");
 }
 
 std::shared_ptr<ModelLoader> EasyInfer::Model() const { return d_ptr_->model_; }

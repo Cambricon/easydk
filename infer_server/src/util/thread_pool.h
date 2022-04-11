@@ -42,7 +42,7 @@ struct Task {
     if (func) {
       (func)();
     } else {
-      LOG(WARNING) << "No task function";
+      LOG(WARNING) << "[EasyDK InferServer] [Task] No task function";
     }
   }
 
@@ -182,8 +182,8 @@ class ThreadPool {
   template <typename callable, typename... arguments>
   auto Push(int64_t priority, callable &&f, arguments &&... args)
       -> std::future<typename std::result_of<callable(arguments...)>::type> {
-    VLOG(6) << "Sumbit one task to threadpool, priority: " << priority;
-    VLOG(6) << "thread pool (idle/total): " << IdleNumber() << " / " << Size();
+    VLOG(4) << "[EasyDK InferServer] [ThreadPool] Sumbit one task to threadpool, priority: " << priority;
+    VLOG(4) << "[EasyDK InferServer] [ThreadPool] Thread pool (idle/total): " << IdleNumber() << " / " << Size();
     auto pck = std::make_shared<std::packaged_task<typename std::result_of<callable(arguments...)>::type()>>(
         std::bind(std::forward<callable>(f), std::forward<arguments>(args)...));
     task_q_.Emplace([pck]() { (*pck)(); }, priority);
@@ -204,8 +204,8 @@ class ThreadPool {
    */
   template <typename callable, typename... arguments>
   void VoidPush(int64_t priority, callable &&f, arguments &&... args) {
-    VLOG(6) << "Sumbit one task to threadpool, priority: " << priority;
-    VLOG(6) << "thread pool (idle/total): " << IdleNumber() << " / " << Size();
+    VLOG(4) << "[EasyDK InferServer] [ThreadPool] Sumbit one task to threadpool, priority: " << priority;
+    VLOG(4) << "[EasyDK InferServer] [ThreadPool] Thread pool (idle/total): " << IdleNumber() << " / " << Size();
     task_q_.Emplace(std::bind(std::forward<callable>(f), std::forward<arguments>(args)...), priority);
     cv_.notify_one();
   }

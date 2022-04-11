@@ -1,3 +1,23 @@
+# ==============================================================================
+# Copyright (C) [2022] by Cambricon, Inc. All rights reserved
+#
+#  Licensed under the Apache License, Version 2.0 (the "License");
+#  you may not use this file except in compliance with the License.
+#  You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# The above copyright notice and this permission notice shall be included in
+# all copies or substantial portions of the Software.
+# THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS
+# OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+# FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL
+# THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+# LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+# OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+# THE SOFTWARE.
+# ==============================================================================
+
 """Processor test
 
 This module tests Preprocessor, Postprocessor and ModelIO related APIs
@@ -10,22 +30,19 @@ import numpy as np
 sys.path.append(os.path.split(os.path.realpath(__file__))[0] + "/../lib")
 import cnis
 import cnis_cpptest
-
-tag = "stream_0"
-ssd_mlu270_model_dir = \
-    "http://video.cambricon.com/models/MLU270/Primary_Detector/ssd/vgg16_ssd_b4c4_bgra_mlu270.cambricon"
+import utils
 
 def request_package(session_desc, infer_server, session):
   """Create input package and send it to InferServer."""
   # Create a package with random data
-  input_pak = cnis.Package(1, tag)
+  input_pak = cnis.Package(1, utils.tag)
   input_shape = session_desc.model.input_shape(0)
   data_size = [input_shape[1], input_shape[2], input_shape[3]]
   if session_desc.model.input_layout(0).order == cnis.DimOrder.NCHW:
     data_size = [input_shape[2], input_shape[3], input_shape[1]]
   input_data = np.random.randint(0, 255, size=data_size, dtype=np.dtype(np.uint8))
   input_pak.data[0].set(input_data)
-  output = cnis.Package(1, tag)
+  output = cnis.Package(1, utils.tag)
   status = cnis.Status.SUCCESS
   # Request
   assert infer_server.request_sync(session, input_pak, status, output)
@@ -67,7 +84,7 @@ class TestPreprocess(object):
     session_desc = cnis.SessionDesc()
     session_desc.name = "test_session"
     # Load model
-    session_desc.model = infer_server.load_model(ssd_mlu270_model_dir)
+    session_desc.model = infer_server.load_model(utils.model_dir)
 
     # Create PreprocessorHost and set custom preprocess function to description
     session_desc.preproc = cnis.PreprocessorHost()
@@ -79,8 +96,8 @@ class TestPreprocess(object):
     session = infer_server.create_sync_session(session_desc)
 
     # Create a package
-    input_pak = cnis.Package(1, tag)
-    output = cnis.Package(1, tag)
+    input_pak = cnis.Package(1, utils.tag)
+    output = cnis.Package(1, utils.tag)
     status = cnis.Status.SUCCESS
     # Request
     assert infer_server.request_sync(session, input_pak, status, output)
@@ -98,7 +115,7 @@ class TestPreprocess(object):
     session_desc = cnis.SessionDesc()
     session_desc.name = "test_session"
     # Load model
-    session_desc.model = infer_server.load_model(ssd_mlu270_model_dir)
+    session_desc.model = infer_server.load_model(utils.model_dir)
 
     # Create PreprocessorHost and set custom preprocess function to description
     session_desc.preproc = cnis.PreprocessorHost()
@@ -110,8 +127,8 @@ class TestPreprocess(object):
     session = infer_server.create_sync_session(session_desc)
 
     # Create a package
-    input_pak = cnis.Package(1, tag)
-    output = cnis.Package(1, tag)
+    input_pak = cnis.Package(1, utils.tag)
+    output = cnis.Package(1, utils.tag)
     status = cnis.Status.SUCCESS
     # Request
     assert infer_server.request_sync(session, input_pak, status, output)
@@ -131,7 +148,7 @@ class TestPostprocess(object):
     session_desc = cnis.SessionDesc()
     session_desc.name = "test_session"
     # Load model
-    session_desc.model = infer_server.load_model(ssd_mlu270_model_dir)
+    session_desc.model = infer_server.load_model(utils.model_dir)
 
     # Create Postprocessor and set custom postprocess function to description
     session_desc.postproc = cnis.Postprocessor()
@@ -158,7 +175,7 @@ class TestPostprocess(object):
     session_desc = cnis.SessionDesc()
     session_desc.name = "test_session"
     # Load model
-    session_desc.model = infer_server.load_model(ssd_mlu270_model_dir)
+    session_desc.model = infer_server.load_model(utils.model_dir)
 
     # Create Postprocessor and set custom postprocess function to description
     session_desc.postproc = cnis.Postprocessor()

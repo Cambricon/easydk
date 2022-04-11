@@ -64,25 +64,25 @@ class PrintResult : public infer_server::Observer {
   void Response(infer_server::Status status, infer_server::PackagePtr out, infer_server::any user_data) noexcept {
     int frame_index = infer_server::any_cast<int>(user_data);
     if (status != infer_server::Status::SUCCESS) {
-      std::cerr << "Infer failed for frame index " << frame_index << std::endl;
+      LOG(ERROR) << "[EasyDK InferServerSamples] [MultiStreamDemo] Infer failed for frame index " << frame_index;
       return;
     }
     for (auto& it : out->data) {
       const std::vector<DetectObject>& objs = it->GetLref<std::vector<DetectObject>>();
       if (objs.empty()) {
-        std::cout << "@@@@@@@@@@@ stream_id: [" << out->tag << "], No objects detected in frame "
-                  << frame_index << std::endl;
+        std::cout << "[EasyDK InferServerSamples] [MultiStreamDemo] @@@@@@@@@@@ stream_id: ["
+                  << out->tag << "], No objects detected in frame " << frame_index << std::endl;
         continue;
       }
-      std::cout << "----- [" << out->tag << "]: Detected objects in frame "
-                << frame_index << std::endl;
+      std::cout << "[EasyDK InferServerSamples] [MultiStreamDemo] ----- [" << out->tag
+                << "]: Detected objects in frame " << frame_index << std::endl;
       for (auto& obj : objs) {
-        std::cout << "label: " << obj.label
-                  << "\t score: " << obj.score
-                  << "\t bbox: " << obj.bbox.x << ", " << obj.bbox.y << ", " << obj.bbox.w << ", " << obj.bbox.h
-                  << std::endl;
+        std::cout << "[EasyDK InferServerSamples] [MultiStreamDemo] label: " << obj.label
+                  << "\t score: " << obj.score << "\t bbox: " << obj.bbox.x << ", " << obj.bbox.y
+                  << ", " << obj.bbox.w << ", " << obj.bbox.h << std::endl;
       }
-      std::cout << "------------ Detected objects end -----------" << std::endl;
+      std::cout << "[EasyDK InferServerSamples] [MultiStreamDemo] ------------ Detected objects end -----------"
+                << std::endl;
     }
   }
 };
@@ -93,7 +93,8 @@ int Process(infer_server::InferServer server, infer_server::Session_t session,
   cv::VideoCapture source(video_path.c_str());
   lk.unlock();
   if (!source.isOpened()) {
-    std::cerr << "!!!!!!!! cannot open video file: " << video_path << ", stream_id: " << stream_id << std::endl;
+    LOG(ERROR) << "[EasyDK InferServerSamples] [MultiStreamDemo] Cannot open video file: " << video_path
+               << ", stream_id: " << stream_id;
     return -1;
   }
   cv::Mat frame;
@@ -139,7 +140,7 @@ int Process(infer_server::InferServer server, infer_server::Session_t session,
     input->data[0]->SetUserData(FrameSize{frame_width, frame_height});
     input->tag = stream_id;
     if (!server.Request(session, input, frame_index++)) {
-      std::cerr << "stream_id [" << stream_id << "] request failed" << std::endl;
+      LOG(ERROR) << "[EasyDK InferServerSamples] [MultiStreamDemo] stream_id [" << stream_id << "] request failed";
       server.DestroySession(session);
       return -2;
     }
@@ -151,7 +152,7 @@ int Process(infer_server::InferServer server, infer_server::Session_t session,
 
 int main(int argc, char** argv) {
   if (argc != 2) {
-    std::cerr << "USAGE: " << argv[0] << " path-to-video-file" << std::endl;
+    LOG(ERROR) << "[EasyDK InferServerSamples] [MultiStreamDemo] USAGE: " << argv[0] << " path-to-video-file";
     return 0;
   }
 
@@ -181,24 +182,40 @@ int main(int argc, char** argv) {
   } else if (core_version == edk::CoreVersion::MLU220) {
     desc.model = infer_server::InferServer::LoadModel(g_model_path_mlu220);
   } else {
-    std::cerr << "Core version is not supported, " << std::to_string(static_cast<int>(core_version)) << std::endl;
+    LOG(ERROR) << "[EasyDK InferServerSamples] [MultiStreamDemo] Core version is not supported, "
+               << CoreVersionStr(core_version);
   }
 
 #ifdef USE_CNCV_PREPROC
   // Use CNCV preproc
   desc.preproc = infer_server::video::PreprocessorMLU::Create();
-  desc.preproc->SetParams("preprocess_type", infer_server::video::PreprocessType::CNCV_PREPROC,
-                          "src_format", infer_server::video::PixelFmt::NV12,
-                          "dst_format", infer_server::video::PixelFmt::RGB24,
-                          "normalize", false,
-                          "keep_aspect_ratio", true);
+  if (core_version == edk::CoreVersion::MLU370) {
+    desc.preproc->SetParams("preprocess_type", infer_server::video::PreprocessType::CNCV_PREPROC,
+                            "src_format", infer_server::video::PixelFmt::NV12,
+                            "dst_format", infer_server::video::PixelFmt::RGB24,
+                            "normalize", false,
+                            "keep_aspect_ratio", true);
+  } else {
+    desc.preproc->SetParams("preprocess_type", infer_server::video::PreprocessType::CNCV_PREPROC,
+                            "src_format", infer_server::video::PixelFmt::NV12,
+                            "dst_format", infer_server::video::PixelFmt::RGB24,
+                            "normalize", true,
+                            "keep_aspect_ratio", true);
+  }
 #else
   // Use OpenCV preproc
   desc.preproc = infer_server::PreprocessorHost::Create();
-  desc.host_input_layout = {infer_server::DataType::UINT8, infer_server::DimOrder::NHWC};
-  desc.preproc->SetParams("process_function",
-                          infer_server::video::OpencvPreproc::GetFunction(infer_server::video::PixelFmt::RGB24,
-                                                                          {}, {}, false, true));
+  if (core_version == edk::CoreVersion::MLU370) {
+    desc.host_input_layout = {infer_server::DataType::UINT8, infer_server::DimOrder::NHWC};
+    desc.preproc->SetParams("process_function",
+                            infer_server::video::OpencvPreproc::GetFunction(infer_server::video::PixelFmt::RGB24,
+                                                                            {}, {}, false, true));
+  } else {
+    desc.host_input_layout = {infer_server::DataType::FLOAT32, infer_server::DimOrder::NHWC};
+    desc.preproc->SetParams("process_function",
+                            infer_server::video::OpencvPreproc::GetFunction(infer_server::video::PixelFmt::RGB24,
+                                                                            {}, {}, true, true));
+  }
 #endif
 
   desc.postproc = infer_server::Postprocessor::Create();
@@ -225,11 +242,12 @@ int main(int argc, char** argv) {
       if (iter->second.wait_for(std::chrono::seconds(0)) == std::future_status::ready) {
         int ret = iter->second.get();
         if (ret == 0) {
-          std::cout << "############## Stream id: [" << iter->first << "] PROCESS SUCCEED!!" << std::endl;
+          LOG(INFO) << "[EasyDK InferServerSamples] [MultiStreamDemo] ############## Stream id: [" << iter->first
+                    << "] PROCESS SUCCEED!!";
         } else {
           failed_stream_vec.push_back({iter->first, ret});
-          std::cout << "############## Stream id: [" << iter->first << "] PROCESS FAILED, ret code = "
-                    << ret << std::endl;
+          LOG(ERROR) << "[EasyDK InferServerSamples] [MultiStreamDemo] ############## Stream id: [" << iter->first
+                     << "] PROCESS FAILED, ret code = " << ret;
         }
         process_return_vec.erase(iter);
         iter = process_return_vec.begin();
@@ -245,15 +263,18 @@ int main(int argc, char** argv) {
   uint64_t end = duration_cast<milliseconds>(std::chrono::steady_clock::now().time_since_epoch()).count();
 
   if (failed_stream_vec.empty()) {
-    std::cout << "All " << stream_number << " Streams Process Succeed!!!" << std::endl;
+    LOG(INFO) << "[EasyDK InferServerSamples] [MultiStreamDemo] All " << stream_number << " Streams Process Succeed!!!";
   } else {
-    std::cout << failed_stream_vec.size() << "/" << stream_number << " Streams Process Failed!!!" << std::endl;
+    LOG(ERROR) << "[EasyDK InferServerSamples] [MultiStreamDemo] " << failed_stream_vec.size() << "/" << stream_number
+               << " Streams Process Failed!!!";
     for (auto &it : failed_stream_vec) {
-      std::cout << "Stream id : [" << it.first << "], ret code = " << it.second << std::endl;
+      LOG(ERROR) << "[EasyDK InferServerSamples] [MultiStreamDemo] Stream id : [" << it.first << "], ret code = "
+                 << it.second;
     }
   }
 
-  std::cout << "Total time: " << end - start << " ms, Process time: " << end - process_start << " ms" << std::endl;
+  LOG(INFO) << "[EasyDK InferServerSamples] [MultiStreamDemo] Total time: " << end - start << " ms, Process time: "
+            << end - process_start << " ms";
 
   return 0;
 }

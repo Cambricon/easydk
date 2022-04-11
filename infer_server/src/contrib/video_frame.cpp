@@ -60,7 +60,7 @@ size_t VideoFrame::GetPlaneSize(size_t plane_idx) const noexcept {
         size_t stride1 = stride[1] < width ? width : stride[1];
         return height * stride1 / 2;
       } else {
-        LOG(FATAL) << "plane index wrong.";
+        LOG(FATAL) << "[EasyDK InferServer] [VideoFrame] plane index is wrong, YUV NV12 or NV21 only has 2 planes";
       }
     case PixelFmt::ABGR:
     case PixelFmt::ARGB:
@@ -74,7 +74,7 @@ size_t VideoFrame::GetPlaneSize(size_t plane_idx) const noexcept {
         size_t stride1 = stride[1] < width / 2 ? width / 2 : stride[1];
         return height * stride1 / 2;
       } else {
-        LOG(FATAL) << "plane index wrong.";
+        LOG(FATAL) << "[EasyDK InferServer] [VideoFrame] plane index is wrong, YUV I420 only has 3 planes";
       }
     default:
       return 0;

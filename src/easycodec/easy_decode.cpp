@@ -20,13 +20,13 @@
 
 #include "easycodec/easy_decode.h"
 
+#include <glog/logging.h>
 #include <atomic>
 #include <cstring>
 #include <memory>
 #include <string>
 
 #include "cnrt.h"
-#include "cxxutil/log.h"
 #include "decoder.h"
 #include "device/mlu_context.h"
 
@@ -34,8 +34,8 @@
   do {                                                                                       \
     int ret = (func);                                                                        \
     if (0 != ret) {                                                                          \
-      LOGE(DECODE) << msg << " error code: " << ret;                                         \
-      THROW_EXCEPTION(Exception::INTERNAL, msg " cnrt error code : " + std::to_string(ret)); \
+      LOG(ERROR) <<  msg << " error code: " << ret;                                         \
+      THROW_EXCEPTION(Exception::INTERNAL, msg " CNRT error code : " + std::to_string(ret)); \
     }                                                                                        \
   } while (0)
 
@@ -62,11 +62,11 @@ EasyDecode::EasyDecode(const Attr& attr) {
       handler_ = CreateMlu200Decoder(attr);
     } else {
       THROW_EXCEPTION(Exception::INIT_FAILED,
-                      "Device not supported yet, core version: " + std::to_string(static_cast<int>(core_version)));
+          "[EasyDK EasyCodec] [EasyDecode] Device not supported yet, core version: " + CoreVersionStr(core_version));
     }
     if (nullptr == handler_) {
       THROW_EXCEPTION(Exception::INIT_FAILED,
-                      "New decoder failed, core version: " + std::to_string(static_cast<int>(core_version)));
+          "[EasyDK EasyCodec] [EasyDecode] New decoder failed, core version: " + CoreVersionStr(core_version));
     }
   } catch (...) {
     delete handler_;
@@ -90,6 +90,8 @@ bool EasyDecode::Resume() { return handler_->Resume(); }
 
 void EasyDecode::AbortDecoder() { handler_->AbortDecoder(); }
 
+void EasyDecode::DestroyDecoder() { return handler_->DestroyDecoder(); }
+
 EasyDecode::Status EasyDecode::GetStatus() const { return handler_->GetStatus(); }
 
 bool EasyDecode::FeedData(const CnPacket& packet, bool integral_frame) {
@@ -97,7 +99,7 @@ bool EasyDecode::FeedData(const CnPacket& packet, bool integral_frame) {
     return false;
   }
   if (packet.length == 0 || (!packet.data)) {
-    LOGE(DECODE) << "Packet do not have data. The packet will not be sent.";
+    LOG(ERROR) << "[EasyDK EasyCodec] [EasyDecode] Packet do not have data. The packet will not be sent.";
     return false;
   }
   int progressive_mode = detail::CheckProgressiveMode(reinterpret_cast<uint8_t*>(packet.data), packet.length);
@@ -116,7 +118,7 @@ bool EasyDecode::FeedData(const CnPacket& packet, bool integral_frame) {
 bool EasyDecode::FeedEos() { return handler_->FeedEos(); }
 
 void EasyDecode::ReleaseBuffer(uint64_t buf_id) {
-  LOGD(DECODE) << "Release decode buffer reference " << buf_id;
+  VLOG(4) << "[EasyDK EasyCodec] [EasyDecode] Release decode buffer reference " << buf_id;
   bool is_progressive =
       progressive_jpeg_handler_ && progressive_jpeg_handler_->ReleaseBuffer(buf_id);
   if (!is_progressive) {
@@ -126,13 +128,14 @@ void EasyDecode::ReleaseBuffer(uint64_t buf_id) {
 
 bool EasyDecode::CopyFrameD2H(void* dst, const CnFrame& frame) {
   if (!dst) {
-    THROW_EXCEPTION(Exception::INVALID_ARG, "CopyFrameD2H: destination is nullptr");
+    THROW_EXCEPTION(Exception::INVALID_ARG, "[EasyDK EasyCodec] [EasyDecode] CopyFrameD2H: destination is nullptr");
     return false;
   }
   auto odata = reinterpret_cast<uint8_t*>(dst);
-  LOGT(DECODE) << "Copy codec frame from device to host";
-  LOGT(DECODE) << "device address: (plane 0) " << frame.ptrs[0] << ", (plane 1) " << frame.ptrs[1];
-  LOGT(DECODE) << "host address: " << reinterpret_cast<int64_t>(odata);
+  VLOG(5) << "[EasyDK EasyCodec] [EasyDecode] Copy codec frame from device to host";
+  VLOG(5) << "[EasyDK EasyCodec] [EasyDecode] Device address: (plane 0) " << frame.ptrs[0] << ", (plane 1) "
+          << frame.ptrs[1];
+  VLOG(5) << "[EasyDK EasyCodec] [EasyDecode] Host address: " << reinterpret_cast<int64_t>(odata);
 
   switch (frame.pformat) {
     case PixelFmt::NV21:
@@ -140,10 +143,10 @@ bool EasyDecode::CopyFrameD2H(void* dst, const CnFrame& frame) {
       size_t len_y = frame.strides[0] * frame.height;
       size_t len_uv = frame.strides[1] * frame.height / 2;
       CALL_CNRT_FUNC(cnrtMemcpy(reinterpret_cast<void*>(odata), frame.ptrs[0], len_y, CNRT_MEM_TRANS_DIR_DEV2HOST),
-                     "Decode copy frame plane luminance failed.");
+                     "[EasyDK EasyCodec] [EasyDecode] Decode copy frame plane luminance failed.");
       CALL_CNRT_FUNC(
           cnrtMemcpy(reinterpret_cast<void*>(odata + len_y), frame.ptrs[1], len_uv, CNRT_MEM_TRANS_DIR_DEV2HOST),
-          "Decode copy frame plane chroma failed.");
+          "[EasyDK EasyCodec] [EasyDecode] Decode copy frame plane chroma failed.");
       break;
     }
     case PixelFmt::I420: {
@@ -151,17 +154,17 @@ bool EasyDecode::CopyFrameD2H(void* dst, const CnFrame& frame) {
       size_t len_u = frame.strides[1] * frame.height / 2;
       size_t len_v = frame.strides[2] * frame.height / 2;
       CALL_CNRT_FUNC(cnrtMemcpy(reinterpret_cast<void*>(odata), frame.ptrs[0], len_y, CNRT_MEM_TRANS_DIR_DEV2HOST),
-                     "Decode copy frame plane y failed.");
+                     "[EasyDK EasyCodec] [EasyDecode] Decode copy frame plane y failed.");
       CALL_CNRT_FUNC(
           cnrtMemcpy(reinterpret_cast<void*>(odata + len_y), frame.ptrs[1], len_u, CNRT_MEM_TRANS_DIR_DEV2HOST),
-          "Decode copy frame plane u failed.");
+          "[EasyDK EasyCodec] [EasyDecode] Decode copy frame plane u failed.");
       CALL_CNRT_FUNC(
           cnrtMemcpy(reinterpret_cast<void*>(odata + len_y + len_u), frame.ptrs[2], len_v, CNRT_MEM_TRANS_DIR_DEV2HOST),
-          "Decode copy frame plane v failed.");
+          "[EasyDK EasyCodec] [EasyDecode] Decode copy frame plane v failed.");
       break;
     }
     default:
-      LOGE(DECODE) << "don't support format: " << static_cast<int>(frame.pformat);
+      LOG(ERROR) << "[EasyDK EasyCodec] [EasyDecode] Unsupported pixel format: " << PixelFmtStr(frame.pformat);
       break;
   }
 

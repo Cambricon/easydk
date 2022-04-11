@@ -43,7 +43,9 @@ struct HungarianWorkspace {
 
 static inline float InnerProduct(const std::vector<float>& lhs, const std::vector<float>& rhs) {
   size_t cnt = lhs.size();
-  if (cnt != rhs.size()) THROW_EXCEPTION(Exception::INVALID_ARG, "inner product need two vector of equal size");
+  if (cnt != rhs.size()) {
+    THROW_EXCEPTION(Exception::INVALID_ARG, "[EasyDK EasyTrack] [InnerProduct] The size of two vectors mismatched");
+  }
   float sum{0.f};
   for (size_t idx = 0; idx < cnt; ++idx) {
     sum += lhs[idx] * rhs[idx];

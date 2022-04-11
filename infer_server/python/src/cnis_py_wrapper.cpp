@@ -48,6 +48,8 @@ void CommonWrapper(const py::module &m);
 
 void SampleWrapper(const py::module &m);
 
+void MluContextWrapper(py::module m);  // NOLINT
+
 PYBIND11_MODULE(cnis, m) {
   m.doc() = "Cambricon Infer Server python api";
   m.def("version", &edk::Version);
@@ -72,6 +74,8 @@ PYBIND11_MODULE(cnis, m) {
   CommonWrapper(m);
 
   SampleWrapper(m);
+
+  MluContextWrapper(m);
 }
 
 }  // namespace infer_server

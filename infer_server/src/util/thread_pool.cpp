@@ -31,7 +31,8 @@ void ThreadPool<Q, T>::Resize(size_t n_threads) noexcept {
     size_t old_n_threads = threads_.size();
     if (old_n_threads <= n_threads) {
       // if the number of threads is increased
-      VLOG(3) << "add " << n_threads - old_n_threads << " threads into threadpool, total " << n_threads << " threads";
+      VLOG(1) << "[EasyDK InferServer] [ThreadPool] Add " << n_threads - old_n_threads
+              << " threads into threadpool, total " << n_threads << " threads";
       threads_.resize(n_threads);
       flags_.resize(n_threads);
 
@@ -41,7 +42,8 @@ void ThreadPool<Q, T>::Resize(size_t n_threads) noexcept {
       }
     } else {
       // the number of threads is decreased
-      VLOG(3) << "remove " << old_n_threads - n_threads << " threads in threadpool, remain " << n_threads << " threads";
+      VLOG(1) << "[EasyDK InferServer] [ThreadPool] Remove " << old_n_threads - n_threads
+              << " threads in threadpool, remain " << n_threads << " threads";
       for (size_t i = n_threads; i < old_n_threads; ++i) {
         // this thread will finish
         flags_[i]->store(true);
@@ -61,11 +63,11 @@ void ThreadPool<Q, T>::Resize(size_t n_threads) noexcept {
 
 template <typename Q, typename T>
 void ThreadPool<Q, T>::Stop(bool wait_all_task_done) noexcept {
-  VLOG(4) << "Before stop threadpool ----- Task number in queue: " << task_q_.Size()
+  VLOG(2) << "[EasyDK InferServer] [ThreadPool] Before stop threadpool ----- Task number in queue: " << task_q_.Size()
           << ", thread number: " << threads_.size() << ", idle number: " << IdleNumber();
   if (!wait_all_task_done) {
     if (is_stop_) return;
-    VLOG(3) << "stop all the thread without waiting for remained task done";
+    VLOG(1) << "[EasyDK InferServer] [ThreadPool] Stop all the thread without waiting for remained task done";
     is_stop_.store(true);
     for (size_t i = 0, n = this->Size(); i < n; ++i) {
       // command the threads to stop
@@ -76,7 +78,7 @@ void ThreadPool<Q, T>::Stop(bool wait_all_task_done) noexcept {
     this->ClearQueue();
   } else {
     if (is_done_ || is_stop_) return;
-    VLOG(3) << "waiting for remained task done before stop all the thread";
+    VLOG(1) << "[EasyDK InferServer] [ThreadPool] Waiting for remained task done before stop all the thread";
     // give the waiting threads a command to finish
     is_done_.store(true);
   }
@@ -107,9 +109,9 @@ void ThreadPool<Q, T>::SetThread(int i) noexcept {
     // init params that bind with thread
     if (thread_init_func_) {
       if (thread_init_func_()) {
-        VLOG(5) << "Init thread context success, thread index: " << i;
+        VLOG(3) << "[EasyDK InferServer] [ThreadPool] Init thread context success, thread index: " << i;
       } else {
-        LOG(ERROR) << "Init thread context failed, but program will continue. "
+        LOG(ERROR) << "[EasyDK InferServer] [ThreadPool] Init thread context failed, but program will continue. "
                       "Program cannot work correctly maybe.";
       }
     }

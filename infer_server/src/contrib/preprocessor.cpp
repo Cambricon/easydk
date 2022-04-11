@@ -51,7 +51,7 @@ Status PreprocessorMLU::Init() noexcept {
   constexpr const char* params[] = {"model_info", "device_id", "preprocess_type", "dst_format"};
   for (auto p : params) {
     if (!HaveParam(p)) {
-      LOG(ERROR) << p << " has not been set!";
+      LOG(ERROR) << "[EasyDK InferServer] [PreprocessorMLU] " << p << " has not been set!";
       return Status::INVALID_PARAM;
     }
   }
@@ -89,7 +89,7 @@ Status PreprocessorMLU::Init() noexcept {
               new detail::ResizeConvert(model, dev_id, dst_fmt, ctx.GetCoreVersion(), core_number, keep_aspect_ratio));
           break;
         } catch (edk::Exception& e) {
-          LOG(ERROR) << e.what();
+          LOG(ERROR) << "[EasyDK InferServer] [PreprocessorMLU] Error occurs: " << e.what();
           return Status::ERROR_BACKEND;
         }
 #endif
@@ -114,12 +114,12 @@ Status PreprocessorMLU::Init() noexcept {
       }
 #endif
       default:
-        // TODO(dmh): print preprocess type
-        LOG(ERROR) << "not support!";
+        LOG(ERROR) << "[EasyDK InferServer] [PreprocessorMLU] Preprocess type: [" << PreprocessTypeStr(type)
+                   << "] is not supported. If the type is CNCV_PREPROC, please make sure CNCV is installed and linked.";
         return Status::INVALID_PARAM;
     }
     if (!priv_->executor->Init()) {
-      LOG(ERROR) << "Init preprocessor executor failed";
+      LOG(ERROR) << "[EasyDK InferServer] [PreprocessorMLU] Init preprocessor executor failed";
       return Status::ERROR_BACKEND;
     }
 
@@ -129,16 +129,16 @@ Status PreprocessorMLU::Init() noexcept {
     // FIXME(dmh): 3 buffer?
     priv_->pool.reset(new MluMemoryPool(shape.BatchDataCount() * GetTypeSize(layout.dtype), 3, dev_id));
   } catch (bad_any_cast&) {
-    LOG(ERROR) << "Unmatched data type";
+    LOG(ERROR) << "[EasyDK InferServer] [PreprocessorMLU] Unmatched data type";
     return Status::WRONG_TYPE;
   }
   return Status::SUCCESS;
 }
 
 Status PreprocessorMLU::Process(PackagePtr pack) noexcept {
-  CHECK(pack);
+  CHECK(pack) << "[EasyDK InferServer] [PreprocessorMLU] Process pack. It should not be nullptr";
   if (pack->data.empty()) {
-    LOG(ERROR) << "no data in package";
+    LOG(ERROR) << "[EasyDK InferServer] [PreprocessorMLU] no data in package";
     return Status::INVALID_PARAM;
   }
   auto preproc_output = priv_->pool->Request();
@@ -146,7 +146,7 @@ Status PreprocessorMLU::Process(PackagePtr pack) noexcept {
   try {
     ret = priv_->executor->Execute(pack.get(), &preproc_output);
   } catch (bad_any_cast&) {
-    LOG(ERROR) << "Unmatched data type";
+    LOG(ERROR) << "[EasyDK InferServer] [PreprocessorMLU] Unmatched data type";
     return Status::WRONG_TYPE;
   }
 
@@ -155,7 +155,7 @@ Status PreprocessorMLU::Process(PackagePtr pack) noexcept {
     it->data.reset();
   }
   if (!ret) {
-    LOG(ERROR) << "preprocess failed";
+    LOG(ERROR) << "[EasyDK InferServer] [PreprocessorMLU] preprocess failed";
     return Status::ERROR_BACKEND;
   }
   ModelIO model_input;

@@ -106,20 +106,20 @@ bool MluResize::Init(const MluResize::Attr& attr) {
   d_ptr_->y_ptrs_cpu_ = reinterpret_cast<void**>(malloc(sizeof(char*) * attr.batch_size));
   d_ptr_->uv_ptrs_cpu_ = reinterpret_cast<void**>(malloc(sizeof(char*) * attr.batch_size));
   cnrtRet_t cnret = cnrtMalloc(reinterpret_cast<void**>(&d_ptr_->y_ptrs_mlu_), sizeof(char*) * attr.batch_size);
-  CHECK_CNRT_RET(cnret, d_ptr_->estr_, "Malloc src mlu buffer failed. cnrt error code:" + std::to_string(cnret), {},
-                 false);
+  CHECK_CNRT_RET(cnret, d_ptr_->estr_, "[EasyDK EasyBang] [MluResize] Malloc src mlu buffer failed. CNTR error code:" +
+                 std::to_string(cnret), {}, false);
   cnret = cnrtMalloc(reinterpret_cast<void**>(&d_ptr_->uv_ptrs_mlu_), sizeof(char*) * attr.batch_size);
-  CHECK_CNRT_RET(cnret, d_ptr_->estr_, "Malloc src mlu buffer failed. cnrt error code:" + std::to_string(cnret), {},
-                 false);
+  CHECK_CNRT_RET(cnret, d_ptr_->estr_, "[EasyDK EasyBang] [MluResize] Malloc src mlu buffer failed. CNRT error code:" +
+                 std::to_string(cnret), {}, false);
 
   d_ptr_->dst_y_cpu_ = reinterpret_cast<void**>(malloc(sizeof(char*) * attr.batch_size));
   d_ptr_->dst_uv_cpu_ = reinterpret_cast<void**>(malloc(sizeof(char*) * attr.batch_size));
   cnret = cnrtMalloc(reinterpret_cast<void**>(&d_ptr_->dst_y_mlu_), sizeof(char*) * attr.batch_size);
-  CHECK_CNRT_RET(cnret, d_ptr_->estr_, "Malloc dst mlu buffer failed. cnrt error code:" + std::to_string(cnret), {},
-                 false);
+  CHECK_CNRT_RET(cnret, d_ptr_->estr_, "[EasyDK EasyBang] [MluResize] Malloc dst mlu buffer failed. CNRT error code:" +
+                 std::to_string(cnret), {}, false);
   cnret = cnrtMalloc(reinterpret_cast<void**>(&d_ptr_->dst_uv_mlu_), sizeof(char*) * attr.batch_size);
-  CHECK_CNRT_RET(cnret, d_ptr_->estr_, "Malloc dst mlu buffer failed. cnrt error code:" + std::to_string(cnret), {},
-                 false);
+  CHECK_CNRT_RET(cnret, d_ptr_->estr_, "[EasyDK EasyBang] [MluResize] Malloc dst mlu buffer failed. CNRT error code:" +
+                 std::to_string(cnret), {}, false);
 
   switch (attr.core) {
     case 1:
@@ -132,12 +132,12 @@ bool MluResize::Init(const MluResize::Attr& attr) {
       d_ptr_->ftype_ = CNRT_FUNC_TYPE_UNION2;
       break;
     default:
-      d_ptr_->estr_ = "Unsupport union mode. Only support 1(block), 4(u1), 8(u2)";
+      d_ptr_->estr_ = "[EasyDK EasyBang] [MluResize] Unsupported union mode. Only support 1(block), 4(u1), 8(u2)";
       return false;
   }
 
   if (CNRT_RET_SUCCESS != cnrt::QueueCreate(&d_ptr_->queue_)) {
-    d_ptr_->estr_ = "cnrt::QueueCreate failed";
+    d_ptr_->estr_ = "[EasyDK EasyBang] [MluResize] Create CNRT queue failed";
     return false;
   }
   return 0 == ::PrepareKernelParam(d_ptr_->attr_.src_h, d_ptr_->attr_.src_w, d_ptr_->attr_.src_stride_y,
@@ -152,15 +152,14 @@ void MluResize::BatchingUp(void* src_y, void* src_uv) {
 
 bool MluResize::SyncOneOutput(void* dst_y, void* dst_uv) {
   if (nullptr == d_ptr_->queue_) {
-    THROW_EXCEPTION(Exception::INTERNAL, "cnrt queue is null.");
+    THROW_EXCEPTION(Exception::INTERNAL, "[EasyDK EasyBang] [MluResize] CNRT queue is null.");
   }
   CHECK_CONDITION_WITH_CODE(static_cast<int>(d_ptr_->yuv_ptrs_cache_.size()) >= d_ptr_->attr_.batch_size, d_ptr_->estr_,
-                            "Batchsize is " + std::to_string(d_ptr_->attr_.batch_size) + ", but only has" +
-                                std::to_string(d_ptr_->yuv_ptrs_cache_.size()),
-                            {}, false);
+      "[EasyDK EasyBang] [MluResize] Batchsize is " + std::to_string(d_ptr_->attr_.batch_size) + ", but only has" +
+      std::to_string(d_ptr_->yuv_ptrs_cache_.size()), {}, false);
   if (static_cast<int>(d_ptr_->yuv_ptrs_cache_.size()) < d_ptr_->attr_.batch_size) {
-    d_ptr_->estr_ = "Batchsize is " + std::to_string(d_ptr_->attr_.batch_size) + ", but only has" +
-                    std::to_string(d_ptr_->yuv_ptrs_cache_.size());
+    d_ptr_->estr_ = "[EasyDK EasyBang] [MluResize] Batchsize is " + std::to_string(d_ptr_->attr_.batch_size) +
+                    ", but only has" + std::to_string(d_ptr_->yuv_ptrs_cache_.size());
     return false;
   }
   size_t y_plane_size = d_ptr_->attr_.dst_h * d_ptr_->attr_.dst_w;
@@ -175,21 +174,21 @@ bool MluResize::SyncOneOutput(void* dst_y, void* dst_uv) {
   }
   cnrtRet_t cnret = cnrtMemcpy(d_ptr_->y_ptrs_mlu_, reinterpret_cast<void**>(d_ptr_->y_ptrs_cpu_),
                                sizeof(char*) * d_ptr_->attr_.batch_size, CNRT_MEM_TRANS_DIR_HOST2DEV);
-  CHECK_CNRT_RET(cnret, d_ptr_->estr_, "Memcpy host to device failed. cnrt error code:" + std::to_string(cnret), {},
-                 false);
+  CHECK_CNRT_RET(cnret, d_ptr_->estr_, "[EasyDK EasyBang] [MluResize] Memcpy host to device failed. CNRT error code:" +
+                 std::to_string(cnret), {}, false);
   cnret = cnrtMemcpy(d_ptr_->uv_ptrs_mlu_, reinterpret_cast<void**>(d_ptr_->uv_ptrs_cpu_),
                      sizeof(char*) * d_ptr_->attr_.batch_size, CNRT_MEM_TRANS_DIR_HOST2DEV);
-  CHECK_CNRT_RET(cnret, d_ptr_->estr_, "Memcpy host to device failed. cnrt error code:" + std::to_string(cnret), {},
-                 false);
+  CHECK_CNRT_RET(cnret, d_ptr_->estr_, "[EasyDK EasyBang] [MluResize] Memcpy host to device failed. CNRT error code:" +
+                 std::to_string(cnret), {}, false);
 
   cnret = cnrtMemcpy(d_ptr_->dst_y_mlu_, reinterpret_cast<void**>(d_ptr_->dst_y_cpu_),
                      sizeof(char*) * d_ptr_->attr_.batch_size, CNRT_MEM_TRANS_DIR_HOST2DEV);
-  CHECK_CNRT_RET(cnret, d_ptr_->estr_, "Memcpy host to device failed. cnrt error code:" + std::to_string(cnret), {},
-                 false);
+  CHECK_CNRT_RET(cnret, d_ptr_->estr_, "[EasyDK EasyBang] [MluResize] Memcpy host to device failed. CNRT error code:" +
+                 std::to_string(cnret), {}, false);
   cnret = cnrtMemcpy(d_ptr_->dst_uv_mlu_, reinterpret_cast<void**>(d_ptr_->dst_uv_cpu_),
                      sizeof(char*) * d_ptr_->attr_.batch_size, CNRT_MEM_TRANS_DIR_HOST2DEV);
-  CHECK_CNRT_RET(cnret, d_ptr_->estr_, "Memcpy host to device failed. cnrt error code:" + std::to_string(cnret), {},
-                 false);
+  CHECK_CNRT_RET(cnret, d_ptr_->estr_, "[EasyDK EasyBang] [MluResize] Memcpy host to device failed. CNRT error code:" +
+                 std::to_string(cnret), {}, false);
   cnrtDim3_t dim;
   dim.x = d_ptr_->attr_.core;
   dim.y = 1;

@@ -75,7 +75,7 @@ TEST_F(InferServerTest, Model) {
   auto model = m->GetModel();
   int batch_size;
   error_code = cnrtQueryModelParallelism(model, &batch_size);
-  CHECK_CNRT_RET(error_code, "Query Model Parallelism failed.");
+  CHECK_CNRT_RET(error_code, "[EasyDK Tests] [InferServer] Query Model Parallelism failed.");
   EXPECT_GE(batch_size, 0);
   EXPECT_EQ(static_cast<uint32_t>(batch_size), m->BatchSize());
 
@@ -83,10 +83,10 @@ TEST_F(InferServerTest, Model) {
   int64_t* output_sizes = nullptr;
   int input_num = 0, output_num = 0;
   error_code = cnrtGetInputDataSize(&input_sizes, &input_num, function);
-  CHECK_CNRT_RET(error_code, "Get input data size failed.");
+  CHECK_CNRT_RET(error_code, "[EasyDK Tests] [InferServer] Get input data size failed.");
   EXPECT_EQ(m->InputNum(), static_cast<uint32_t>(input_num));
   error_code = cnrtGetOutputDataSize(&output_sizes, &output_num, function);
-  CHECK_CNRT_RET(error_code, "Get output data size failed.");
+  CHECK_CNRT_RET(error_code, "[EasyDK Tests] [InferServer] Get output data size failed.");
   EXPECT_EQ(m->OutputNum(), static_cast<uint32_t>(output_num));
   // get io shapes
   int* input_dim_values = nullptr;
@@ -94,7 +94,7 @@ TEST_F(InferServerTest, Model) {
   int dim_num = 0;
   for (int i = 0; i < input_num; ++i) {
     error_code = cnrtGetInputDataShape(&input_dim_values, &dim_num, i, function);
-    CHECK_CNRT_RET(error_code, "Get input data size failed.");
+    CHECK_CNRT_RET(error_code, "[EasyDK Tests] [InferServer] Get input data size failed.");
     // nhwc shape
     for (int j = 0; j < dim_num; ++j) {
       EXPECT_EQ(m->InputShape(i)[j], input_dim_values[j]);
@@ -104,7 +104,7 @@ TEST_F(InferServerTest, Model) {
 
   for (int i = 0; i < output_num; ++i) {
     error_code = cnrtGetOutputDataShape(&output_dim_values, &dim_num, i, function);
-    CHECK_CNRT_RET(error_code, "Get output data shape failed.");
+    CHECK_CNRT_RET(error_code, "[EasyDK Tests] [InferServer] Get output data shape failed.");
     // nhwc shape
     for (int j = 0; j < dim_num; ++j) {
       EXPECT_EQ(m->OutputShape(i)[j], output_dim_values[j]);

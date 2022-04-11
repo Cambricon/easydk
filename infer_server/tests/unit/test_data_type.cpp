@@ -74,7 +74,7 @@ void Transpose(dtype* input_data, dtype* output_data, const std::vector<Shape::v
   const std::vector<Shape::value_type>& s = input_shape;
 
   if (input_shape.size() != 4 || axis.size() != 4) {
-    std::cerr << "only support 4 dimension\n";
+    LOG(ERROR) << "[EasyDK Tests] [InferServer] Only support 4 dimension";
     std::terminate();
   }
 
@@ -124,7 +124,7 @@ bool CompareData(dtype* d1, dtype* d2, size_t len, float threshold) {
   ms = std::sqrt(ms);
   mse /= ms;
 
-  std::cout << "compare data: mse " << mse << ", mae " << mae << std::endl;
+  VLOG(5) << "[EasyDK Tests] [InferServer] Compare data, MSE: " << mse << ", MAE: " << mae;
   return !(mse > threshold || mae > threshold);
 }
 
@@ -146,12 +146,12 @@ constexpr size_t repeat_times = 3;
 
 inline Shape GenShape() {
   Shape s({shape_dis(gen) % 16 + 1, shape_dis(gen), shape_dis(gen), shape_dis(gen) % 4 + 1});
-  std::cout << "    test shape: " << s << std::endl;
+  VLOG(5) << "[EasyDK Tests] [InferServer] Test shape: " << s;
   return s;
 }
 
 TEST(InferServerCore, TransLayout_f32_u8) {
-  std::cout << "test float32 to uint8\n";
+  VLOG(1) << "[EasyDK Tests] [InferServer] Test TransLayout float32 to uint8";
   for (size_t times = 0; times < repeat_times; ++times) {
     auto s = GenShape();
     size_t data_len = s.BatchDataCount();
@@ -184,7 +184,7 @@ TEST(InferServerCore, TransLayout_f32_u8) {
 }
 
 TEST(InferServerCore, TransLayout_u8_f32) {
-  std::cout << "test uint8 to float32\n";
+  VLOG(1) << "[EasyDK Tests] [InferServer] Test TransLayout uint8 to float32";
   for (size_t times = 0; times < repeat_times; ++times) {
     auto s = GenShape();
     size_t data_len = s.BatchDataCount();
@@ -217,7 +217,7 @@ TEST(InferServerCore, TransLayout_u8_f32) {
 }
 
 TEST(InferServerCore, TransLayout_f32_f16) {
-  std::cout << "test float32 to float16\n";
+  VLOG(1) << "[EasyDK Tests] [InferServer] Test TransLayout float32 to float16";
   for (size_t times = 0; times < repeat_times; ++times) {
     auto s = GenShape();
     size_t data_len = s.BatchDataCount();
@@ -250,7 +250,7 @@ TEST(InferServerCore, TransLayout_f32_f16) {
 }
 
 TEST(InferServerCore, TransLayout_f16_f32) {
-  std::cout << "test float16 to float32\n";
+  VLOG(1) << "[EasyDK Tests] [InferServer] Test TransLayout float16 to float32";
   for (size_t times = 0; times < repeat_times; ++times) {
     auto s = GenShape();
     size_t data_len = s.BatchDataCount();

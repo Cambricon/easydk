@@ -20,6 +20,7 @@
 
 #include "easybang/resize_and_colorcvt.h"
 
+#include <glog/logging.h>
 #include <algorithm>
 #include <deque>
 #include <memory>
@@ -28,7 +29,7 @@
 #include <utility>
 #include <vector>
 
-#include "cxxutil/log.h"
+#include "easycodec/vformat.h"
 #include "device/mlu_context.h"
 #include "internal/mlu_task_queue.h"
 
@@ -95,7 +96,7 @@ void MluResizeConvertOp::SetMluQueue(MluTaskQueue_t queue) {
     d_ptr_->queue_ = queue;
     d_ptr_->shared_queue_ = true;
   } else {
-    LOGW(RESIZE_CONVERT) << "SetMluQueue(): param queue is nullptr";
+    LOG(WARNING) << "[EasyDK EasyBang] [MluResizeConvertOp] SetMluQueue(): param queue is nullptr";
   }
 }
 
@@ -121,19 +122,31 @@ bool MluResizeConvertOp::Init(const MluResizeConvertOp::Attr& attr) {
   d_ptr_->uv_ptrs_cpu_ = new void*[batchsize];
   cnrtRet_t cnret;
   cnret = cnrtMalloc(reinterpret_cast<void**>(&d_ptr_->y_ptrs_mlu_), sizeof(void*) * batchsize);
-  CHECK_CNRT_RET(cnret, d_ptr_->estr_, "Malloc mlu buffer failed. cnrt error code:" + std::to_string(cnret), {}, false);
+  CHECK_CNRT_RET(cnret, d_ptr_->estr_,
+      "[EasyDK EasyBang] [MluResizeConvertOp] Malloc mlu buffer failed. CNRT error code:" + std::to_string(cnret),
+      {}, false);
   cnret = cnrtMalloc(reinterpret_cast<void**>(&d_ptr_->uv_ptrs_mlu_), sizeof(void*) * batchsize);
-  CHECK_CNRT_RET(cnret, d_ptr_->estr_, "Malloc mlu buffer failed. cnrt error code:" + std::to_string(cnret), {}, false);
+  CHECK_CNRT_RET(cnret, d_ptr_->estr_,
+      "[EasyDK EasyBang] [MluResizeConvertOp] Malloc mlu buffer failed. CNRT error code:" + std::to_string(cnret),
+      {}, false);
   cnret = cnrtMalloc(reinterpret_cast<void**>(&d_ptr_->src_whs_mlu_tmp_), sizeof(int) * batchsize * 2);
-  CHECK_CNRT_RET(cnret, d_ptr_->estr_, "Malloc mlu buffer failed. cnrt error code:" + std::to_string(cnret), {}, false);
+  CHECK_CNRT_RET(cnret, d_ptr_->estr_,
+      "[EasyDK EasyBang] [MluResizeConvertOp] Malloc mlu buffer failed. CNRT error code:" + std::to_string(cnret),
+      {}, false);
   d_ptr_->src_whs_cpu_ = new int[batchsize * 2];
   cnret = cnrtMalloc(reinterpret_cast<void**>(&d_ptr_->src_rois_mlu_tmp_), sizeof(int) * batchsize * 4);
-  CHECK_CNRT_RET(cnret, d_ptr_->estr_, "Malloc mlu buffer failed. cnrt error code:" + std::to_string(cnret), {}, false);
+  CHECK_CNRT_RET(cnret, d_ptr_->estr_,
+      "[EasyDK EasyBang] [MluResizeConvertOp] Malloc mlu buffer failed. CNRT error code:" + std::to_string(cnret),
+      {}, false);
   d_ptr_->src_rois_cpu_ = new int[batchsize * 4];
   cnret = cnrtMalloc(reinterpret_cast<void**>(&d_ptr_->src_whs_mlu_), sizeof(int*) * batchsize);
-  CHECK_CNRT_RET(cnret, d_ptr_->estr_, "Malloc mlu buffer failed. cnrt error code:" + std::to_string(cnret), {}, false);
+  CHECK_CNRT_RET(cnret, d_ptr_->estr_,
+      "[EasyDK EasyBang] [MluResizeConvertOp] Malloc mlu buffer failed. CNRT error code:" + std::to_string(cnret),
+      {}, false);
   cnret = cnrtMalloc(reinterpret_cast<void**>(&d_ptr_->src_rois_mlu_), sizeof(int*) * batchsize);
-  CHECK_CNRT_RET(cnret, d_ptr_->estr_, "Malloc mlu buffer failed. cnrt error code:" + std::to_string(cnret), {}, false);
+  CHECK_CNRT_RET(cnret, d_ptr_->estr_,
+      "[EasyDK EasyBang] [MluResizeConvertOp] Malloc mlu buffer failed. CNRT error code:" + std::to_string(cnret),
+      {}, false);
   int** wh_mlu_ptrs_tmp = new int*[batchsize];
   int** roi_mlu_ptrs_tmp = new int*[batchsize];
   for (int i = 0; i < batchsize; ++i) {
@@ -142,10 +155,12 @@ bool MluResizeConvertOp::Init(const MluResizeConvertOp::Attr& attr) {
   }
   cnret = cnrtMemcpy(reinterpret_cast<void*>(d_ptr_->src_whs_mlu_), reinterpret_cast<void*>(wh_mlu_ptrs_tmp),
                      sizeof(int*) * batchsize, CNRT_MEM_TRANS_DIR_HOST2DEV);
-  CHECK_CNRT_RET(cnret, d_ptr_->estr_, "Memcpy h2d failed. cnrt error code:" + std::to_string(cnret), {}, false);
+  CHECK_CNRT_RET(cnret, d_ptr_->estr_, "[EasyDK EasyBang] [MluResizeConvertOp] Memcpy h2d failed. CNRT error code:" +
+      std::to_string(cnret), {}, false);
   cnret = cnrtMemcpy(reinterpret_cast<void*>(d_ptr_->src_rois_mlu_), reinterpret_cast<void*>(roi_mlu_ptrs_tmp),
                      sizeof(int*) * batchsize, CNRT_MEM_TRANS_DIR_HOST2DEV);
-  CHECK_CNRT_RET(cnret, d_ptr_->estr_, "Memcpy h2d failed. cnrt error code:" + std::to_string(cnret), {}, false);
+  CHECK_CNRT_RET(cnret, d_ptr_->estr_, "[EasyDK EasyBang] [MluResizeConvertOp] Memcpy h2d failed. CNRT error code:" +
+      std::to_string(cnret), {}, false);
   delete[] wh_mlu_ptrs_tmp;
   delete[] roi_mlu_ptrs_tmp;
 
@@ -158,18 +173,18 @@ bool MluResizeConvertOp::Init(const MluResizeConvertOp::Attr& attr) {
     case 16:
       break;
     default:
-      d_ptr_->estr_ = "Unsupport core number. Only support 1, 4, 8, 16";
+      d_ptr_->estr_ = "[EasyDK EasyBang] [MluResizeConvertOp] Unsupported core number. Only support 1, 4, 8, 16";
       return false;
   }
 
   d_ptr_->attr_.core_number = core_number;
 
   // clang-format off
-  LOGD(RESIZE_CONVERT) << "Init ResizeAndConvert Operator:\n"
+  VLOG(5) << "[EasyDK EasyBang] [MluResizeConvertOp] Init ResizeAndConvert Operator:\n"
                        << "\t [batchsize " + std::to_string(d_ptr_->attr_.batch_size) + "], "
                        << "[core_number: " + std::to_string(d_ptr_->attr_.core_number) + "],\n"
                        << "\t [keep_aspect_ratio " << d_ptr_->attr_.keep_aspect_ratio << "],\n"
-                       << "\t [core_version " << static_cast<int>(d_ptr_->attr_.core_version) << "],\n"
+                       << "\t [core_version " << CoreVersionStr(d_ptr_->attr_.core_version) << "],\n"
                        << "\t [color_mode " << static_cast<int>(d_ptr_->attr_.color_mode) << "], "
                        << "[data_mode " << static_cast<int>(d_ptr_->attr_.data_mode) << "]\n"
                        << "\t [pad_method " << d_ptr_->attr_.padMethod << "]\n";
@@ -205,19 +220,20 @@ void MluResizeConvertOp::BatchingUp(const InputData& input_data) {
   t.planes[0] = input_data.planes[0];
   t.planes[1] = input_data.planes[1];
 
-  LOGT(RESIZE_CONVERT) << "Store resize and convert operator input for batching," << t;
+  VLOG(5) << "[EasyDK EasyBang] [MluResizeConvertOp] Store resize and convert operator input for batching," << t;
   d_ptr_->input_datas_cache_.emplace_back(std::move(t));
 }
 
 bool MluResizeConvertOp::SyncOneOutput(void* dst) {
   if (nullptr == d_ptr_->queue_) {
-    LOGD(RESIZE_CONVERT) << "MluTaskQueue has not been set, MluResizeConvertOp will create a new one";
+    VLOG(4) << "[EasyDK EasyBang] [MluResizeConvertOp] MluTaskQueue has not been set,"
+            << " MluResizeConvertOp will create a new one";
     if (!d_ptr_->PrepareTaskQueue()) {
       return false;
     }
   }
   if (d_ptr_->input_datas_cache_.size() == 0) {
-    LOGW(RESIZE_CONVERT) << "No data batched , do nothing.";
+    LOG(WARNING) << "[EasyDK EasyBang] [MluResizeConvertOp] No data is batched, do nothing.";
     return false;
   }
   // while cache count less than batch size, fill with copy to batch size
@@ -241,25 +257,29 @@ bool MluResizeConvertOp::SyncOneOutput(void* dst) {
                                reinterpret_cast<void*>(d_ptr_->y_ptrs_cpu_),
                                sizeof(void*) * d_ptr_->attr_.batch_size,
                                CNRT_MEM_TRANS_DIR_HOST2DEV);
-  CHECK_CNRT_RET(cnret, d_ptr_->estr_, "Memcpy host to device failed. cnrt error code:" + std::to_string(cnret), {},
-                 false);
+  CHECK_CNRT_RET(cnret, d_ptr_->estr_,
+      "[EasyDK EasyBang] [MluResizeConvertOp] Memcpy host to device failed. CNRT error code:" +
+      std::to_string(cnret), {}, false);
   cnret = cnrtMemcpy(reinterpret_cast<void*>(d_ptr_->uv_ptrs_mlu_),
                      reinterpret_cast<void*>(d_ptr_->uv_ptrs_cpu_),
                      sizeof(void*) * d_ptr_->attr_.batch_size,
                      CNRT_MEM_TRANS_DIR_HOST2DEV);
-  CHECK_CNRT_RET(cnret, d_ptr_->estr_, "Memcpy host to device failed. cnrt error code:" + std::to_string(cnret), {},
-                 false);
+  CHECK_CNRT_RET(cnret, d_ptr_->estr_,
+      "[EasyDK EasyBang] [MluResizeConvertOp] Memcpy host to device failed. CNRT error code:" + std::to_string(cnret),
+      {}, false);
   cnret = cnrtMemcpy(reinterpret_cast<void*>(d_ptr_->src_whs_mlu_tmp_),
                      reinterpret_cast<void*>(d_ptr_->src_whs_cpu_),
                      sizeof(int) * 2 * d_ptr_->attr_.batch_size,
                      CNRT_MEM_TRANS_DIR_HOST2DEV);
-  CHECK_CNRT_RET(cnret, d_ptr_->estr_, "Memcpy width and height failed. cnrt error code:" + std::to_string(cnret), {},
-                 false);
+  CHECK_CNRT_RET(cnret, d_ptr_->estr_,
+      "[EasyDK EasyBang] [MluResizeConvertOp] Memcpy width and height failed. CNRT error code:" + std::to_string(cnret),
+      {}, false);
   cnret = cnrtMemcpy(reinterpret_cast<void*>(d_ptr_->src_rois_mlu_tmp_),
                      reinterpret_cast<void*>(d_ptr_->src_rois_cpu_),
                      sizeof(int) * d_ptr_->attr_.batch_size * 4,
                      CNRT_MEM_TRANS_DIR_HOST2DEV);
-  CHECK_CNRT_RET(cnret, d_ptr_->estr_, "Memcpy rois failed. cnrt error code:" + std::to_string(cnret), {}, false);
+  CHECK_CNRT_RET(cnret, d_ptr_->estr_, "[EasyDK EasyBang] [MluResizeConvertOp] Memcpy rois failed. CNRT error code:" +
+      std::to_string(cnret), {}, false);
   // clang-format on
 
   cnrtDim3_t dim;
@@ -267,7 +287,7 @@ bool MluResizeConvertOp::SyncOneOutput(void* dst) {
   dim.y = d_ptr_->attr_.core_number >= 4 ? d_ptr_->attr_.core_number / 4 : 1;
   dim.z = 1;
 
-  LOGT(RESIZE_CONVERT) << "(SyncOneOutput) Do resize and convert process, dst: " << dst;
+  VLOG(5) << "[EasyDK EasyBang] [MluResizeConvertOp] SyncOneOutput() Do resize and convert process, dst: " << dst;
   // clang-format off
   bool ret = -1 != ::ResizeAndConvert(dst, d_ptr_->y_ptrs_mlu_, d_ptr_->uv_ptrs_mlu_,
                                       d_ptr_->src_whs_mlu_, d_ptr_->src_rois_mlu_,
@@ -279,12 +299,14 @@ bool MluResizeConvertOp::SyncOneOutput(void* dst) {
   // clang-format on
 
   if (!ret) {
-    LOGE(RESIZE_CONVERT) << "Resize convert failed. Info: ";
-    LOGE(RESIZE_CONVERT) << "dst w, dst h: " << d_ptr_->attr_.dst_w << " " << d_ptr_->attr_.dst_h;
-    LOGE(RESIZE_CONVERT) << "keep aspect ratio: " << d_ptr_->attr_.keep_aspect_ratio;
-    LOGE(RESIZE_CONVERT) << "batchsize: " << d_ptr_->attr_.batch_size;
+    LOG(ERROR) << "[EasyDK EasyBang] [MluResizeConvertOp] Resize convert failed. Info: ";
+    LOG(ERROR) << "[EasyDK EasyBang] [MluResizeConvertOp] dst w, dst h: " << d_ptr_->attr_.dst_w << " "
+               << d_ptr_->attr_.dst_h;
+    LOG(ERROR) << "[EasyDK EasyBang] [MluResizeConvertOp] keep aspect ratio: " << d_ptr_->attr_.keep_aspect_ratio;
+    LOG(ERROR) << "[EasyDK EasyBang] [MluResizeConvertOp] batchsize: " << d_ptr_->attr_.batch_size;
+    LOG(ERROR) << "[EasyDK EasyBang] [MluResizeConvertOp] error message: " << d_ptr_->estr_;
     auto inputs = GetLastBatchInput();
-    for (const auto& it : inputs) LOGE(RESIZE_CONVERT) << it;
+    for (const auto& it : inputs) LOG(ERROR) << "[EasyDK EasyBang] [MluResizeConvertOp] input: " << it;
     cnrtMemset(dst, 0, size_t(1) * d_ptr_->attr_.batch_size * d_ptr_->attr_.dst_w * d_ptr_->attr_.dst_h * 4);
     if (!IsSharedQueue()) {
       // queue becomes invalid when an error occurs.

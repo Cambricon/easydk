@@ -221,7 +221,7 @@ class TagSetProfiler {
     if (profilers_.count(tag)) {
       return profilers_[tag].RequestPerSecond();
     }
-    LOG(WARNING) << "Tag [" << tag << "] not exist";
+    LOG(WARNING) << "[EasyDK InferServer] [Profile] RequestPerSecond: Tag [" << tag << "] not exist";
     return 0;
   }
 
@@ -230,7 +230,7 @@ class TagSetProfiler {
     if (profilers_.count(tag)) {
       return profilers_[tag].UnitPerSecond();
     }
-    LOG(WARNING) << "Tag [" << tag << "] not exist";
+    LOG(WARNING) << "[EasyDK InferServer] [Profile] UnitPerSecond: Tag [" << tag << "] not exist";
     return 0;
   }
 
@@ -239,7 +239,7 @@ class TagSetProfiler {
     if (profilers_.count(tag)) {
       return profilers_[tag].RequestThroughoutRealtime();
     }
-    LOG(WARNING) << "Tag [" << tag << "] not exist";
+    LOG(WARNING) << "[EasyDK InferServer] [Profile] RequestThroughoutRealtime: Tag [" << tag << "] not exist";
     return 0;
   }
 
@@ -248,7 +248,7 @@ class TagSetProfiler {
     if (profilers_.count(tag)) {
       return profilers_[tag].UnitThroughoutRealtime();
     }
-    LOG(WARNING) << "Tag [" << tag << "] not exist";
+    LOG(WARNING) << "[EasyDK InferServer] [Profile] UnitThroughoutRealtime: Tag [" << tag << "] not exist";
     return 0;
   }
 
@@ -257,7 +257,7 @@ class TagSetProfiler {
     if (profilers_.count(tag)) {
       return profilers_[tag].Summary();
     }
-    LOG(WARNING) << "Tag [" << tag << "] not exist";
+    LOG(WARNING) << "[EasyDK InferServer] [Profile] Summary: Tag [" << tag << "] not exist";
     return {};
   }
 

@@ -47,7 +47,7 @@ inline std::string DataTypeStr(DataType type) noexcept {
     DATATYPE2STR(INT16)
 #undef DATATYPE2STR
     default:
-      LOG(ERROR) << "Unsupported data type";
+      LOG(ERROR) << "[EasyDK InferServer] [DataTypeStr] Unsupported data type";
       return "INVALID";
   }
 }
@@ -65,7 +65,7 @@ inline std::string DimOrderStr(DimOrder order) noexcept {
     DIMORDER2STR(NONE)
 #undef DIMORDER2STR
     default:
-      LOG(ERROR) << "Unsupported dim order";
+      LOG(ERROR) << "[EasyDK InferServer] [DimOrderStr] Unsupported dim order";
       return "INVALID";
   }
 }
@@ -82,7 +82,7 @@ inline cnrtDataType CastDataType(DataType type) noexcept {
     RETURN_DATA_TYPE(INT16)
 #undef RETURN_DATA_TYPE
     default:
-      LOG(ERROR) << "Unsupported data type";
+      LOG(ERROR) << "[EasyDK InferServer] [CastDataType] Unsupported data type";
       return CNRT_INVALID;
   }
 }
@@ -100,7 +100,7 @@ inline DataType CastDataType(magicmind::DataType type) noexcept {
     RETURN_DATA_TYPE(INT16)
 #undef RETURN_DATA_TYPE
     default:
-      LOG(ERROR) << "Unsupported data type";
+      LOG(ERROR) << "[EasyDK InferServer] [CastDataType] Unsupported MagicMind data type";
       return DataType::INVALID;
   }
 }
@@ -118,7 +118,7 @@ inline DataType CastDataType(cnrtDataType type) noexcept {
     RETURN_DATA_TYPE(INT16)
 #undef RETURN_DATA_TYPE
     default:
-      LOG(ERROR) << "Unsupported data type";
+      LOG(ERROR) << "[EasyDK InferServer] [CastDataType] Unsupported CNRT data type";
       return DataType::INVALID;
   }
 }
@@ -137,7 +137,7 @@ inline DimOrder CastDimOrder(magicmind::Layout order) noexcept {
     RETURN_DIM_ORDER(NONE)
 #undef RETURN_DIM_ORDER
     default:
-      LOG(ERROR) << "Unsupported dim order";
+      LOG(ERROR) << "[EasyDK InferServer] [CastDimOrder] Unsupported dim order";
       return DimOrder::INVALID;
   }
 }
@@ -165,7 +165,7 @@ inline std::vector<dtype> DimNHWC2NCHW(const std::vector<dtype>& dim) {
     case 5:
       return std::vector<dtype>({dim[0], dim[4], dim[1], dim[2], dim[3]});
     default:
-      CHECK(0) << "unsupport dimension";
+      CHECK(0) << "[EasyDK InferServer] [DimNHWC2NCHW] Unsupported dimension";
   }
   return {};
 }
@@ -184,7 +184,7 @@ inline std::vector<dtype> DimNCHW2NHWC(const std::vector<dtype>& dim) {
     case 5:
       return std::vector<dtype>({dim[0], dim[2], dim[3], dim[4], dim[1]});
     default:
-      CHECK(0) << "unsupport dimension";
+      CHECK(0) << "[EasyDK InferServer] [DimNCHW2NHWC] Unsupported dimension";
   }
   return {};
 }

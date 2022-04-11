@@ -56,7 +56,7 @@ class CacheBase {
   }
 
   bool Push(PackagePtr&& pack) noexcept {
-    CHECK(pack);
+    CHECK(pack) << "[EasyDK InferServer] [Cache] Push pack. It should not be nullptr";
     if (!Running()) return false;
     Enqueue(std::forward<PackagePtr>(pack));
     return true;
@@ -124,7 +124,8 @@ class CacheDynamic : public CacheBase {
 
   ~CacheDynamic() {
     // batcher should be clear
-    CHECK_EQ(batcher_->Size(), 0u) << "Executor Destruction] Batcher should not have any data";
+    CHECK_EQ(batcher_->Size(), 0u)
+        << "[EasyDK InferServer] [Cache] Executor Destruction: Batcher should not have any data";
   }
 
   void Flush() noexcept override {
@@ -141,7 +142,7 @@ class CacheDynamic : public CacheBase {
   // rebatch
   void ClearDiscard(PackagePtr pack) noexcept override {
     std::list<InferDataPtr> cache;
-    VLOG(4) << "Clear discarded cached data";
+    VLOG(2) << "[EasyDK InferServer] [Buffer] Clear discarded cached data";
     do {
       cache_.pop_front();
       for (auto& it : pack->data) {
@@ -167,7 +168,7 @@ class CacheDynamic : public CacheBase {
 
   void Enqueue(PackagePtr&& pack) noexcept override {
     for (auto& it : pack->data) {
-      CHECK(it->ctrl);
+      CHECK(it->ctrl) << "[EasyDK InferServer] [Cache] Enqueue pack. It should not be empty";
       batcher_->AddItem(std::move(it));
     }
   }
@@ -221,7 +222,7 @@ class CacheStatic : public CacheBase {
     auto pack = std::make_shared<Package>();
     // Static strategy is unable to process a Package that contains more than batch_size
     for (size_t idx = 0; idx < data_size; ++idx) {
-      CHECK(in->data[idx]->ctrl);
+      CHECK(in->data[idx]->ctrl) << "[EasyDK InferServer] [Cache] input data control should not be nullptr";
       pack->data.emplace_back(std::move(in->data[idx]));
       if (++batch_idx > BatchSize() - 1 || idx == data_size - 1) {
         pack->priority = GetPriority().Get(-pack->data.at(0)->ctrl->RequestId());

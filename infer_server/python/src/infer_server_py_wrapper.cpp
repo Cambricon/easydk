@@ -17,6 +17,8 @@
  * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
  * THE SOFTWARE.
  *************************************************************************/
+#include <glog/logging.h>
+
 #include <pybind11/numpy.h>
 #include <pybind11/pybind11.h>
 #include <pybind11/stl.h>
@@ -29,7 +31,6 @@
 #include "cnis/infer_server.h"
 #include "cnis/processor.h"
 #include "common_wrapper.hpp"
-#include "cxxutil/log.h"
 
 namespace py = pybind11;
 
@@ -43,7 +44,7 @@ void InferServerWrapper(const py::module& m) {
       .def("create_session",
            [](std::shared_ptr<InferServer> infer_server, SessionDesc desc, std::shared_ptr<Observer> observer) {
              if (!desc.preproc) {
-               LOGD(CNIS_PY_API) << "Default preproc will be used";
+               VLOG(1) << "[InferServer] [PythonAPI] Default preproc will be used in this session";
                desc.preproc = PreprocessorHost::Create();
                desc.preproc->SetParams<PreprocessorHost::ProcessFunction>("process_function", DefaultPreprocExecute);
              }
@@ -52,7 +53,7 @@ void InferServerWrapper(const py::module& m) {
       .def("create_sync_session",
            [](std::shared_ptr<InferServer> infer_server, SessionDesc desc) {
              if (!desc.preproc) {
-               LOGD(CNIS_PY_API) << "Default preproc will be used";
+               VLOG(1) << "[InferServer] [PythonAPI] Default preproc will be used in this synchronous session";
                desc.preproc = PreprocessorHost::Create();
                desc.preproc->SetParams<PreprocessorHost::ProcessFunction>("process_function", DefaultPreprocExecute);
              }
@@ -203,7 +204,9 @@ void DataLayoutWrapper(py::module& m) {  // NOLINT
       .value("NHWC", DimOrder::NHWC)
       .value("HWCN", DimOrder::HWCN)
       .value("TNC", DimOrder::TNC)
-      .value("NTC", DimOrder::NTC);
+      .value("NTC", DimOrder::NTC)
+      .value("NONE", DimOrder::NONE)
+      .value("INVALID", DimOrder::INVALID);
 }
 
 void BatchStrategyWrapper(const py::module& m) {

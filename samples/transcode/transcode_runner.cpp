@@ -20,6 +20,7 @@
 
 #include "transcode_runner.h"
 
+#include <glog/logging.h>
 #include <algorithm>
 #include <chrono>
 #include <memory>
@@ -28,7 +29,6 @@
 #include <utility>
 #include <iostream>
 
-#include "cxxutil/log.h"
 #include "easycodec/easy_encode.h"
 #include "easycodec/vformat.h"
 #include "resize_yuv.h"
@@ -46,15 +46,15 @@ TranscodeRunner::TranscodeRunner(const VideoDecoder::DecoderType& decode_type, i
     dst_width_(dst_width), dst_height_(dst_height), output_file_name_(output_file_name) {
   // Create encoder
   edk::EasyEncode::Attr attr;
-  attr.frame_geometry.w = dst_width;
-  attr.frame_geometry.h = dst_height;
+  attr.frame_geometry.w = dst_width_;
+  attr.frame_geometry.h = dst_height_;
   attr.pixel_format = edk::PixelFmt::NV12;
 
   edk::CodecType codec_type = edk::CodecType::H264;
   std::string file_name = output_file_name;
   auto dot = file_name.find_last_of(".");
   if (dot == std::string::npos) {
-    THROW_EXCEPTION(edk::Exception::INVALID_ARG, "unknown file type: " + file_name);
+    THROW_EXCEPTION(edk::Exception::INVALID_ARG, "[EasyDK Samples] [TranscodeRunner] Unknown file type: " + file_name);
   }
   std::transform(file_name.begin(), file_name.end(), file_name.begin(), ::tolower);
   if (file_name.find("hevc") != std::string::npos || file_name.find("h265") != std::string::npos) {
@@ -72,13 +72,12 @@ TranscodeRunner::TranscodeRunner(const VideoDecoder::DecoderType& decode_type, i
   if (core_ver == edk::CoreVersion::MLU220 || core_ver == edk::CoreVersion::MLU270) {
     attr.attr_mlu200.rate_control.frame_rate_den = 10;
     attr.attr_mlu200.rate_control.frame_rate_num =
-        std::ceil(static_cast<int>(dst_frame_rate * attr.attr_mlu200.rate_control.frame_rate_den));
+        std::ceil(static_cast<int>(dst_frame_rate_ * attr.attr_mlu200.rate_control.frame_rate_den));
   } else if (core_ver == edk::CoreVersion::MLU370) {
     attr.attr_mlu300.frame_rate_den = 10;
-    attr.attr_mlu300.frame_rate_num =
-        std::ceil(static_cast<int>(dst_frame_rate * attr.attr_mlu300.frame_rate_den));
+    attr.attr_mlu300.frame_rate_num = std::ceil(static_cast<int>(dst_frame_rate_ * attr.attr_mlu300.frame_rate_den));
   } else {
-    THROW_EXCEPTION(edk::Exception::Code::INIT_FAILED, "Not supported core version");
+    THROW_EXCEPTION(edk::Exception::Code::INIT_FAILED, "[EasyDK Samples] [TranscodeRunner] Unsupported core version");
   }
 
   attr.eos_callback = std::bind(&TranscodeRunner::EosCallback, this);
@@ -89,11 +88,13 @@ TranscodeRunner::TranscodeRunner(const VideoDecoder::DecoderType& decode_type, i
   // Create resize yuv
   resize_.reset(new CncvResizeYuv(device_id));
   if (!resize_->Init()) {
-    THROW_EXCEPTION(edk::Exception::Code::INIT_FAILED, "Create CNCV resize yuv failed");
+    THROW_EXCEPTION(edk::Exception::Code::INIT_FAILED,
+        "[EasyDK Samples] [TranscodeRunner] Create CNCV resize yuv failed");
   }
 #else
   // TODO(gaoyujia): cpu resize
-  THROW_EXCEPTION(edk::Exception::Code::INIT_FAILED, "Create resize yuv failed, please install CNCV");
+  THROW_EXCEPTION(edk::Exception::Code::INIT_FAILED,
+      "[EasyDK Samples] [TranscodeRunner] Create resize yuv failed, please install CNCV");
 #endif
 
   Start();
@@ -101,7 +102,7 @@ TranscodeRunner::TranscodeRunner(const VideoDecoder::DecoderType& decode_type, i
 
 void TranscodeRunner::PacketCallback(const edk::CnPacket &packet) {
   if (packet.length == 0 || packet.data == 0) {
-    LOGW(SAMPLE) << "[TranscodeRunner] PacketCallback received empty packet.";
+    LOG(WARNING) << "[EasyDK Samples] [TranscodeRunner] Received empty packet.";
     return;
   }
   if (packet.codec_type == edk::CodecType::JPEG) {
@@ -111,7 +112,7 @@ void TranscodeRunner::PacketCallback(const edk::CnPacket &packet) {
     file_.open(output_file_name_.c_str());
   }
   if (!file_.is_open()) {
-    LOGE(SAMPLE) << "[TranscodeRunner] PacketCallback open output file failed";
+    LOG(ERROR) << "[EasyDK Samples] [TranscodeRunner] Open output file failed";
   } else {
     file_.write(reinterpret_cast<const char *>(packet.data), packet.length);
     if (packet.codec_type == edk::CodecType::JPEG) {
@@ -120,15 +121,16 @@ void TranscodeRunner::PacketCallback(const edk::CnPacket &packet) {
   }
   if (packet.slice_type == edk::BitStreamSliceType::FRAME || packet.slice_type == edk::BitStreamSliceType::KEY_FRAME) {
     frame_count_++;
-    std::cout << "encode frame count: " << frame_count_<< ", pts: " << packet.pts << std::endl;
+    std::cout << "[EasyDK Samples] [TranscodeRunner] encode frame count: " << frame_count_ << ", pts: "
+              << packet.pts << std::endl;
   } else {
-    std::cout << "encode head sps/pps" << std::endl;
+    std::cout << "[EasyDK Samples] [TranscodeRunner] encode head sps/pps"  << std::endl;
   }
   encode_->ReleaseBuffer(packet.buf_id);
 }
 
 void TranscodeRunner::EosCallback() {
-  LOGI(SAMPLE) << "[TranscodeRunner] EosCallback ... ";
+  LOG(INFO) << "[EasyDK Samples] [TranscodeRunner] EosCallback ... ";
   std::lock_guard<std::mutex>lg(encode_eos_mut_);
   encode_received_eos_ = true;
   encode_eos_cond_.notify_one();
@@ -136,29 +138,29 @@ void TranscodeRunner::EosCallback() {
 
 TranscodeRunner::~TranscodeRunner() {
   Stop();
-  LOGI(SAMPLE) << "~TranscodeRunner() FeedEos";
+  LOG(INFO) << "[EasyDK Samples] [TranscodeRunner] FeedEos";
   encode_->FeedEos();
   std::unique_lock<std::mutex>lk(encode_eos_mut_);
   // wait 10s for receive eos.
   if (false == encode_eos_cond_.wait_for(lk, std::chrono::seconds(10),
                                          [this] { return encode_received_eos_.load(); })) {
-    LOGE(SAMPLE) << "~TranscodeRunner() wait encoder EOS for 10s timeout";
+    LOG(ERROR) << "[EasyDK Samples] [TranscodeRunner] Wait encoder EOS for 10s timeout";
   }
 }
 
 void TranscodeRunner::Process(edk::CnFrame frame) {
   edk::CnFrame dst_frame;
   if (!encode_->RequestFrame(&dst_frame)) {
-    THROW_EXCEPTION(edk::Exception::INTERNAL, "[TranscodeRunner] Request frame from encoder failed");
+    THROW_EXCEPTION(edk::Exception::INTERNAL, "[EasyDK Samples] [TranscodeRunner] Request frame from encoder failed");
   }
 #ifdef HAVE_CNCV
   if (!resize_->Process(frame, &dst_frame)) {
-    THROW_EXCEPTION(edk::Exception::INTERNAL, "[TranscodeRunner] Resize yuv failed");
+    THROW_EXCEPTION(edk::Exception::INTERNAL, "[EasyDK Samples] [TranscodeRunner] Resize yuv failed");
   }
 #endif
   decoder_->ReleaseFrame(std::move(frame));
   dst_frame.pts = frame.pts;
   if (!encode_->FeedData(dst_frame)) {
-    THROW_EXCEPTION(edk::Exception::INTERNAL, "[TranscodeRunner] Feed data to encoder failed");
+    THROW_EXCEPTION(edk::Exception::INTERNAL, "[EasyDK Samples] [TranscodeRunner] Feed data to encoder failed");
   }
 }

@@ -19,6 +19,7 @@
  *************************************************************************/
 
 #include <gflags/gflags.h>
+#include <glog/logging.h>
 #include <unistd.h>
 
 #include <csignal>
@@ -28,7 +29,6 @@
 #include <utility>
 
 #include "classification_runner.h"
-#include "cxxutil/log.h"
 #include "device/mlu_context.h"
 
 DEFINE_bool(show, false, "show image");
@@ -48,21 +48,21 @@ bool g_exit = false;
 void HandleSignal(int sig) {
   g_runner->Stop();
   g_exit = true;
-  LOGI(SAMPLES) << "Got INT signal, ready to exit!";
+  LOG(INFO) << "[EasyDK Samples] [Classification] Got INT signal, ready to exit!";
 }
 
 int main(int argc, char** argv) {
   gflags::ParseCommandLineFlags(&argc, &argv, true);
-  edk::log::InitLogging(true, true);
+  google::InitGoogleLogging(argv[0]);
 
   // check params
-  CHECK(SAMPLES, FLAGS_data_path.size() != 0u);  // NOLINT
-  CHECK(SAMPLES, FLAGS_model_path.size() != 0u);  // NOLINT
-  CHECK(SAMPLES, FLAGS_func_name.size() != 0u);  // NOLINT
-  CHECK(SAMPLES, FLAGS_label_path.size() != 0u);  // NOLINT
-  CHECK(SAMPLES, FLAGS_wait_time >= 0);    // NOLINT
-  CHECK(SAMPLES, FLAGS_repeat_time >= 0);  // NOLINT
-  CHECK(SAMPLES, FLAGS_dev_id >= 0);       // NOLINT
+  CHECK(FLAGS_data_path.size() != 0u) << "[SAMPLES] [Classification] data path is empty";  // NOLINT
+  CHECK(FLAGS_model_path.size() != 0u) << "[SAMPLES] [Classification] model path is empty";  // NOLINT
+  CHECK(FLAGS_func_name.size() != 0u) << "[SAMPLES] [Classification] function name is empty";  // NOLINT
+  CHECK(FLAGS_label_path.size() != 0u) << "[SAMPLES] [Classification] label path is empty";  // NOLINT
+  CHECK(FLAGS_wait_time >= 0) << "[SAMPLES] [Classification] wait time should be >= 0";    // NOLINT
+  CHECK(FLAGS_repeat_time >= 0) << "[SAMPLES] [Classification] repeat time should be >= 0";  // NOLINT
+  CHECK(FLAGS_dev_id >= 0) << "[SAMPLES] [Classification] device id should be >= 0";       // NOLINT
 
   VideoDecoder::DecoderType decode_type = VideoDecoder::EASY_DECODE;
   if (FLAGS_decode_type == "ffmpeg" || FLAGS_decode_type == "FFmpeg") {
@@ -75,7 +75,7 @@ int main(int argc, char** argv) {
                                                       FLAGS_model_path, FLAGS_func_name, FLAGS_label_path,
                                                       FLAGS_data_path, FLAGS_show, FLAGS_save_video);
   } catch (edk::Exception& e) {
-    LOGE(SAMPLES) << "Create stream runner failed" << e.what();
+    LOG(ERROR) << "[EasyDK Samples] [Classification] Create stream runner failed" << e.what();
     return -1;
   }
 
@@ -100,7 +100,7 @@ int main(int argc, char** argv) {
     return 1;
   }
 
-  LOGI(SAMPLES) << "run classification SUCCEED!!!" << std::endl;
-  edk::log::ShutdownLogging();
+  LOG(INFO) << "[EasyDK Samples] [Classification] Run SUCCEED!!!";
+  google::ShutdownGoogleLogging();
   return 0;
 }

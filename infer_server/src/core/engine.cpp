@@ -53,13 +53,13 @@ void TaskNode::Execute(PackagePtr pack) {
 #endif
 #endif
   if (s != Status::SUCCESS) {
-    LOG(ERROR) << "[" << type_name << "] processor execute failed";
+    LOG(ERROR) << "[EasyDK InferServer] [TaskNode] processor [" << type_name << "] execute failed";
     for (auto& it : pack->data) {
       it->ctrl->ProcessFailed(s);
     }
     done_notifier_();
   } else {
-    VLOG(6) << "Transmit data for " << type_name;
+    VLOG(4) << "[EasyDK InferServer] [TaskNode] Transmit data for " << type_name;
     Transmit(std::move(pack));
   }
 }

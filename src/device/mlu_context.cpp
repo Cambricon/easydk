@@ -21,6 +21,7 @@
 #include "device/mlu_context.h"
 
 #include <cnrt.h>
+#include <glog/logging.h>
 
 #include <atomic>
 #include <cstring>
@@ -29,8 +30,6 @@
 #include <mutex>
 #include <string>
 
-#include "cxxutil/log.h"
-#include "cxxutil/spinlock.h"
 #include "internal/cnrt_wrap.h"
 #include "internal/mlu_task_queue.h"
 
@@ -48,11 +47,12 @@ MluTaskQueue::Mark MluTaskQueue::PlaceMark() {
   constexpr uint32_t marks_max_num = 40;
   if (idx == priv_->marks_valid.size()) {
     if (priv_->marks.size() > marks_max_num) {
-      THROW_EXCEPTION(Exception::UNAVAILABLE, "marks number reach up limit, please donot store marks");
+      THROW_EXCEPTION(Exception::UNAVAILABLE,
+          "[EasyDK Device] [MluTaskQueue] The number of marks reaches up limit, please do not store marks anymore");
     }
     priv_->marks.emplace_back();
     priv_->marks_valid.push_back(true);
-    LOGT(DEVICE) << "add new TimeMark, total: " << priv_->marks.size();
+    VLOG(4) << "[EasyDK Device] [MluTaskQueue] add new TimeMark, total: " << priv_->marks.size();
   }
 
   priv_->marks[idx].Mark(priv_->queue);
@@ -64,10 +64,10 @@ float MluTaskQueue::Count(const MluTaskQueue::Mark& s, const MluTaskQueue::Mark&
   int start = s.Index(), end = e.Index();
   if (start < 0 || start >= static_cast<int>(priv_->marks.size()) ||
       end < 0 || end >= static_cast<int>(priv_->marks.size())) {
-    THROW_EXCEPTION(Exception::INVALID_ARG, "Marks not exist");
+    THROW_EXCEPTION(Exception::INVALID_ARG, "[EasyDK Device] [MluTaskQueue] Marks not exist");
   }
   if (priv_->marks_valid[start] || priv_->marks_valid[end]) {
-    THROW_EXCEPTION(Exception::INVALID_ARG, "Marks has not been placed");
+    THROW_EXCEPTION(Exception::INVALID_ARG, "[EasyDK Device] [MluTaskQueue] Marks has not been placed");
   }
   return TimeMark::Count(priv_->marks[start], priv_->marks[end]);
 }
@@ -78,24 +78,24 @@ MluTaskQueue::MluTaskQueue() {
 
 std::shared_ptr<MluTaskQueue> MluTaskQueue::Create() {
   auto q = std::shared_ptr<MluTaskQueue>(new MluTaskQueue);
-  LOGD(DEVICE) << "Create cnrtQueue";
-  CALL_CNRT_FUNC(cnrt::QueueCreate(&q->priv_->queue), "Create cnrtQueue failed.");
+  VLOG(2) << "[EasyDK Device] [MluTaskQueue] Create cnrtQueue";
+  CALL_CNRT_FUNC(cnrt::QueueCreate(&q->priv_->queue), "[EasyDK Device] [MluTaskQueue] Create cnrtQueue failed.");
   return q;
 }
 
 void MluTaskQueue::Sync() {
-  CHECK(DEVICE, priv_->queue) << "task queue is uninitialized!";
-  CALL_CNRT_FUNC(cnrt::QueueSync(priv_->queue), "Sync queue failed.");
-  LOGT(DEVICE) << "Sync MLU task queue: " << reinterpret_cast<void*>(priv_->queue);
+  CHECK(priv_->queue) << "[EasyDK Device] [MluTaskQueue] Task queue is uninitialized!";
+  CALL_CNRT_FUNC(cnrt::QueueSync(priv_->queue), "[EasyDK Device] [MluTaskQueue] Sync queue failed.");
+  VLOG(4) << "[EasyDK Device] [MluTaskQueue] Sync MLU task queue: " << reinterpret_cast<void*>(priv_->queue);
 }
 
 MluTaskQueuePrivate::~MluTaskQueuePrivate() {
   if (queue) {
-    LOGD(DEVICE) << "Destroy cnrtQueue";
+    VLOG(2) << "[EasyDK Device] [MluTaskQueue] Destroy cnrtQueue";
     cnrtRet_t ret = cnrt::QueueDestroy(queue);
     queue = nullptr;
     if (ret != CNRT_RET_SUCCESS) {
-      LOGE(DEVICE) << "Destroy cnrtQueue failed, error code: " << ret;
+      LOG(ERROR) << "[EasyDK Device] [MluTaskQueue] Destroy cnrtQueue failed, error code: " << ret;
     }
   }
 }
@@ -111,7 +111,7 @@ class CnrtInitTool {
   ~CnrtInitTool() {
 #if CNRT_MAJOR_VERSION < 5
     if (is_initialized_) {
-      LOGI(DEVICE) << "Cambricon runtime destroy";
+      LOG(INFO) << "[EasyDK Device] [CnrtInitTool] Cambricon runtime destroy";
       cnrtDestroy();
     }
 #endif
@@ -119,15 +119,15 @@ class CnrtInitTool {
 
   void Init() {
 #if CNRT_MAJOR_VERSION < 5
-    SpinLockGuard lk(lock_);
+    std::lock_guard<std::mutex> lk(lock_);
     if (!is_initialized_) {
-      CALL_CNRT_FUNC(cnrtInit(0), "Init cambricon runtime failed.");
+      CALL_CNRT_FUNC(cnrtInit(0), "[EasyDK Device] [CnrtInitTool] Init cambricon runtime failed.");
       uint32_t dev_cnt;
-      CALL_CNRT_FUNC(cnrtGetDeviceCount(&dev_cnt), "Get device count failed.");
+      CALL_CNRT_FUNC(cnrtGetDeviceCount(&dev_cnt), "[EasyDK Device] [CnrtInitTool] Get device count failed.");
       if (static_cast<decltype(dev_cnt)>(0) == dev_cnt) {
-        THROW_EXCEPTION(Exception::UNAVAILABLE, "No device found.");
+        THROW_EXCEPTION(Exception::UNAVAILABLE, "[EasyDK Device] [CnrtInitTool] No device found.");
       }
-      LOGI(DEVICE) << "Cambricon runtime init success.";
+      LOG(INFO) << "[EasyDK Device] [CnrtInitTool] Cambricon runtime init success.";
       is_initialized_ = true;
     }
 #endif
@@ -135,7 +135,7 @@ class CnrtInitTool {
 
  private:
   std::atomic<bool> is_initialized_;
-  SpinLock lock_;
+  std::mutex lock_;
 
   // disable copy and assign
   CnrtInitTool(const CnrtInitTool&) = delete;
@@ -153,7 +153,7 @@ bool MluContext::CheckDeviceId(int id) {
 uint32_t MluContext::GetDeviceNum() {
   _cnrt_init_tool::cnrt_init_tool.Init();
   uint32_t dev_cnt;
-  CALL_CNRT_FUNC(cnrtGetDeviceCount(&dev_cnt), "Get device count failed.");
+  CALL_CNRT_FUNC(cnrtGetDeviceCount(&dev_cnt), "[EasyDK Device] [MluContext] Get device count failed.");
   return dev_cnt;
 }
 
@@ -161,14 +161,14 @@ void MluContext::BindDevice() {
   _cnrt_init_tool::cnrt_init_tool.Init();
 #if CNRT_MAJOR_VERSION < 5
   cnrtDev_t dev;
-  CALL_CNRT_FUNC(cnrtGetDeviceHandle(&dev, dev_id_), "Get device failed.");
-  CALL_CNRT_FUNC(cnrtSetCurrentDevice(dev), "Set current device failed.");
+  CALL_CNRT_FUNC(cnrtGetDeviceHandle(&dev, dev_id_), "[EasyDK Device] [MluContext] Get device failed.");
+  CALL_CNRT_FUNC(cnrtSetCurrentDevice(dev), "[EasyDK Device] [MluContext] Set current device failed.");
 #else
-  CALL_CNRT_FUNC(cnrtSetDevice(dev_id_), "Set device failed.");
+  CALL_CNRT_FUNC(cnrtSetDevice(dev_id_), "[EasyDK Device] [MluContext] Set device failed.");
 #endif
-  LOGT(DEVICE) << "Bind device [" << dev_id_ << "] for this thread";
+  VLOG(2) << "[EasyDK Device] [MluContext] Bind device [" << dev_id_ << "] for this thread";
 #if CNRT_MAJOR_VERSION < 5
-  CALL_CNRT_FUNC(cnrtSetDeviceFlag(1), "Set device flag failed.");
+  CALL_CNRT_FUNC(cnrtSetDeviceFlag(1), "[EasyDK Device] [MluContext] Set device flag failed.");
 #endif
 }
 
@@ -179,21 +179,22 @@ CoreVersion MluContext::GetCoreVersion() {
   CoreVersion version;
   cnrtDeviceInfo_t device_info;
   std::unique_lock<std::mutex> lk(m);
-  CALL_CNRT_FUNC(cnrtGetDeviceInfo(&device_info, dev_id_), "Get device info failed.");
+  CALL_CNRT_FUNC(cnrtGetDeviceInfo(&device_info, dev_id_), "[EasyDK Device] [MluContext] Get device info failed.");
   lk.unlock();
   switch (device_info.core_version) {
     case CNRT_MLU220: {
       version = CoreVersion::MLU220;
-      LOGD(DEVICE) << "Get Core Version MLU220";
+      VLOG(4) << "[EasyDK Device] [MluContext] Get Core Version MLU220";
       break;
     }
     case CNRT_MLU270: {
       version = CoreVersion::MLU270;
-      LOGD(DEVICE) << "Get Core Version MLU270";
+      VLOG(4) << "[EasyDK Device] [MluContext] Get Core Version MLU270";
       break;
     }
     default:
-      LOGE(DEVICE) << "Unsupport cnrt core version " << static_cast<int>(device_info.core_version);
+      LOG(ERROR) << "[EasyDK Device] [MluContext] Unsupported CNRT core version "
+                 << static_cast<int>(device_info.core_version);
       version = CoreVersion::INVALID;
   }
   return version;
@@ -212,14 +213,14 @@ CoreVersion MluContext::GetCoreVersion() {
   };
   static uint32_t num = sizeof(name_list_table) / sizeof(DeviceName);
   cnrtDeviceProp_t prop;
-  CALL_CNRT_FUNC(cnrtGetDeviceProperties(&prop, dev_id_), "Get device properties failed");
+  CALL_CNRT_FUNC(cnrtGetDeviceProperties(&prop, dev_id_), "[EasyDK Device] [MluContext] Get device properties failed");
   for (uint32_t idx = 0; idx < num; ++idx) {
     const char* name = name_list_table[idx].name;
     if (0 == strncmp(name, prop.name, strlen(name))) {
       return name_list_table[idx].version;
     }
   }
-  LOGE(DEVICE) << "Unsupport device name " << prop.name;
+  LOG(ERROR) << "[EasyDK Device] [MluContext] Unsupported device name " << prop.name;
   return CoreVersion::INVALID;
 #endif
 }

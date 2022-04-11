@@ -24,13 +24,13 @@
 #include "cnrt.h"
 #include "device/mlu_context.h"
 
-#define CNRT_SAFECALL(func, val)                                  \
-  do {                                                            \
-    auto ret = (func);                                            \
-    if (ret != CNRT_RET_SUCCESS) {                                \
-      LOG(ERROR) << "Call " #func " failed, error code: " << ret; \
-      return val;                                                 \
-    }                                                             \
+#define CNRT_SAFECALL(func, val)                                                       \
+  do {                                                                                 \
+    auto ret = (func);                                                                 \
+    if (ret != CNRT_RET_SUCCESS) {                                                     \
+      LOG(ERROR) << "[EasyDK InferServer] Call " #func " failed, error code: " << ret; \
+      return val;                                                                      \
+    }                                                                                  \
   } while (0)
 
 namespace infer_server {
@@ -38,7 +38,7 @@ namespace infer_server {
 #ifdef CNIS_USE_MAGICMIND
 bool SetCurrentDevice(int device_id) noexcept {
   CNRT_SAFECALL(cnrtSetDevice(device_id), false);
-  VLOG(5) << "Set device [" << device_id << "] for this thread";
+  VLOG(3) << "[EasyDK InferServer] [SetCurrentDevice] Set device [" << device_id << "] for this thread";
   return true;
 }
 
@@ -60,7 +60,7 @@ bool SetCurrentDevice(int device_id) noexcept {
     ctx.BindDevice();
     return true;
   } catch (edk::Exception& e) {
-    LOG(ERROR) << e.what();
+    LOG(ERROR) << "[EasyDK InferServer] [SetCurrentDevice] error occurs, error message: " << e.what();
     return false;
   }
 }
@@ -69,7 +69,7 @@ uint32_t TotalDeviceCount() noexcept {
   try {
     return edk::MluContext::GetDeviceNum();
   } catch (edk::Exception& e) {
-    LOG(ERROR) << e.what();
+    LOG(ERROR) << "[EasyDK InferServer] [TotalDeviceCount] error occurs, error message: " << e.what();
     return 0;
   }
 }

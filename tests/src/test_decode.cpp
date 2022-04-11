@@ -35,24 +35,23 @@ void frame_callback(bool* condv, std::condition_variable* cond, const edk::CnFra
     context.SetDeviceId(0);
     context.BindDevice();
   } catch (edk::Exception& err) {
-    std::cout << "set mlu env failed" << std::endl;
+    LOG(ERROR) << "[EasyDK Tests] [Decode] Set mlu env failed";
     g_decode->ReleaseBuffer(frame.buf_id);
     return;
   }
 
-  std::cout << "\n#########################\n";
-  std::cout << "width " << frame.width << " height " << frame.height << std::endl;
-  std::cout << "stride | addr:\n";
+  VLOG(5) << "[EasyDK Tests] [Decode] #########################";
+  VLOG(5) << "[EasyDK Tests] [Decode] width " << frame.width << " height " << frame.height;
+  VLOG(5) << "[EasyDK Tests] [Decode] stride | addr:";
   for (size_t idx = 0; idx < frame.n_planes; ++idx) {
-    std::cout << frame.strides[idx] << " | ";
-    std::cout << frame.ptrs[idx] << "\n";
+    VLOG(5) << "[EasyDK Tests] [Decode] " << frame.strides[idx] << " | " << frame.ptrs[idx];
   }
-  std::cout << "#########################\n\n";
+  VLOG(5) << "[EasyDK Tests] [Decode] #########################";
 
   if (p_big_stream == NULL) {
     p_big_stream = fopen("big.yuv", "wb");
     if (p_big_stream == NULL) {
-      std::cout << "open big.yuv failed" << std::endl;
+      LOG(ERROR) << "[EasyDK Tests] [Decode] open big.yuv failed";
       g_decode->ReleaseBuffer(frame.buf_id);
       return;
     }
@@ -69,7 +68,7 @@ void frame_callback(bool* condv, std::condition_variable* cond, const edk::CnFra
 
   buffer = new uint8_t[length];
   if (buffer == NULL) {
-    std::cout << ("ERROR: malloc for big buffer failed\n");
+    LOG(ERROR) << "[EasyDK Tests] [Decode] Malloc for big buffer failed";
     g_decode->ReleaseBuffer(frame.buf_id);
     return;
   }
@@ -78,7 +77,7 @@ void frame_callback(bool* condv, std::condition_variable* cond, const edk::CnFra
 
   written = fwrite(buffer, 1, length, p_big_stream);
   if (written != length) {
-    printf("ERROR: big written size(%u) != data length(%u)\n", (unsigned int)written, length);
+    LOG(ERROR) << "[EasyDK Tests] [Decode] Big written size " << written << " != data length " << length;
   }
 
   delete[] buffer;
@@ -95,13 +94,13 @@ void frame_callback(bool* condv, std::condition_variable* cond, const edk::CnFra
 }
 
 void eos_callback(bool* condv, std::condition_variable* cond) {
-  std::cout << "eos_callback" << std::endl;
+  VLOG(4) << "[EasyDK Tests] [Decode] eos_callback";
   try {
     edk::MluContext context;
     context.SetDeviceId(0);
     context.BindDevice();
   } catch (edk::Exception& err) {
-    printf("set mlu env failed\n");
+    LOG(ERROR) << "[EasyDK Tests] [Decode] Set mlu env failed";
     return;
   }
   if (p_big_stream) {
@@ -120,7 +119,7 @@ bool SendData(edk::EasyDecode* decode, bool _abort = false) {
   FILE* fid;
 
   if (test_file == NULL) {
-    std::cout << "test_file == NULL" << std::endl;
+    LOG(ERROR) << "[EasyDK Tests] [Decode] test_file is invalid.";
     return false;
   }
 
@@ -151,7 +150,7 @@ bool test_decode(edk::CodecType ctype, edk::PixelFmt pf, uint32_t frame_w, uint3
     context.SetDeviceId(0);
     context.BindDevice();
   } catch (edk::Exception& err) {
-    std::cout << "set mlu env failed" << std::endl;
+    LOG(ERROR) << "[EasyDK Tests] [Decode] Set mlu env failed";
     return false;
   }
 
@@ -164,7 +163,7 @@ bool test_decode(edk::CodecType ctype, edk::PixelFmt pf, uint32_t frame_w, uint3
       test_file = const_cast<char*>(jpeg_file);
     }
   } else {
-    std::cout << "unknown codec type" << std::endl;
+    LOG(ERROR) << "[EasyDK Tests] [Decode] Unknown codec type";
     return false;
   }
 
@@ -195,7 +194,7 @@ bool test_decode(edk::CodecType ctype, edk::PixelFmt pf, uint32_t frame_w, uint3
     EXPECT_EQ(decode->GetStatus(), edk::EasyDecode::Status::RUNNING);
     ret = SendData(g_decode, _abort);
     if (!ret) {
-      std::cout << "Send Data failed" << std::endl;
+      LOG(ERROR) << "[EasyDK Tests] [Decode] Send Data failed";
       return false;
     }
     if (_abort) {
@@ -215,7 +214,7 @@ bool test_decode(edk::CodecType ctype, edk::PixelFmt pf, uint32_t frame_w, uint3
 
     g_decode = nullptr;
   } catch (edk::Exception& err) {
-    std::cout << err.what() << std::endl;
+    LOG(ERROR) << "[EasyDK Tests] [Decode] Error occurs: " << err.what();
     if (nullptr != decode) {
       g_decode = nullptr;
     }

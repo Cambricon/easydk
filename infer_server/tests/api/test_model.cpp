@@ -90,7 +90,7 @@ TEST_F(InferServerTestAPI, ModelManager) {
   /************************************************************************************/
   std::ifstream infile("./resnet34_ssd.cambricon", std::ios::binary);
   if (!infile.is_open()) {
-    LOG(ERROR) << "file open failed";
+    LOG(ERROR) << "[EasyDK Tests] [InferServer] File open failed";
   }
   std::filebuf* pbuf = infile.rdbuf();
   uint32_t filesize = static_cast<uint32_t>((pbuf->pubseekoff(0, std::ios::end, std::ios::in)));

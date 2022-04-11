@@ -17,6 +17,8 @@
  * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
  * THE SOFTWARE.
  *************************************************************************/
+#include <glog/logging.h>
+
 #include <pybind11/pybind11.h>
 #include <pybind11/stl.h>
 
@@ -28,7 +30,6 @@
 
 #include "cnis/contrib/video_helper.h"
 #include "common_wrapper.hpp"
-#include "cxxutil/log.h"
 
 namespace py = pybind11;
 
@@ -202,7 +203,7 @@ void VideoHelperWrapper(py::module& m) {  // NOLINT
            [](std::shared_ptr<video::VideoInferServer> infer_server, SessionDesc desc,
               std::shared_ptr<Observer> observer) {
              if (!desc.preproc) {
-               LOGD(CNIS_PY_API) << "Default preproc will be used";
+               VLOG(1) << "[InferServer] [PythonAPI] Default preproc will be used in this session";
                desc.preproc = PreprocessorHost::Create();
                desc.preproc->SetParams<PreprocessorHost::ProcessFunction>("process_function", DefaultPreprocExecute);
              }
@@ -211,7 +212,7 @@ void VideoHelperWrapper(py::module& m) {  // NOLINT
       .def("create_sync_session",
            [](std::shared_ptr<video::VideoInferServer> infer_server, SessionDesc desc) {
              if (!desc.preproc) {
-               LOGD(CNIS_PY_API) << "Default preproc will be used";
+               VLOG(1) << "[InferServer] [PythonAPI] Default preproc will be used in this synchronous session";
                desc.preproc = PreprocessorHost::Create();
                desc.preproc->SetParams<PreprocessorHost::ProcessFunction>("process_function", DefaultPreprocExecute);
              }

@@ -17,18 +17,20 @@
  * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
  * THE SOFTWARE.
  *************************************************************************/
+#include <glog/logging.h>
 #include <algorithm>
 #include <atomic>
 #include <condition_variable>
 #include <cstring>
+#include <list>
 #include <memory>
 #include <mutex>
 #include <string>
 #include <thread>
 #include <iostream>
 
-#include "cxxutil/log.h"
 #include "decoder.h"
+#include "cxxutil/rwlock.h"
 
 #ifdef ENABLE_MLU300_CODEC
 #include <cncodec_v3_common.h>
@@ -64,10 +66,12 @@ class Mlu300Decoder : public Decoder {
   int ReceiveSequence(cncodecDecSequenceInfo_t* info);
   void ReceiveEvent(cncodecEventType_t type);
   void ReceiveEOS();
+  void DestroyDecoder() override;
 
  private:
   void InitDecode(const EasyDecode::Attr& attr);
   void SetDecParams();
+  void WaitAllBuffersBack();
 
   // cncodec handle
   cncodecHandle_t handle_ = 0;
@@ -85,12 +89,15 @@ class Mlu300Decoder : public Decoder {
   std::condition_variable eos_cond_;
   std::atomic<bool> send_eos_{false};
   std::atomic<bool> got_eos_{false};
+
+  std::mutex list_mtx_;
+  std::list<uint64_t> out_frame_list_;
 };  // class Mlu300Decoder
 
 static i32_t Mlu300EventHandler(cncodecEventType_t type, void* user_data, void* package) {
   auto handler = reinterpret_cast<Mlu300Decoder*>(user_data);
   if (handler == nullptr) {
-    LOGE(DECODE) << "Mlu300Decoder handler is nullptr";
+    LOG(ERROR) << "[EasyDK EasyCodec] [Mlu300Decoder] The handler is nullptr";
     return 0;
   }
   switch (type) {
@@ -113,9 +120,9 @@ Mlu300Decoder::Mlu300Decoder(const EasyDecode::Attr& attr) : Decoder(attr) {
       uint32_t major, minor, patch;
       int ret = cncodecGetLibVersion(&major, &minor, &patch);
       if (CNCODEC_SUCCESS == ret) {
-        LOGI(DECODE) << "CNCodec Version: " << major << "." << minor << "." << patch;
+        LOG(INFO) << "[EasyDK EasyCodec] [Mlu300Decoder] CNCodec Version: " << major << "." << minor << "." << patch;
       } else {
-        LOGW(DECODE) << "Get CNCodec version failed.";
+        LOG(WARNING) << "[EasyDK EasyCodec] [Mlu300Decoder] Get CNCodec version failed.";
       }
     }
   };
@@ -129,8 +136,12 @@ Mlu300Decoder::Mlu300Decoder(const EasyDecode::Attr& attr) : Decoder(attr) {
 }
 
 Mlu300Decoder::~Mlu300Decoder() {
+  Mlu300Decoder::DestroyDecoder();
+}
+
+void Mlu300Decoder::DestroyDecoder() {
   if (status_.load() == EasyDecode::Status::ERROR && handle_) {
-    Mlu300Decoder::AbortDecoder();
+    AbortDecoder();
     return;
   }
   /**
@@ -140,41 +151,47 @@ Mlu300Decoder::~Mlu300Decoder() {
   /**
    * Release resources.
    */
+  handle_lk_.ReadLock();
   if (!handle_) {
     send_eos_.store(true);
     got_eos_.store(true);
   }
+  handle_lk_.Unlock();
   try {
     if (!got_eos_.load() && !send_eos_.load()) {
-      LOGI(DECODE) << "Send EOS in destruct";
-      Mlu300Decoder::FeedEos();
+      LOG(INFO) << "[EasyDK EasyCodec] [Mlu300Decoder] Send EOS in destruct";
+      FeedEos();
     }
 
     if (!got_eos_.load()) {
-      LOGI(DECODE) << "Wait EOS in destruct";
+      LOG(INFO) << "[EasyDK EasyCodec] [Mlu300Decoder] Wait EOS in destruct";
       std::unique_lock<std::mutex> eos_lk(eos_mtx_);
       eos_cond_.wait(eos_lk, [this]() -> bool { return got_eos_; });
     }
   } catch (Exception& e) {
-    LOGE(DECODE) << e.what();
+    LOG(ERROR) << "[EasyDK EasyCodec] [Mlu300Decoder] Feed Eos failed. error: " << e.what();
   }
 
+  WaitAllBuffersBack();
+
+  WriteLockGuard lg(handle_lk_);
   if (handle_) {
     int codec_ret = cncodecDecDestroy(handle_);
     if (CNCODEC_SUCCESS != codec_ret) {
-      LOGE(DECODE) << "Call cncodecDecDestroy failed, ret = " << codec_ret;
+      LOG(ERROR) << "[EasyDK EasyCodec] [Mlu300Decoder] Call cncodecDecDestroy failed, ret = " << codec_ret;
     }
     handle_ = 0;
   }
 }
 
 bool Mlu300Decoder::FeedData(const CnPacket& packet) {
+  ReadLockGuard lg(handle_lk_);
   if (!handle_) {
-    LOGE(DECODE) << "Decoder has not been init";
+    LOG(ERROR) << "[EasyDK EasyCodec] [Mlu300Decoder] Feed data failed, handle is null";
     return false;
   }
   if (send_eos_) {
-    LOGW(DECODE) << "EOS had been sent, won't feed data";
+    LOG(WARNING) << "[EasyDK EasyCodec] [Mlu300Decoder] EOS had been sent, won't feed data";
     return false;
   }
 
@@ -185,20 +202,24 @@ bool Mlu300Decoder::FeedData(const CnPacket& packet) {
   codec_input.data_len = packet.length;
   codec_input.pts = packet.pts;
   codec_input.priv_data = reinterpret_cast<u64_t>(packet.user_data);
-  LOGT(DECODE) << "Feed stream info, data: " << reinterpret_cast<void*>(codec_input.mem_addr)
-              << ", length: " << codec_input.data_len << ", pts: " << codec_input.pts;
+  VLOG(5) << "[EasyDK EasyCodec] [Mlu300Decoder] Feed stream info, data: "
+          << reinterpret_cast<void*>(codec_input.mem_addr)
+          << ", length: " << codec_input.data_len << ", pts: " << codec_input.pts;
   int retry_time = 3;
   while (retry_time--) {
     int codec_ret = cncodecDecSendStream(handle_, &codec_input, 10000);
     if (CNCODEC_ERROR_TIMEOUT == codec_ret) {
-      LOGW(DECODE) << "cncodecDecSendStream timeout, retry feed data, time: " << 3 - retry_time;
+      LOG(WARNING) << "[EasyDK EasyCodec] [Mlu300Decoder] cncodecDecSendStream timeout, retry feed data, time: "
+                   << 3 - retry_time;
       if (!retry_time) {
         status_.store(EasyDecode::Status::ERROR);
-        THROW_EXCEPTION(Exception::TIMEOUT, "easydecode timeout");
+        THROW_EXCEPTION(Exception::TIMEOUT, "[EasyDK EasyCodec] [Mlu300Decoder] Feed data timeout");
       }
       continue;
     } else if (CNCODEC_SUCCESS != codec_ret) {
-      THROW_EXCEPTION(Exception::INTERNAL, "Call cncodecDecSendStream failed, ret = " + std::to_string(codec_ret));
+      THROW_EXCEPTION(Exception::INTERNAL,
+          "[EasyDK EasyCodec] [Mlu300Decoder] Call cncodecDecSendStream failed, ret = " +
+          std::to_string(codec_ret));
     } else {
       break;
     }
@@ -208,27 +229,34 @@ bool Mlu300Decoder::FeedData(const CnPacket& packet) {
 }
 
 bool Mlu300Decoder::FeedEos() {
+  ReadLockGuard lg(handle_lk_);
+  if (!handle_) {
+    LOG(ERROR) << "[EasyDK EasyCodec] [Mlu300Decoder] Feed EOS failed, handle is null";
+    return false;
+  }
   if (status_.load() == EasyDecode::Status::ERROR) {
-    LOGW(DECODE) << "Error had occured, EOS won't be sent";
+    LOG(WARNING) << "[EasyDK EasyCodec] [Mlu300Decoder] Error had occurred, EOS won't be sent";
     return false;
   }
   if (send_eos_.load()) {
-    LOGW(DECODE) << "EOS had been feed, won't feed again";
+    LOG(WARNING) << "[EasyDK EasyCodec] [Mlu300Decoder] EOS had been feed, won't feed again";
     return false;
   }
 
-  LOGI(DECODE) << "Thread id: " << std::this_thread::get_id() << ", Feed EOS data";
+  LOG(INFO) << "[EasyDK EasyCodec] [Mlu300Decoder] Thread id: " << std::this_thread::get_id() << ". Feed EOS data";
 
   int codec_ret = cncodecDecSetEos(handle_);
   if (CNCODEC_ERROR_INVALID_HANDLE == codec_ret) {
     status_.store(EasyDecode::Status::ERROR);
-    THROW_EXCEPTION(Exception::INVALID_ARG, "Feed EOS failed, invalid handle");
+    THROW_EXCEPTION(Exception::INVALID_ARG, "[EasyDK EasyCodec] [Mlu300Decoder] Feed EOS failed, invalid handle");
   } else if (CNCODEC_ERROR_TRANSMIT_FAILED == codec_ret) {
     status_.store(EasyDecode::Status::ERROR);
-    THROW_EXCEPTION(Exception::INTERNAL, "Feed EOS failed, communication with the device failed");
+    THROW_EXCEPTION(Exception::INTERNAL,
+        "[EasyDK EasyCodec] [Mlu300Decoder] Feed EOS failed, communication with the device failed");
   } else if (CNCODEC_SUCCESS != codec_ret) {
     status_.store(EasyDecode::Status::ERROR);
-    THROW_EXCEPTION(Exception::INTERNAL, "Feed EOS failed. cncodec error code: " + std::to_string(codec_ret));
+    THROW_EXCEPTION(Exception::INTERNAL,
+        "[EasyDK EasyCodec] [Mlu300Decoder] Feed EOS failed. cncodec error code: " + std::to_string(codec_ret));
   }
 
   send_eos_ = true;
@@ -236,11 +264,12 @@ bool Mlu300Decoder::FeedEos() {
 }
 
 void Mlu300Decoder::AbortDecoder() {
-  LOGW(DECODE) << "Abort decoder";
+  WriteLockGuard lg(handle_lk_);
+  LOG(WARNING) << "[EasyDK EasyCodec] [Mlu300Decoder] Abort decoder";
   if (handle_) {
     int codec_ret = cncodecDecDestroy(handle_);
     if (CNCODEC_SUCCESS != codec_ret) {
-      LOGE(DECODE) << "Call cncodecDecDestroy failed, ret = " << codec_ret;
+      LOG(ERROR) << "[EasyDK EasyCodec] [Mlu300Decoder] Call cncodecDecDestroy failed, ret = " << codec_ret;
     }
     handle_ = 0;
     status_.store(EasyDecode::Status::STOP);
@@ -250,18 +279,50 @@ void Mlu300Decoder::AbortDecoder() {
     got_eos_.store(true);
     eos_cond_.notify_one();
   } else {
-    LOGE(DECODE) << "Won't do abort, since cndecode handler has not been initialized";
+    LOG(ERROR) << "[EasyDK EasyCodec] [Mlu300Decoder] Won't do abort, since cndecode handler has not been initialized";
   }
 }
 
+void Mlu300Decoder::WaitAllBuffersBack() {
+  LOG(INFO) << "[EasyDK EasyCodec] [Mlu300Decoder] Wait all buffers back...";
+  while (true) {
+    {
+      std::lock_guard<std::mutex> lk(list_mtx_);
+      if (out_frame_list_.empty()) break;
+    }
+    {
+      ReadLockGuard lg(handle_lk_);
+      if (!handle_) {
+        LOG(WARNING) << "[EasyDK EasyCodec] [Mlu300Decoder] Wait all buffers back failed, handle is null";
+        return;
+      }
+    }
+    std::this_thread::yield();
+  }
+  LOG(INFO) << "[EasyDK EasyCodec] [Mlu300Decoder] All buffers back";
+}
+
 bool Mlu300Decoder::ReleaseBuffer(uint64_t buf_id) {
+  ReadLockGuard lg(handle_lk_);
   if (handle_) {
+    std::unique_lock<std::mutex> lk(list_mtx_);
+    std::list<uint64_t>::iterator out_frame_it = std::find(out_frame_list_.begin(), out_frame_list_.end(), buf_id);
+    if (out_frame_it != out_frame_list_.end()) {
+      out_frame_list_.erase(out_frame_it);
+    } else {
+      LOG(ERROR) << "[EasyDK EasyCodec] [Mlu300Decoder] Memory is not requested from decoder on device";
+      return false;
+    }
+    lk.unlock();
+
     auto ret = cncodecDecFrameUnref(handle_, reinterpret_cast<cncodecFrame_t*>(buf_id));
     if (CNCODEC_SUCCESS == ret) {
       return true;
     } else {
-      LOGE(DECODE) << "Release buffer failed. buf_id: " << buf_id;
+      LOG(ERROR) << "[EasyDK EasyCodec] [Mlu300Decoder] Release buffer failed. buf_id: " << buf_id;
     }
+  } else {
+    LOG(ERROR) << "[EasyDK EasyCodec] [Mlu300Decoder] Release buffer failed, handle is null.";
   }
   return false;
 }
@@ -296,8 +357,9 @@ void Mlu300Decoder::InitDecode(const EasyDecode::Attr& attr) {
       create_info_.codec = CNCODEC_JPEG;
       break;
     default: {
-      THROW_EXCEPTION(Exception::INIT_FAILED, "codec type not supported yet, codec_type:"
-          + std::to_string(static_cast<int>(attr.codec_type)));
+      THROW_EXCEPTION(Exception::INIT_FAILED,
+          "[EasyDK EasyCodec] [Mlu300Decoder] Codec type not supported yet, codec_type:" +
+          CodecTypeStr(attr.codec_type));
     }
   }
   if (create_info_.codec != CNCODEC_JPEG) {
@@ -321,8 +383,9 @@ void Mlu300Decoder::InitDecode(const EasyDecode::Attr& attr) {
         codec_params_.pixel_format = CNCODEC_PIX_FMT_MONOCHROME;
         break;
       default: {
-        THROW_EXCEPTION(Exception::INIT_FAILED, "codec pixel format not supported yet, pixel format:"
-            + std::to_string(static_cast<int>(attr.pixel_format)));
+        THROW_EXCEPTION(Exception::INIT_FAILED,
+            "[EasyDK EasyCodec] [Mlu300Decoder] Codec pixel format not supported yet, pixel format: " +
+            PixelFmtStr(attr.pixel_format));
       }
     }
   } else {
@@ -334,15 +397,17 @@ void Mlu300Decoder::InitDecode(const EasyDecode::Attr& attr) {
         codec_params_.pixel_format = CNCODEC_PIX_FMT_NV21;
         break;
       default: {
-        THROW_EXCEPTION(Exception::INIT_FAILED, "codec pixel format not supported yet, pixel format:"
-            + std::to_string(static_cast<int>(attr.pixel_format)));
+        THROW_EXCEPTION(Exception::INIT_FAILED,
+            "[EasyDK EasyCodec] [Mlu300Decoder] Codec pixel format not supported yet, pixel format: " +
+            PixelFmtStr(attr.pixel_format));
       }
     }
   }
 
   int codec_ret = cncodecDecCreate(&handle_, &Mlu300EventHandler, &create_info_);
   if (CNCODEC_SUCCESS != codec_ret || !handle_) {
-    THROW_EXCEPTION(Exception::INIT_FAILED, "Create decode failed: " + std::to_string(codec_ret));
+    THROW_EXCEPTION(Exception::INIT_FAILED,
+        "[EasyDK EasyCodec] [Mlu300Decoder] Create decode failed: " + std::to_string(codec_ret));
   }
 
   codec_params_.color_space       = CNCODEC_COLOR_SPACE_BT_709;
@@ -365,10 +430,16 @@ void Mlu300Decoder::InitDecode(const EasyDecode::Attr& attr) {
 }
 
 inline void Mlu300Decoder::SetDecParams() {
-  int codec_ret = cncodecDecSetParams(handle_, &codec_params_);
-  if (CNCODEC_SUCCESS != codec_ret) {
-    status_.store(EasyDecode::Status::ERROR);
-    THROW_EXCEPTION(Exception::INTERNAL, "Call cncodecDecSetParams failed, ret = " +std::to_string(codec_ret));
+  ReadLockGuard lg(handle_lk_);
+  if (handle_) {
+    int codec_ret = cncodecDecSetParams(handle_, &codec_params_);
+    if (CNCODEC_SUCCESS != codec_ret) {
+      status_.store(EasyDecode::Status::ERROR);
+      THROW_EXCEPTION(Exception::INTERNAL,
+          "[EasyDK EasyCodec] [Mlu300Decoder] Call cncodecDecSetParams failed, ret = " +std::to_string(codec_ret));
+    }
+  } else {
+    LOG(WARNING) << "[EasyDK EasyCodec] [Mlu300Decoder] SetDecParams failed, handle_ is null.";
   }
 }
 
@@ -377,7 +448,7 @@ void Mlu300Decoder::ReceiveFrame(cncodecFrame_t* codec_frame) {
   // config CnFrame for user callback.
   CnFrame finfo;
   if (codec_frame->width == 0 || codec_frame->height == 0 || codec_frame->plane_num == 0) {
-    LOGW(DECODE) << "Receive empty frame";
+    LOG(WARNING) << "[EasyDK EasyCodec] [Mlu300Decoder] Receive empty frame";
     return;
   }
   finfo.width = codec_frame->width;
@@ -396,40 +467,51 @@ void Mlu300Decoder::ReceiveFrame(cncodecFrame_t* codec_frame) {
   }
   finfo.user_data = reinterpret_cast<void*>(codec_frame->priv_data);
 
-  LOGT(DECODE) << "Frame: width " << finfo.width << " height " << finfo.height << " planes " << finfo.n_planes
-               << " frame size " << finfo.frame_size;
+  VLOG(5) << "[EasyDK EasyCodec] [Mlu300Decoder] Frame: width " << finfo.width << " height " << finfo.height
+          << " planes " << finfo.n_planes << " frame size " << finfo.frame_size;
 
   if (NULL != attr_.frame_callback) {
-    LOGD(DECODE) << "Add decode buffer Reference " << finfo.buf_id;
-    cncodecDecFrameRef(handle_, codec_frame);
-    attr_.frame_callback(finfo);
-    frames_count_++;
+    VLOG(4) << "[EasyDK EasyCodec] [Mlu300Decoder] Add decode buffer Reference " << finfo.buf_id;
+    ReadLockGuard lg(handle_lk_);
+    if (handle_) {
+      cncodecDecFrameRef(handle_, codec_frame);
+      {
+        std::lock_guard<std::mutex> lk(list_mtx_);
+        out_frame_list_.push_back(finfo.buf_id);
+      }
+      attr_.frame_callback(finfo);
+      frames_count_++;
+    } else {
+      LOG(ERROR) << "[EasyDK EasyCodec] [Mlu300Decoder] Can not call frame callback as handle is null.";
+    }
   }
 }
 
 int Mlu300Decoder::ReceiveSequence(cncodecDecSequenceInfo_t* seq_info) {
-  LOGI(DECODE) << "Receive sequence";
+  LOG(INFO) << "[EasyDK EasyCodec] [Mlu300Decoder] Receive sequence";
   receive_seq_time_++;
   if (receive_seq_time_ > 1) {
     // variable geometry stream. check output buffer number, width, height and reset codec params
     if (codec_params_.output_buf_num < seq_info->min_output_buf_num + 1 ||
         codec_params_.max_width < seq_info->coded_width ||
         codec_params_.max_height < seq_info->coded_height) {
-      LOGE(DECODE) << "Variable video resolutions, the preset parameters do not meet requirements."
-                   << "max width[" << codec_params_.max_width << "], "
-                   << "max height[" << codec_params_.max_height << "], "
-                   << "output buffer number[" << codec_params_.output_buf_num << "]. "
-                   << "But required: "
-                   << "coded width[" << seq_info->coded_width << "], "
-                   << "coded height[" << seq_info->coded_height << "], "
-                   << "min output buffer number[" << seq_info->min_output_buf_num << "].";
+      LOG(ERROR) << "[EasyDK EasyCodec] [Mlu300Decoder] Variable video resolutions,"
+                 << " the preset parameters do not meet requirements. "
+                 << "max width[" << codec_params_.max_width << "], "
+                 << "max height[" << codec_params_.max_height << "], "
+                 << "output buffer number[" << codec_params_.output_buf_num << "]. "
+                 << "But required: "
+                 << "coded width[" << seq_info->coded_width << "], "
+                 << "coded height[" << seq_info->coded_height << "], "
+                 << "min output buffer number[" << seq_info->min_output_buf_num << "].";
       status_.store(EasyDecode::Status::ERROR);
-      THROW_EXCEPTION(Exception::INTERNAL, "easydecode the preset parameters do not meet requirements");
+      THROW_EXCEPTION(Exception::INTERNAL,
+          "[EasyDK EasyCodec] [Mlu300Decoder] The preset parameters do not meet requirements");
     }
   } else {
     if (codec_params_.max_width && codec_params_.max_height) {
-      LOGI(DECODE) << "Variable video resolutions enabled, max width x max height : "
-                   << codec_params_.max_width << " x " << codec_params_.max_height;
+      LOG(INFO) << "[EasyDK EasyCodec] [Mlu300Decoder] Variable video resolutions enabled, max width x max height : "
+                << codec_params_.max_width << " x " << codec_params_.max_height;
     } else {
       codec_params_.max_width = seq_info->coded_width;
       codec_params_.max_height = seq_info->coded_height;
@@ -442,7 +524,8 @@ int Mlu300Decoder::ReceiveSequence(cncodecDecSequenceInfo_t* seq_info) {
 }
 
 void Mlu300Decoder::ReceiveEOS() {
-  LOGI(DECODE) << "Thread id: " << std::this_thread::get_id() << ", Received EOS from cncodec";
+  LOG(INFO) << "[EasyDK EasyCodec] [Mlu300Decoder] Thread id: [" << std::this_thread::get_id()
+            << "] Received EOS from cncodec";
 
   status_.store(EasyDecode::Status::EOS);
   if (attr_.eos_callback) {
@@ -460,31 +543,33 @@ void Mlu300Decoder::ReceiveEvent(cncodecEventType_t type) {
       ReceiveEOS();
       break;
     case CNCODEC_EVENT_OUT_OF_MEMORY:
-      LOGE(DECODE) << "Out of memory error thrown from cncodec";
+      LOG(ERROR) << "[EasyDK EasyCodec] [Mlu300Decoder] Out of memory error thrown from cncodec";
       status_.store(EasyDecode::Status::ERROR);
       break;
     case CNCODEC_EVENT_STREAM_CORRUPT:
-      LOGW(DECODE) << "Stream corrupt, discard frame";
+      LOG(WARNING) << "[EasyDK EasyCodec] [Mlu300Decoder] Stream corrupt, discard frame";
       break;
     case CNCODEC_EVENT_STREAM_NOT_SUPPORTED:
-      LOGE(DECODE) << "Out of memory error thrown from cncodec";
+      LOG(ERROR) << "[EasyDK EasyCodec] [Mlu300Decoder] Out of memory error thrown from cncodec";
       status_.store(EasyDecode::Status::ERROR);
       break;
     case CNCODEC_EVENT_BUFFER_OVERFLOW:
-      LOGW(DECODE) << "buffer overflow thrown from cncodec, output buffer number is not enough";
+      LOG(WARNING) << "[EasyDK EasyCodec] [Mlu300Decoder] buffer overflow thrown from cncodec,"
+                   << " output buffer number is not enough";
       break;
     case CNCODEC_EVENT_FATAL_ERROR:
-      LOGE(DECODE) << "fatal error throw from cncodec";
+      LOG(ERROR) << "[EasyDK EasyCodec] [Mlu300Decoder] fatal error throw from cncodec";
       status_.store(EasyDecode::Status::ERROR);
       break;
     default:
-      LOGE(DECODE) << "Unknown event type";
+      LOG(ERROR) << "[EasyDK EasyCodec] [Mlu300Decoder] Unknown event type";
       status_.store(EasyDecode::Status::ERROR);
       break;
   }
 }
 
 Decoder* CreateMlu300Decoder(const EasyDecode::Attr& attr) {
+  VLOG(1) << "[EasyDK EasyCodec] [CreateMlu300Decoder] Create MLU300 decoder.";
   return new Mlu300Decoder(attr);
 }
 }  // namespace edk
@@ -493,7 +578,7 @@ Decoder* CreateMlu300Decoder(const EasyDecode::Attr& attr) {
 namespace edk {
 
 Decoder* CreateMlu300Decoder(const EasyDecode::Attr& attr) {
-  LOGE(DECODE) << "Create mlu300 decoder failed, please install cncodec_v3.";
+  LOG(ERROR) << "[EasyDK EasyCodec] [CreateMlu300Decoder] Create mlu300 decoder failed. Please install cncodec_v3.";
   return nullptr;
 }
 }  // namespace edk

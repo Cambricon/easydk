@@ -19,6 +19,7 @@
  *************************************************************************/
 
 #include <cnrt.h>
+#include <glog/logging.h>
 #include <string.h>
 #include <sys/time.h>
 #include <cassert>
@@ -422,8 +423,7 @@ bool PrepareKernelParam(int d_row, int d_col, int color_mode, int data_type,
       outputType = RGBA;
       break;
     default:
-      std::cout << "COLOR CONVERSION NOT SURPPORTED!" << std::endl;
-      assert(0);
+      LOG(FATAL) << "[EasyDK EasyBang] [MluResizeConvertOp] Unsupported color convertion!";
       return false;
   }
 
@@ -456,8 +456,7 @@ bool PrepareKernelParam(int d_row, int d_col, int color_mode, int data_type,
       layerIn = 3;
       break;
     default:
-      std::cout << "INPUT COLOR_TYPE NOT SURPPORTED!" << std::endl;
-      assert(0);
+      LOG(FATAL) << "[EasyDK EasyBang] [MluResizeConvertOp] Unsupported color type!";
       return false;
   }
 
@@ -616,30 +615,29 @@ bool PrepareKernelParam(int d_row, int d_col, int color_mode, int data_type,
 
   // malloc and copy consts_mlu
   int ecode = cnrtMalloc((void**)&((*param)->consts_mlu), (2 * CI * CO + CO) * sizeof(half));
-  CHECK_CNRT_RET(ecode, estr, "Malloc consts FAILED! ERRCODE:" + to_string(ecode),
-                 { FreeKernelParam(*param); free(consts); },
-                 false);
+  CHECK_CNRT_RET(ecode, estr, "[EasyDK EasyBang] [MluResizeConvertOp] Malloc consts FAILED! ERRCODE:" +
+                 to_string(ecode), { FreeKernelParam(*param); free(consts); }, false);
 
   ecode = cnrtMemcpy((*param)->consts_mlu, reinterpret_cast<void*>(consts), (2 * CI * CO + CO) * sizeof(half),
                      CNRT_MEM_TRANS_DIR_HOST2DEV);
-  CHECK_CNRT_RET(ecode, estr, "H2D consts FAILED! ERRCODE:" + to_string(ecode),
-                 { FreeKernelParam(*param); free(consts); },
-                 false);
+  CHECK_CNRT_RET(ecode, estr, "[EasyDK EasyBang] [MluResizeConvertOp] H2D consts FAILED! ERRCODE:" + to_string(ecode),
+                 { FreeKernelParam(*param); free(consts); }, false);
   free(consts);
 
   ecode = cnrtMalloc(reinterpret_cast<void**>(&((*param)->fill_color)), sizeof(uint8_t) * 4);
-  CHECK_CNRT_RET(ecode, estr, "cnrtm malloc FAILED! ERRCODE:" + std::to_string(ecode), {FreeKernelParam(*param); }, false);
+  CHECK_CNRT_RET(ecode, estr, "[EasyDK EasyBang] [MluResizeConvertOp] CNRT malloc FAILED! ERRCODE:" +
+      std::to_string(ecode), {FreeKernelParam(*param); }, false);
   cnrtMemset((*param)->fill_color, 0, sizeof(uint8_t) * 4);
   // // malloc and copy maskUV_mlu
   // if (CNRT_RET_SUCCESS !=
   //   cnrtMalloc((void**)&maskUV_mlu, CI * CI * total * sizeof(half))) {
-  //   printf("cnrtMalloc FAILED!\n");
+  //   LOG(ERROR) << "[EasyDK EasyBang] [MluResizeConvertOp] cnrtMalloc FAILED!";
   //   exit(-1);
   // }
   // if (CNRT_RET_SUCCESS != cnrtMemcpy(maskUV_mlu, reinterpret_cast<half*>(maskUV),
   //                                    CI * CI * total * sizeof(half),
   //                                    CNRT_MEM_TRANS_DIR_HOST2DEV)) {
-  //   printf("cnrtMemcpy FAILED!\n");
+  //   LOG(ERROR) << "[EasyDK EasyBang] [MluResizeConvertOp] cnrtMemcpy FAILED!";
   //   exit(-1);
   // }
   
@@ -683,7 +681,7 @@ float ResizeAndConvert(void* dst, void** y_plane_addrs, void** uv_plane_addrs,
 
   int ecode = cnrtMalloc((void**)&workspace, workspace_size);
   CHECK_CNRT_RET(ecode, estr,
-                 "[ResizeAndConvert] cnrtMalloc workspace FAILED. ERRCODE:" + to_string(ecode),
+                 "[EasyDK EasyBang] [MluResizeConvertOp] cnrtMalloc workspace FAILED. ERRCODE:" + to_string(ecode),
                  { free(cpu_workspace); }, -1);
 
   prepareMaskAndWeights(cpu_workspace, workspace,
@@ -693,7 +691,7 @@ float ResizeAndConvert(void* dst, void** y_plane_addrs, void** uv_plane_addrs,
   ecode = cnrtMemcpy(workspace, cpu_workspace, workspace_size,
                      CNRT_MEM_TRANS_DIR_HOST2DEV);
   CHECK_CNRT_RET(ecode, estr,
-                 "[ResizeAndConvert] cnrtMemcpy workspace FAILED. ERRCODE:" + to_string(ecode),
+                 "[EasyDK EasyBang] [MluResizeConvertOp] cnrtMemcpy workspace FAILED. ERRCODE:" + to_string(ecode),
                  { free(cpu_workspace); cnrtFree(workspace); }, -1);
 
   int* mult_mlu_ptr = (int*)(workspace);
@@ -727,14 +725,14 @@ float ResizeAndConvert(void* dst, void** y_plane_addrs, void** uv_plane_addrs,
   ecode = cnrtInvokeKernel_V3(kparam->kernel_func, kparam->init_param, dim, params, func_type, queue, NULL);
 
   CHECK_CNRT_RET(ecode, estr,
-                 "[ResizeAndConvert] cnrtInvokeKernel FAILED. ERRCODE:" + to_string(ecode),
+                 "[EasyDK EasyBang] [MluResizeConvertOp] cnrtInvokeKernel FAILED. ERRCODE:" + to_string(ecode),
                  { free(cpu_workspace); cnrtFree(workspace); cnrtDestroyKernelParamsBuffer(params); }, -1);
 
   free(cpu_workspace);
   cnrtFree(workspace);
   ecode = cnrtDestroyKernelParamsBuffer(params);
-  CHECK_CNRT_RET(ecode, estr, "[ResizeAndConvert] cnrtDestroyKernelParamsBuffer FAILED. ERRCODE:" + to_string(ecode),
-                 {}, -1);
+  CHECK_CNRT_RET(ecode, estr, "[EasyDK EasyBang] [MluResizeConvertOp] cnrtDestroyKernelParamsBuffer FAILED. ERRCODE:" +
+      to_string(ecode), {}, -1);
   return 0;
 }
 

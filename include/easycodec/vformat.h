@@ -27,9 +27,10 @@
 #ifndef EASYCODEC_VFORMAT_H_
 #define EASYCODEC_VFORMAT_H_
 
-#include <cstdint>
+#include <glog/logging.h>
 
-#include "cxxutil/log.h"
+#include <cstdint>
+#include <string>
 
 #define CN_MAXIMUM_PLANE 3
 
@@ -120,9 +121,10 @@ struct CnFrame {
   void* ptrs[CN_MAXIMUM_PLANE]{nullptr, nullptr, nullptr};
   /// get user data passed to codec, only support on Mlu300 decoder
   void* user_data{nullptr};
+
   uint32_t GetPlaneSize(uint32_t plane) const {
     if (plane >= CN_MAXIMUM_PLANE) {
-      LOGE(CODEC) << "Plane index out of range, " << plane << " vs " << CN_MAXIMUM_PLANE;
+      LOG(ERROR) << "[EasyDK VFrame] [CnFrame] Plane index (" << plane << ") out of range (" << CN_MAXIMUM_PLANE << ")";
       return 0;
     }
     uint32_t plane_size = 0;
@@ -164,6 +166,61 @@ struct CnPacket {
   /// pass user data to codec, only support on Mlu300 decoder
   void* user_data{nullptr};
 };
+
+inline std::string PixelFmtStr(PixelFmt fmt) noexcept {
+  switch (fmt) {
+#define PIXELFMT2STR(fmt) \
+  case PixelFmt::fmt:     \
+    return #fmt;
+    PIXELFMT2STR(NV12)
+    PIXELFMT2STR(NV21)
+    PIXELFMT2STR(I420)
+    PIXELFMT2STR(YV12)
+    PIXELFMT2STR(YUYV)
+    PIXELFMT2STR(UYVY)
+    PIXELFMT2STR(YVYU)
+    PIXELFMT2STR(VYUY)
+    PIXELFMT2STR(P010)
+    PIXELFMT2STR(YUV420_10BIT)
+    PIXELFMT2STR(YUV444_10BIT)
+    PIXELFMT2STR(ARGB)
+    PIXELFMT2STR(ABGR)
+    PIXELFMT2STR(BGRA)
+    PIXELFMT2STR(RGBA)
+    PIXELFMT2STR(AYUV)
+    PIXELFMT2STR(RGB565)
+    PIXELFMT2STR(RAW)
+    PIXELFMT2STR(BGR24)
+    PIXELFMT2STR(RGB24)
+    PIXELFMT2STR(I010)
+    PIXELFMT2STR(MONOCHROME)
+#undef PIXELFMT2STR
+    default:
+      LOG(ERROR) << "[EasyDK VFormat] [PixelFmtStr] Unsupported pixel format";
+      return "INVALID";
+  }
+}
+
+inline std::string CodecTypeStr(CodecType type) noexcept {
+  switch (type) {
+#define CODECTYPE2STR(type) \
+  case CodecType::type:     \
+    return #type;
+    CODECTYPE2STR(MPEG2)
+    CODECTYPE2STR(MPEG4)
+    CODECTYPE2STR(H264)
+    CODECTYPE2STR(H265)
+    CODECTYPE2STR(VP8)
+    CODECTYPE2STR(VP9)
+    CODECTYPE2STR(AVS)
+    CODECTYPE2STR(MJPEG)
+    CODECTYPE2STR(JPEG)
+#undef CODECTYPE2STR
+    default:
+      LOG(ERROR) << "[EasyDK VFormat] [CodecTypeStr] Unsupported codec type";
+      return "INVALID";
+  }
+}
 
 }  // namespace edk
 

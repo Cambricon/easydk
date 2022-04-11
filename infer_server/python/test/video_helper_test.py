@@ -1,3 +1,23 @@
+# ==============================================================================
+# Copyright (C) [2022] by Cambricon, Inc. All rights reserved
+#
+#  Licensed under the Apache License, Version 2.0 (the "License");
+#  you may not use this file except in compliance with the License.
+#  You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# The above copyright notice and this permission notice shall be included in
+# all copies or substantial portions of the Software.
+# THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS
+# OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+# FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL
+# THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+# LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+# OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+# THE SOFTWARE.
+# ==============================================================================
+
 """VideoHelper test
 
 This module tests VideoFrame and VideoInferServer related APIs
@@ -11,10 +31,6 @@ import cv2
 sys.path.append(os.path.split(os.path.realpath(__file__))[0] + "/../lib")
 import cnis
 import utils
-
-tag = "stream_0"
-ssd_mlu270_model_dir = \
-    "http://video.cambricon.com/models/MLU270/Primary_Detector/ssd/vgg16_ssd_b4c4_bgra_mlu270.cambricon"
 
 class TestVideoFrame(object):
   """TestVideoFrame class provides several APIs for testing VideoFrame"""
@@ -78,12 +94,17 @@ class TestVideoInferServer(object):
     session_desc = cnis.SessionDesc()
     session_desc.name = "test_session"
     # Load model
-    session_desc.model = infer_server.load_model(ssd_mlu270_model_dir)
+    session_desc.model = infer_server.load_model(utils.model_dir)
 
     # Create VideoPreprocessorMLU and set parameters. Use CNCV preproc.
     session_desc.preproc = cnis.VideoPreprocessorMLU()
-    session_desc.set_preproc_params(cnis.VideoPixelFmt.BGRA, cnis.VideoPreprocessType.CNCV_PREPROC,
-                                    keep_aspect_ratio=False)
+    if cnis.get_device_core_version(dev_id=0) == cnis.CoreVersion.MLU270 or \
+       cnis.get_device_core_version(dev_id=0) == cnis.CoreVersion.MLU220:
+      session_desc.set_preproc_params(cnis.VideoPixelFmt.BGRA, cnis.VideoPreprocessType.CNCV_PREPROC,
+                                      keep_aspect_ratio=False)
+    else:
+      session_desc.set_preproc_params(cnis.VideoPixelFmt.RGB24, cnis.VideoPreprocessType.CNCV_PREPROC,
+                                      keep_aspect_ratio=True)
     session_desc.show_perf = False
 
     # Create synchronous session
@@ -91,15 +112,15 @@ class TestVideoInferServer(object):
 
     # Prepare input video_frame
     video_frame = utils.prepare_video_frame()
-    output = cnis.Package(1, tag)
+    output = cnis.Package(1, utils.tag)
     status = cnis.Status.SUCCESS
     # Request VideoFrame
-    assert infer_server.request_sync(session, video_frame, tag, status, output)
+    assert infer_server.request_sync(session, video_frame, utils.tag, status, output)
     assert status == cnis.Status.SUCCESS
 
     # Prepare input video_frame
     video_frame = utils.prepare_video_frame()
-    input_pak = cnis.Package(1, tag)
+    input_pak = cnis.Package(1, utils.tag)
     input_pak.data[0].set(video_frame)
     # Request input package
     assert infer_server.request_sync(session, input_pak, status, output)
@@ -108,10 +129,10 @@ class TestVideoInferServer(object):
     # Prepare input with bounding boxes
     video_frame = utils.prepare_video_frame()
     bbox = [cnis.BoundingBox(x=0, y=0, w=0.5, h=0.5)] * 4
-    output = cnis.Package(1, tag)
+    output = cnis.Package(1, utils.tag)
     status = cnis.Status.SUCCESS
     # Request VideoFrame and bounding boxes of it
-    assert infer_server.request_sync(session, video_frame, bbox, tag, status, output)
+    assert infer_server.request_sync(session, video_frame, bbox, utils.tag, status, output)
     assert status == cnis.Status.SUCCESS
 
     # Destroy session
@@ -124,12 +145,17 @@ class TestVideoInferServer(object):
     session_desc = cnis.SessionDesc()
     session_desc.name = "test_session"
     # Load model
-    session_desc.model = infer_server.load_model(ssd_mlu270_model_dir)
+    session_desc.model = infer_server.load_model(utils.model_dir)
 
     # Create VideoPreprocessorMLU and set parameters. Use CNCV preproc.
     session_desc.preproc =  cnis.VideoPreprocessorMLU()
-    session_desc.set_preproc_params(cnis.VideoPixelFmt.BGRA, cnis.VideoPreprocessType.CNCV_PREPROC,
-                                    keep_aspect_ratio=False)
+    if cnis.get_device_core_version(dev_id=0) == cnis.CoreVersion.MLU270 or \
+       cnis.get_device_core_version(dev_id=0) == cnis.CoreVersion.MLU220:
+      session_desc.set_preproc_params(cnis.VideoPixelFmt.BGRA, cnis.VideoPreprocessType.CNCV_PREPROC,
+                                      keep_aspect_ratio=False)
+    else:
+      session_desc.set_preproc_params(cnis.VideoPixelFmt.RGB24, cnis.VideoPreprocessType.CNCV_PREPROC,
+                                      keep_aspect_ratio=True)
     session_desc.show_perf = False
 
     # Define a TestObserver class to receive results
@@ -157,11 +183,11 @@ class TestVideoInferServer(object):
     # Create user data
     user_data = {"user_data":"cnis"}
     # Request VideoFrame
-    assert infer_server.request(session, video_frame, tag, user_data)
+    assert infer_server.request(session, video_frame, utils.tag, user_data)
 
     # Prepare input package
     video_frame = utils.prepare_video_frame()
-    input_pak = cnis.Package(1, tag)
+    input_pak = cnis.Package(1, utils.tag)
     input_pak.data[0].set(video_frame)
     # Request package
     assert infer_server.request(session, input_pak, user_data)
@@ -170,9 +196,9 @@ class TestVideoInferServer(object):
     video_frame = utils.prepare_video_frame()
     bbox = [cnis.BoundingBox(x=0, y=0, w=0.5, h=0.5)] * 4
     # Request VideoFrame and bounding boxes of it
-    assert infer_server.request(session, video_frame, bbox, tag, user_data)
+    assert infer_server.request(session, video_frame, bbox, utils.tag, user_data)
 
-    infer_server.wait_task_done(session, tag)
+    infer_server.wait_task_done(session, utils.tag)
     assert obs.called
 
     # Destroy session

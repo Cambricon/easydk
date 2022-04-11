@@ -162,4 +162,4 @@ After finished prerequisite, you can build instructions with the following steps
 
 For more details, please refer to the documentation on the webpage, including how to use EasyDK, introduction to EasyDK modules and sample codes.
 
-Besides, please refer to the EasyDK-based application porting tutorial `${EASYDK_DIR}/docs/ApplicationPortingTutorialBasedOnEasyDK.md` .
+Besides, please refer to the [EasyDK-based application porting tutorial](docs/ApplicationPortingTutorialBasedOnEasyDK.md) , [latest user guide](docs/release_document/latest/Cambricon-EasyDK-User-Guide-CN-vlatest.pdf) and other versions user guide can be found [here](docs/release_document) .

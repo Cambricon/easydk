@@ -20,6 +20,7 @@
 
 #ifdef ENABLE_KCF
 
+#include <glog/logging.h>
 #include <algorithm>
 #include <cstring>
 #include <memory>
@@ -27,7 +28,6 @@
 #include <utility>
 #include <vector>
 
-#include "cxxutil/log.h"
 #include "device/mlu_context.h"
 #include "easyinfer/easy_infer.h"
 #include "easyinfer/mlu_memory_op.h"
@@ -96,7 +96,7 @@ KcfTrack::~KcfTrack() { delete kcf_p_; }
 
 void KcfTrack::SetModel(std::shared_ptr<ModelLoader> model, int dev_id, uint32_t batch_size) {
   if (!model) {
-    THROW_EXCEPTION(Exception::INVALID_ARG, "Model is nullptr");
+    THROW_EXCEPTION(Exception::INVALID_ARG, "[EasyDK EasyTrack] [KcfTrack] Model is nullptr");
   }
   kcf_p_->model_loader_ = model;
   kcf_p_->device_id_ = dev_id;
@@ -121,7 +121,8 @@ void KcfTrack::SetParams(float max_iou_distance) { max_iou_distance_ = max_iou_d
 
 void KcfTrack::UpdateFrame(const TrackFrame &frame, const Objects &detects, Objects *tracks) {
   if (frame.dev_type == TrackFrame::DevType::CPU) {
-    THROW_EXCEPTION(Exception::UNSUPPORTED, "CPU frame tracking has not been supported now");
+    THROW_EXCEPTION(Exception::UNSUPPORTED,
+        "[EasyDK EasyTrack] [KcfTrack] CPU frame tracking has not been supported now");
   }
   tracks->clear();
 
@@ -147,7 +148,7 @@ KcfTrackPrivate::~KcfTrackPrivate() {
 
     if (model_loader_) kcf_destroy(&handle_);
   } catch (Exception &e) {
-    LOGE(TRACK) << e.what();
+    LOG(ERROR) << "[EasyDK EasyTrack] [KcfTrack] Free memory failed. error:" << e.what();
   }
 }
 
@@ -167,11 +168,11 @@ void KcfTrackPrivate::KcfUpdate(void *mlu_gray, uint32_t frame_index, uint32_t f
         pmem[i + 3 * DETECT_OUT_SIZE] = obj.bbox.y + obj.bbox.height;
         pmem[i + 4 * DETECT_OUT_SIZE] = obj.score;
         pmem[i + 5 * DETECT_OUT_SIZE] = obj.label;
-        // printf("[%ld] {%d %0.2f (%0.2f,%0.2f,%0.2f,%0.2f)}\n", i,
-        //    obj.label, obj.score, obj.x, obj.y, obj.w, obj.h);
+        VLOG(5) << "[EasyDK EasyTrack] [KcfTrack] [" << i << "] {" << obj.label << " " << obj.score << " ("
+                << obj.x << ", " << obj.y << ", " << obj.w << ", " << obj.h << ")}";
       }
     } else {
-      LOGD(TRACK) << "@@@@@@ no detect result";
+      VLOG(5) << "[EasyDK EasyTrack] [KcfTrack] @@@@@@ no detect result";
       memset(detect_float_output_, 0, 6 * DETECT_OUT_SIZE * sizeof(float));
     }
 
@@ -213,8 +214,8 @@ void KcfTrackPrivate::KcfUpdate(void *mlu_gray, uint32_t frame_index, uint32_t f
     obj.score = track_obj.confidence;
     obj.bbox = Rect2BoundingBox(track_obj.rect);
     tracks->push_back(obj);
-    printf("[%zu] {%d %d %0.2f (%0.2f,%0.2f,%0.2f,%0.2f)}\n", i, obj.label, obj.track_id, obj.score, obj.bbox.x,
-           obj.bbox.y, obj.bbox.width, obj.bbox.height);
+    VLOG(5) << "[EasyDK EasyTrack] [KcfTrack] [" << i << "] {" << obj.label << " " << obj.track_id << " " << obj.score
+            << " (" << obj.bbox.x << ", " << obj.bbox.y << ", " << obj.bbox.width << ", " << obj.bbox.height << ")}";
   }
 }
 
