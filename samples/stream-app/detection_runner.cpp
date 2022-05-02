@@ -88,8 +88,10 @@ DetectionRunner::DetectionRunner(const VideoDecoder::DecoderType& decode_type, i
   if (net_type == "SSD") {
     // custom preprocessor example
     desc.preproc = infer_server::Preprocessor::Create();
-    desc.preproc->SetParams("process_function", infer_server::Preprocessor::ProcessFunction(
-        PreprocSSD(desc.model, device_id, edk::PixelFmt::BGRA)));
+    PreprocSSD preproc_ssd = PreprocSSD(desc.model, device_id, edk::PixelFmt::BGRA);
+    desc.preproc->SetParams("process_function", infer_server::Preprocessor::ProcessFunction(preproc_ssd));
+    desc.preproc->SetParams("process_func_context", preproc_ssd.GetContextPtr());
+
     desc.postproc->SetParams("process_function", infer_server::Postprocessor::ProcessFunction(PostprocSSD(0.5)));
   } else if (net_type == "YOLOv3") {
     desc.preproc->SetParams("preprocess_type", infer_server::video::PreprocessType::CNCV_PREPROC,

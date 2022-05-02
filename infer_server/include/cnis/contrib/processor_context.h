@@ -18,33 +18,44 @@
  * THE SOFTWARE.
  *************************************************************************/
 
-#include <pybind11/pybind11.h>
-#include <pybind11/stl.h>
+#ifndef INFER_SERVER_PROCESSOR_CONTEXT_H_
+#define INFER_SERVER_PROCESSOR_CONTEXT_H_
 
-#include <memory>
-#include <string>
+#include <cnrt.h>
+#ifdef HAVE_CNCV
+#include "cncv.h"
+#endif
 
-#include "device/mlu_context.h"
-
-namespace py = pybind11;
+#include "cnis/processor.h"
 
 namespace infer_server {
+namespace video {
 
-void MluContextWrapper(py::module m) {  // NOLINT
-  py::enum_<edk::CoreVersion>(m, "CoreVersion")
-      .value("INVALID", edk::CoreVersion::INVALID)
-      .value("MLU220", edk::CoreVersion::MLU220)
-      .value("MLU270", edk::CoreVersion::MLU270)
-      .value("MLU370", edk::CoreVersion::MLU370)
-      .value("CE3226", edk::CoreVersion::CE3226);
-  m.def("get_device_core_version", [](int device_id) {
-    edk::MluContext mlu_ctx(device_id);
-    return mlu_ctx.GetCoreVersion();
-  }, py::arg("dev_id") = 0);
-  m.def("bind_device", [](int device_id) {
-    edk::MluContext mlu_ctx(device_id);
-    return mlu_ctx.BindDevice();
-  }, py::arg("dev_id") = 0);
-}
+#ifdef HAVE_CNCV
+class CncvContext {
+ public:
+  CncvContext();
+  bool Init();
+  bool Destroy();
+  ~CncvContext();
+  CncvContext(const CncvContext &obj);
+  CncvContext(CncvContext &&obj);
+  CncvContext& operator= (const CncvContext &obj);
 
-}  //  namespace infer_server
+  cnrtQueue_t queue_{nullptr};
+  cncvHandle_t handle_{nullptr};
+  void **workspace_ = nullptr;
+  size_t* workspace_size_{nullptr};
+};
+
+#endif
+
+class CustomCncvPreprocessor : public Preprocessor {
+ public:
+  CustomCncvPreprocessor() noexcept;
+};
+
+}  // namespace video
+}  // namespace infer_server
+
+#endif  // INFER_SERVER_PROCESSOR_CONTEXT_H_

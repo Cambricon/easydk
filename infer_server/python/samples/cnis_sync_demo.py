@@ -135,6 +135,7 @@ class SyncDemo(object):
   def execute(self):
     """Execyte synchronous demo"""
     # Create InferServer
+    cnis.bind_device(self.dev_id)
     infer_server = cnis.InferServer(self.dev_id)
 
     # Create session. Sync API

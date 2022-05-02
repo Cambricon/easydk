@@ -150,6 +150,7 @@ class AsyncDemo(object):
   def execute(self):
     """Execute asynchronous demo"""
     # Create InferServer
+    cnis.bind_device(self.dev_id)
     infer_server = cnis.InferServer(self.dev_id)
 
     # Create session. Sync API

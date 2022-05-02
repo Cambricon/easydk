@@ -28,15 +28,23 @@
 #include "cnis/contrib/video_helper.h"
 #include "cnis/infer_server.h"
 #include "cnis/processor.h"
+#include "device/mlu_context.h"
+
 #include "postproc.h"
 
-#ifdef CNIS_USE_MAGICMIND
-constexpr const char* g_model_path =
+constexpr const char* g_model_path_mlu370 =
     "http://video.cambricon.com/models/MLU370/yolov3_nhwc_tfu_0.8.2_uint8_int8_fp16.model";
-#else
-constexpr const char* g_model_path =
+constexpr const char* g_model_path_mlu270 =
     "http://video.cambricon.com/models/MLU270/Primary_Detector/ssd/resnet34_ssd.cambricon";
+#ifdef CNIS_HAVE_CURL
+constexpr const char* g_model_path_mlu220 =
+    "http://video.cambricon.com/models/MLU220/yolov5/yolov5_b4c4_rgb_mlu220.cambricon";
+#else
+// Please download from "http://video.cambricon.com/models/MLU220/yolov5/yolov5_b4c4_rgb_mlu220.cambricon";
+constexpr const char* g_model_path_mlu220 = "yolov5_b4c4_rgb_mlu220.cambricon";
 #endif
+
+static int g_device_id = 0;
 
 class PrintResult : public infer_server::Observer {
   void Response(infer_server::Status status, infer_server::PackagePtr out, infer_server::any user_data) noexcept {
@@ -77,8 +85,12 @@ int main(int argc, char** argv) {
     return -1;
   }
 
-  // server by device id
-  infer_server::InferServer server(0);
+  // Bind this thread to device
+  edk::MluContext ctx(g_device_id);
+  ctx.BindDevice();
+
+  // create infer server
+  infer_server::InferServer server(g_device_id);
 
   infer_server::SessionDesc desc;
   desc.batch_timeout = 200;
@@ -88,47 +100,57 @@ int main(int argc, char** argv) {
   desc.preproc = infer_server::PreprocessorHost::Create();
   desc.postproc = infer_server::Postprocessor::Create();
 
+  edk::CoreVersion core_version = ctx.GetCoreVersion();
+  if (core_version == edk::CoreVersion::MLU370) {
+    desc.model = infer_server::InferServer::LoadModel(g_model_path_mlu370);
+  } else if (core_version == edk::CoreVersion::MLU270) {
+    desc.model = infer_server::InferServer::LoadModel(g_model_path_mlu270);
+  } else if (core_version == edk::CoreVersion::MLU220) {
+    desc.model = infer_server::InferServer::LoadModel(g_model_path_mlu220);
+  } else {
+    LOG(ERROR) << "[EasyDK InferServerSamples] [MultiStreamDemo] Core version is not supported, "
+               << CoreVersionStr(core_version);
+  }
   // config process function
-  #ifdef CNIS_USE_MAGICMIND
-  // load model
-  desc.model = infer_server::InferServer::LoadModel(g_model_path);
-  desc.host_input_layout = {infer_server::DataType::UINT8, infer_server::DimOrder::NHWC};
-  desc.preproc->SetParams("process_function",
-                          infer_server::video::OpencvPreproc::GetFunction(infer_server::video::PixelFmt::RGB24,
-                                                                          {}, {}, false, true));
-  desc.postproc->SetParams("process_function", infer_server::Postprocessor::ProcessFunction(PostprocYolov3MM(0.5)));
-  #else
-  desc.model = infer_server::InferServer::LoadModel(g_model_path);
-  desc.preproc->SetParams("process_function",
-                          infer_server::video::OpencvPreproc::GetFunction(infer_server::video::PixelFmt::RGBA,
-                                                                          {}, {}, false, false));
-  desc.postproc->SetParams("process_function", infer_server::Postprocessor::ProcessFunction(PostprocSSD(0.3)));
-  #endif
+  if (core_version == edk::CoreVersion::MLU370) {
+    desc.host_input_layout = {infer_server::DataType::UINT8, infer_server::DimOrder::NHWC};
+    desc.preproc->SetParams("process_function",
+                            infer_server::video::OpencvPreproc::GetFunction(infer_server::video::PixelFmt::RGB24,
+                                                                            {}, {}, false, true));
+    desc.postproc->SetParams("process_function", infer_server::Postprocessor::ProcessFunction(PostprocYolov3MM(0.5)));
+  } else if (core_version == edk::CoreVersion::MLU270) {
+    desc.host_input_layout = {infer_server::DataType::UINT8, infer_server::DimOrder::NHWC};
+    desc.preproc->SetParams("process_function",
+                            infer_server::video::OpencvPreproc::GetFunction(infer_server::video::PixelFmt::RGBA,
+                                                                            {}, {}, false, false));
+    desc.postproc->SetParams("process_function", infer_server::Postprocessor::ProcessFunction(PostprocSSD(0.3)));
+  } else if (core_version == edk::CoreVersion::MLU220) {
+    desc.host_input_layout = {infer_server::DataType::FLOAT32, infer_server::DimOrder::NHWC};
+    desc.preproc->SetParams("process_function",
+                            infer_server::video::OpencvPreproc::GetFunction(infer_server::video::PixelFmt::RGB24,
+                                                                            {}, {}, true, true));
+    desc.postproc->SetParams("process_function", infer_server::Postprocessor::ProcessFunction(PostprocYolov5(0.5)));
+  }
 
   infer_server::Session_t session = server.CreateSession(desc, std::make_shared<PrintResult>());
 
   cv::Mat frame;
   constexpr const char* tag = "opencv_stream0";
   int frame_index = 0;
-#ifdef CNIS_USE_MAGICMIND
   int frame_width = 0;
   int frame_height = 0;
-#endif
   // read frame to infer
   while (source.read(frame)) {
-#ifdef CNIS_USE_MAGICMIND
     frame_width = static_cast<int>(frame.cols);
     frame_height = static_cast<int>(frame.rows);
-#endif
     infer_server::video::OpencvFrame cv_frame;
     cv_frame.img = std::move(frame);
     cv_frame.fmt = infer_server::video::PixelFmt::BGR24;
     infer_server::PackagePtr input = std::make_shared<infer_server::Package>();
     input->data.emplace_back(new infer_server::InferData);
     input->data[0]->Set(std::move(cv_frame));
-#ifdef CNIS_USE_MAGICMIND
+    // Set frame size to user data, when postproc needs frame size, for example when keep aspect ratio is true.
     input->data[0]->SetUserData(FrameSize{frame_width, frame_height});
-#endif
     input->tag = tag;
     if (!server.Request(session, input, frame_index++)) {
       LOG(ERROR) << "[EasyDK InferServerSamples] [Demo] Request failed";

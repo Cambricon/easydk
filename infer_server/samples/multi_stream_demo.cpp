@@ -161,7 +161,11 @@ int main(int argc, char** argv) {
   int stream_number = 2;
   std::string video_path = argv[1];
 
-  // server by device id
+  // Bind this thread to device
+  edk::MluContext ctx(g_device_id);
+  ctx.BindDevice();
+
+  // create infer server
   infer_server::InferServer server(g_device_id);
 
   infer_server::SessionDesc desc;
@@ -172,8 +176,8 @@ int main(int argc, char** argv) {
   // We recommend engine_num = total core number / model core number. For example, on MLU270(16 ipu cores),
   // and load a 4 core model(core numebr is a given parameter when generate model), engine_num = 16 / 4 = 4.
   desc.engine_num = 4;
+
   // load model
-  edk::MluContext ctx(g_device_id);
   edk::CoreVersion core_version = ctx.GetCoreVersion();
   if (core_version == edk::CoreVersion::MLU370) {
     desc.model = infer_server::InferServer::LoadModel(g_model_path_mlu370);

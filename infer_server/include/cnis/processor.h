@@ -23,11 +23,13 @@
 
 #include <memory>
 #include <string>
+#include <utility>
 #include <vector>
 
 #include "buffer.h"
 #include "infer_server.h"
 #include "shape.h"
+#include "util/any.h"
 
 namespace infer_server {
 
@@ -41,6 +43,78 @@ struct ModelIO {
   /// shape of input / output
   std::vector<Shape> shapes;
 };
+
+/**
+ * @brief Process function context unit
+ */
+struct ProcessFuncContext {
+  ProcessFuncContext() { }
+  ProcessFuncContext(const ProcessFuncContext& obj) {
+    data = obj.data;
+  }
+  ProcessFuncContext& operator= (const ProcessFuncContext& obj) {
+    data = obj.data;
+    return *this;
+  }
+  /**
+   * @brief Set any data into process function context
+   *
+   * @tparam T data type
+   * @param v data value
+   */
+  template <typename T>
+  void Set(T&& v) {
+    data = std::forward<T>(v);
+  }
+
+  /**
+   * @brief Get data by value
+   *
+   * @tparam T data type
+   * @return std::remove_reference<T>::type a copy of data
+   */
+  template <typename T>
+  typename std::remove_reference<T>::type Get() const {
+    return any_cast<typename std::remove_reference<T>::type>(data);
+  }
+
+  /**
+   * @brief Get data by lvalue reference
+   *
+   * @tparam T data type
+   * @return std::add_lvalue_reference<T>::type lvalue reference to data
+   */
+  template <typename T>
+  typename std::add_lvalue_reference<T>::type GetLref() & {
+    return any_cast<typename std::add_lvalue_reference<T>::type>(data);
+  }
+
+  /**
+   * @brief Get data by const lvalue reference
+   *
+   * @tparam T data type
+   * @return std::add_lvalue_reference<typename std::add_const<T>::type>::type const lvalue reference to data
+   */
+  template <typename T>
+  typename std::add_lvalue_reference<typename std::add_const<T>::type>::type GetLref() const& {
+    return any_cast<typename std::add_lvalue_reference<typename std::add_const<T>::type>::type>(data);
+  }
+
+  /**
+   * @brief Check if ProcessFuncContext has value
+   *
+   * @retval true ProcessFuncContext has value
+   * @retval false ProcessFuncContext does not have value
+   */
+  bool HasValue() noexcept {
+    return data.has_value();
+  }
+
+  /// stored data
+  any data;
+};
+
+using ProcessFuncContextPtr = std::shared_ptr<ProcessFuncContext>;
 
 struct PredictorPrivate;
 /**
@@ -136,7 +210,6 @@ class PreprocessorHost : public ProcessorForkable<PreprocessorHost> {
 };  // class PreprocessorHost
 // -------------------- PreprocessorHost END --------------------
 
-
 // -------------------- Preprocessor --------------------
 struct PreprocessorPrivate;
 /**
@@ -147,7 +220,7 @@ class Preprocessor : public ProcessorForkable<Preprocessor> {
   /**
    * @brief Preprocess function on batch data, set by user
    */
-  using ProcessFunction = std::function<bool(ModelIO*, const BatchData&, const ModelInfo*)>;
+  using ProcessFunction = std::function<bool(ModelIO*, const BatchData&, const ModelInfo*, ProcessFuncContextPtr)>;
 
   /**
    * @brief Construct a new Preprocessor object

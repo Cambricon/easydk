@@ -24,6 +24,7 @@
 
 #include "cnis/processor.h"
 #include "core/data_type.h"
+#include "cnis/util/any.h"
 #include "util/env.h"
 #include "util/thread_pool.h"
 
@@ -36,6 +37,7 @@ struct PreprocessorPrivate {
   std::vector<std::unique_ptr<MluMemoryPool>> pools;
   std::vector<Shape> shapes;
   std::vector<DataLayout> layouts;
+  ProcessFuncContextPtr process_func_context{nullptr};
 };
 
 Preprocessor::Preprocessor() noexcept
@@ -67,6 +69,10 @@ Status Preprocessor::Init() noexcept {
     priv_->model = GetParam<ModelPtr>("model_info");
     device_id = GetParam<int>("device_id");
     priv_->process_func = HaveParam("process_function") ? GetParam<ProcessFunction>("process_function") : nullptr;
+    if (HaveParam("process_func_context")) {
+      priv_->process_func_context = std::make_shared<ProcessFuncContext>();
+      *priv_->process_func_context = *GetParam<ProcessFuncContextPtr>("process_func_context");
+    }
   } catch (bad_any_cast&) {
     LOG(ERROR) << "[EasyDK InferServer] [Preprocessor] Wrong param type";
     return Status::WRONG_TYPE;
@@ -117,7 +123,7 @@ Status Preprocessor::Process(PackagePtr pack) noexcept {
     input.buffers.emplace_back(priv_->pools[i_idx]->Request());
   }
   try {
-    bool ret = priv_->process_func(&input, std::ref(pack->data), priv_->model.get());
+    bool ret = priv_->process_func(&input, std::ref(pack->data), priv_->model.get(), priv_->process_func_context);
     if (!ret) {
       LOG(ERROR) << "[EasyDK InferServer] [Preprocessor] Execute preprocess function failed";
       return Status::ERROR_BACKEND;

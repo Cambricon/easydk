@@ -446,10 +446,10 @@ TEST_F(InferServerRequestTest, DynamicBatchSync) {
 
 TEST_F(InferServerRequestTest, DynamicBatchSyncTimeout) {
   Session_t session =
-      PrepareSession("dynamic batch sync timeout", preproc_mlu_, postproc_, 5, BatchStrategy::DYNAMIC, nullptr);
+      PrepareSession("dynamic batch sync timeout", preproc_mlu_, postproc_, 100, BatchStrategy::DYNAMIC, nullptr);
   ASSERT_NE(session, nullptr);
 
-  auto in = PrepareInput(image_path, 10);
+  auto in = PrepareInput(image_path, 1);
   Status status;
   auto out = std::make_shared<Package>();
   EXPECT_TRUE(server_->RequestSync(session, std::move(in), &status, out, 5));
