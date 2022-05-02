@@ -37,7 +37,7 @@ Before building instructions, you need to install the following software:
 - cmake  2.8.7+
 - GCC    4.8.5+
 - GLog   0.3.4
-- Cambricon Neuware Toolkit >= 1.5.0
+- Cambricon Neuware Toolkit >= 1.7.0
 - CNCV >= 0.4.0 (optional)
 - libcurl-dev (optional)
 

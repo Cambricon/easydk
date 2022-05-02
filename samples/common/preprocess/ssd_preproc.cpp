@@ -18,97 +18,185 @@
  * THE SOFTWARE.
  *************************************************************************/
 #include <glog/logging.h>
+
+#include <memory>
 #include <vector>
 
 #ifdef HAVE_CNCV
 #include "cncv.h"
 #endif
+#include "cnrt.h"
 
 #include "cnis/infer_server.h"
 #include "cnis/processor.h"
 #include "internal/cnrt_wrap.h"
 
 #include "preproc.h"
+#include "utils.h"
 
 #ifdef HAVE_CNCV
-#define CNCV_SAFE_CALL(func, val)                                 \
-  do {                                                            \
-    cncvStatus_t ret = (func);                                    \
-    if (ret != CNCV_STATUS_SUCCESS) {                             \
-      LOG(ERROR) << "[EasyDK Samples] Call " #func " failed. error code: " << ret; \
-      return val;                                                 \
-    }                                                             \
-  } while (0)
+
+bool PreprocSSD::Context::Init() {
+  size_t ptr_size = batch_size_ * sizeof(void*);
+  mlu_input_y_ = std::make_shared<infer_server::Buffer>(ptr_size, dev_id_);
+  mlu_input_uv_ = std::make_shared<infer_server::Buffer>(ptr_size, dev_id_);
+  mlu_output_ = std::make_shared<infer_server::Buffer>(ptr_size, dev_id_);
+  cpu_input_y_ = std::make_shared<infer_server::Buffer>(ptr_size);
+  cpu_input_uv_ = std::make_shared<infer_server::Buffer>(ptr_size);
+  cpu_output_ = std::make_shared<infer_server::Buffer>(ptr_size);
+
+  workspace_size_ = new size_t(0);
+  workspace_ = reinterpret_cast<infer_server::Buffer**>(malloc(sizeof(infer_server::Buffer*)));
+  *workspace_ = nullptr;
+
+  CNRT_SAFE_CALL(cnrt::QueueCreate(&queue_), false);
+  CNCV_SAFE_CALL(cncvCreate(&handle_), false);
+  CNCV_SAFE_CALL(cncvSetQueue(handle_, queue_), false);
+  return true;
+}
+
+bool PreprocSSD::Context::Destroy() {
+  if (handle_) CNCV_SAFE_CALL(cncvDestroy(handle_), false);
+  if (queue_) CNRT_SAFE_CALL(cnrt::QueueDestroy(queue_), false);
+  if (workspace_size_) delete workspace_size_;
+  if (workspace_) {
+    if (*workspace_) {
+      delete (*workspace_);
+      *workspace_ = nullptr;
+    }
+    free(workspace_);
+    workspace_ = nullptr;
+  }
+  return true;
+}
+
+PreprocSSD::Context::Context(uint32_t batch_size, int dev_id, edk::PixelFmt dst_fmt)
+    : batch_size_(batch_size), dev_id_(dev_id), dst_fmt_(dst_fmt) {
+  if (!Init()) {
+    LOG(FATAL) << "[EasyDK Samples] [PreprocSSD] Context() init failed";
+  }
+}
+PreprocSSD::Context::~Context() {
+  if (!Destroy()) {
+    LOG(FATAL) << "[EasyDK Samples] [PreprocSSD] ~Context() destroy failed";
+  }
+}
+
+PreprocSSD::Context::Context(const Context &obj) {
+  batch_size_ = obj.batch_size_;
+  dev_id_ = obj.dev_id_;
+  dst_fmt_ = obj.dst_fmt_;
+  if (!Init()) {
+    LOG(FATAL) << "[EasyDK Samples] [PreprocSSD] Context copy constructor: Init failed";
+  }
+}
+
+PreprocSSD::Context::Context(Context &&obj) {
+  batch_size_ = obj.batch_size_;
+  dev_id_ = obj.dev_id_;
+  dst_fmt_ = obj.dst_fmt_;
+  mlu_input_y_  = obj.mlu_input_y_;
+  mlu_input_uv_ = obj.mlu_input_uv_;
+  mlu_output_   = obj.mlu_output_;
+  cpu_input_y_  = obj.cpu_input_y_;
+  cpu_input_uv_ = obj.cpu_input_uv_;
+  cpu_output_   = obj.cpu_output_;
+  workspace_ = obj.workspace_;
+  if (obj.workspace_) {
+    *workspace_ = *obj.workspace_;
+  }
+  workspace_size_ = obj.workspace_size_;
+  queue_ = obj.queue_;
+  handle_ = obj.handle_;
+  mlu_input_y_  = nullptr;
+  mlu_input_uv_ = nullptr;
+  mlu_output_   = nullptr;
+  cpu_input_y_  = nullptr;
+  cpu_input_uv_ = nullptr;
+  cpu_output_   = nullptr;
+  if (obj.workspace_) {
+    *obj.workspace_ = nullptr;
+  }
+  obj.workspace_ = nullptr;
+  obj.workspace_size_ = nullptr;
+  obj.queue_ = nullptr;
+  obj.handle_ = nullptr;
+}
+
+PreprocSSD::Context& PreprocSSD::Context::operator= (const Context &obj) {
+  batch_size_ = obj.batch_size_;
+  dev_id_ = obj.dev_id_;
+  dst_fmt_ = obj.dst_fmt_;
+  if (!Init()) {
+    LOG(FATAL) << "[EasyDK Samples] [PreprocSSD] Context operator= : Init failed";
+  }
+  return *this;
+}
 #endif
 
 PreprocSSD::PreprocSSD(infer_server::ModelPtr model, int dev_id, edk::PixelFmt dst_fmt)
-    : dev_id_(dev_id), model_(model) {
-#ifdef HAVE_CNCV
-  size_t batch_size = model->BatchSize();
-  dst_descs_.resize(batch_size);
-  src_descs_.resize(batch_size);
-  src_rois_.resize(batch_size);
-  dst_rois_.resize(batch_size);
-
-  // init descriptor params
-  for (size_t i = 0; i < batch_size; ++i) {
-    // dst desc
-    dst_descs_[i].pixel_fmt = GetCncvPixFmt(dst_fmt);
-    dst_descs_[i].height = model_->InputShape(0)[1];
-    dst_descs_[i].width = model_->InputShape(0)[2];
-    dst_descs_[i].depth = CNCV_DEPTH_8U;
-    SetCncvStride(&dst_descs_[i]);
-    dst_descs_[i].color_space = CNCV_COLOR_SPACE_BT_601;
-
-    // src desc
-    src_descs_[i].color_space = CNCV_COLOR_SPACE_BT_601;
-    src_descs_[i].depth = CNCV_DEPTH_8U;
-  }
-
-  size_t ptr_size = batch_size * sizeof(void*);
-  mlu_input_y_ = infer_server::Buffer(ptr_size, dev_id_);
-  mlu_input_uv_ = infer_server::Buffer(ptr_size, dev_id_);
-  mlu_output_ = infer_server::Buffer(ptr_size, dev_id_);
-  cpu_input_y_ = infer_server::Buffer(ptr_size);
-  cpu_input_uv_ = infer_server::Buffer(ptr_size);
-  cpu_output_ = infer_server::Buffer(ptr_size);
-
-  if (CNRT_RET_SUCCESS != cnrt::QueueCreate(&queue_)) {
-    LOG(ERROR) << "[EasyDK Samples] [PreprocSSD] Create cnrtQueue failed";
-    return;
-  }
-  if (CNCV_STATUS_SUCCESS != cncvCreate(&handle_)) {
-    LOG(ERROR) << "[EasyDK Samples] [PreprocSSD] Create cncvHandle failed";
-    return;
-  }
-  if (CNCV_STATUS_SUCCESS != cncvSetQueue(handle_, queue_)) {
-    LOG(ERROR) << "[EasyDK Samples] [PreprocSSD] Set cnrtQueue to cncvHandle failed";
-    return;
-  }
-#else
+    : dev_id_(dev_id), model_(model), dst_fmt_(dst_fmt) {
+#ifndef HAVE_CNCV
   LOG(ERROR) << "[EasyDK Samples] [PreprocSSD] Needs CNCV but not found, please install CNCV";
 #endif
 }
 
 
 bool PreprocSSD::operator()(infer_server::ModelIO* model_input, const infer_server::BatchData& batch_infer_data,
-                            const infer_server::ModelInfo* model) {
+                            const infer_server::ModelInfo* model_info,
+                            const infer_server::ProcessFuncContextPtr context) {
 #ifdef HAVE_CNCV
-if (!queue_ || !handle_) {
-  LOG(ERROR) << "[EasyDK Samples] [PreprocSSD] Handle or queue is nullptr.";
-  return false;
-}
+  const PreprocSSD::Context& ctx = ConvertContext(context);
+  cnrtQueue_t queue = ctx.queue_;
+  cncvHandle_t handle = ctx.handle_;
+  size_t* workspace_size = ctx.workspace_size_;
+  infer_server::Buffer** workspace = ctx.workspace_;
+  std::shared_ptr<infer_server::Buffer> mlu_input_y  = ctx.mlu_input_y_;
+  std::shared_ptr<infer_server::Buffer> mlu_input_uv = ctx.mlu_input_uv_;
+  std::shared_ptr<infer_server::Buffer> mlu_output   = ctx.mlu_output_;
+  std::shared_ptr<infer_server::Buffer> cpu_input_y  = ctx.cpu_input_y_;
+  std::shared_ptr<infer_server::Buffer> cpu_input_uv = ctx.cpu_input_uv_;
+  std::shared_ptr<infer_server::Buffer> cpu_output   = ctx.cpu_output_;
+
+  if (!queue || !handle) {
+    LOG(ERROR) << "[EasyDK Samples] [PreprocSSD] handle or queue is nullptr.";
+    return false;
+  }
+
   auto batch_size = batch_infer_data.size();
+  if (batch_size < 1) {
+    LOG(ERROR) << "[EasyDK Samples] [PreprocSSD] batch size is less than 1, no data.";
+    return false;
+  }
+  uint32_t input_num = model_info->InputNum();
+  if (input_num != 1) {
+    LOG(ERROR) << "[EasyDK Samples] [PreprocSSD] model input number not supported. It should be 1, but " << input_num;
+    return false;
+  }
+  infer_server::Shape input_shape;
+  input_shape = model_info->InputShape(0);
+  int h_idx = 1;
+  int w_idx = 2;
+  if (model_info->InputLayout(0).order == infer_server::DimOrder::NCHW) {
+    h_idx = 2;
+    w_idx = 3;
+  }
   size_t ptr_size = batch_size * sizeof(void*);
+
+  std::vector<cncvImageDescriptor> src_descs(batch_size);
+  std::vector<cncvImageDescriptor> dst_descs(batch_size);
+  std::vector<cncvRect> src_rois(batch_size);
+  std::vector<cncvRect> dst_rois(batch_size);
+
   // init mlu buff
-  void* mlu_input_y_ptr = mlu_input_y_.MutableData();
-  void* mlu_input_uv_ptr = mlu_input_uv_.MutableData();
-  void* mlu_output_ptr = mlu_output_.MutableData();
+  void* mlu_input_y_ptr = mlu_input_y->MutableData();
+  void* mlu_input_uv_ptr = mlu_input_uv->MutableData();
+  void* mlu_output_ptr = mlu_output->MutableData();
 
   // init cpu ptr
-  void** cpu_input_y_ptr = reinterpret_cast<void**>(cpu_input_y_.MutableData());
-  void** cpu_input_uv_ptr = reinterpret_cast<void**>(cpu_input_uv_.MutableData());
-  void** cpu_output_ptr = reinterpret_cast<void**>(cpu_output_.MutableData());
+  void** cpu_input_y_ptr = reinterpret_cast<void**>(cpu_input_y->MutableData());
+  void** cpu_input_uv_ptr = reinterpret_cast<void**>(cpu_input_uv->MutableData());
+  void** cpu_output_ptr = reinterpret_cast<void**>(cpu_output->MutableData());
   size_t output_offset = 0;
 
   // init src_decs_ and rects and cpu ptr
@@ -123,63 +211,81 @@ if (!queue_ || !handle_) {
     cpu_input_y_ptr[i] = frame.ptrs[0];
     cpu_input_uv_ptr[i] = frame.ptrs[1];
     cpu_output_ptr[i] = (model_input->buffers[0])(output_offset).MutableData();
-    output_offset += dst_descs_[i].stride[0] * dst_descs_[i].height;
+    output_offset += dst_descs[i].stride[0] * dst_descs[i].height;
 
     // init src descs
-    src_descs_[i].pixel_fmt = GetCncvPixFmt(frame.pformat);
-    src_descs_[i].width = frame.width;
-    src_descs_[i].height = frame.height;
+    src_descs[i].pixel_fmt = GetCncvPixFmt(frame.pformat);
+    src_descs[i].width = frame.width;
+    src_descs[i].height = frame.height;
+    src_descs[i].depth = CNCV_DEPTH_8U;
     if (frame.strides[0] > 1) {
-      src_descs_[i].stride[0] = frame.strides[0];
-      src_descs_[i].stride[1] = frame.strides[1];
-      src_descs_[i].stride[2] = frame.strides[2];
+      src_descs[i].stride[0] = frame.strides[0];
+      src_descs[i].stride[1] = frame.strides[1];
+      src_descs[i].stride[2] = frame.strides[2];
     } else {
-      SetCncvStride(&src_descs_[i]);
+      SetCncvStride(&src_descs[i]);
     }
+    src_descs[i].color_space = CNCV_COLOR_SPACE_BT_601;
+
+    // init dst descriptor
+    dst_descs[i].width = input_shape[w_idx];
+    dst_descs[i].height = input_shape[h_idx];
+    dst_descs[i].depth = CNCV_DEPTH_8U;
+    dst_descs[i].pixel_fmt = GetCncvPixFmt(dst_fmt_);
+    SetCncvStride(&dst_descs[i]);
+    dst_descs[i].color_space = CNCV_COLOR_SPACE_BT_601;
 
     // init dst rect
-    dst_rois_[i].x = 0;
-    dst_rois_[i].y = 0;
-    dst_rois_[i].w = dst_descs_[i].width;
-    dst_rois_[i].h = dst_descs_[i].height;
+    dst_rois[i].x = 0;
+    dst_rois[i].y = 0;
+    dst_rois[i].w = dst_descs[i].width;
+    dst_rois[i].h = dst_descs[i].height;
 
     // init src rect
-    src_rois_[i].x = 0;
-    src_rois_[i].y = 0;
-    src_rois_[i].w = frame.width;
-    src_rois_[i].h = frame.height;
+    src_rois[i].x = 0;
+    src_rois[i].y = 0;
+    src_rois[i].w = frame.width;
+    src_rois[i].h = frame.height;
   }
 
   // copy cpu ptr to mlu ptr
-  mlu_input_y_.CopyFrom(cpu_input_y_, ptr_size);
-  mlu_input_uv_.CopyFrom(cpu_input_uv_, ptr_size);
-  mlu_output_.CopyFrom(cpu_output_, ptr_size);
+  mlu_input_y->CopyFrom(*cpu_input_y, ptr_size);
+  mlu_input_uv->CopyFrom(*cpu_input_uv, ptr_size);
+  mlu_output->CopyFrom(*cpu_output, ptr_size);
 
   size_t required_workspace_size = 0;
   // use batch_size from model to reduce remalloc times
   CNCV_SAFE_CALL(
-      cncvGetResizeConvertWorkspaceSize(batch_size, src_descs_.data(),
-                                        src_rois_.data(), dst_descs_.data(),
-                                        dst_rois_.data(), &required_workspace_size),
+      cncvGetResizeConvertWorkspaceSize(batch_size, src_descs.data(),
+                                        src_rois.data(), dst_descs.data(),
+                                        dst_rois.data(), &required_workspace_size),
       false);
 
   // prepare workspace
-  if (!workspace_.OwnMemory() || workspace_size_ < required_workspace_size) {
-    workspace_size_ = required_workspace_size;
-    workspace_ = infer_server::Buffer(workspace_size_, dev_id_);
+  if (!workspace) {
+    LOG(ERROR) << "[EasyDK Samples] [PreprocSSD] workspace is nullptr.";
+    return false;
+  }
+  if (*workspace_size < required_workspace_size) {
+    if (*workspace) {
+      delete (*workspace);
+    }
+    *workspace_size = required_workspace_size;
+    *workspace = new infer_server::Buffer(*workspace_size, dev_id_);
   }
 
   // compute
   CNCV_SAFE_CALL(
-      cncvResizeConvert(handle_, batch_size,
-                        src_descs_.data(), src_rois_.data(),
+      cncvResizeConvert(handle, batch_size,
+                        src_descs.data(), src_rois.data(),
                         reinterpret_cast<void**>(mlu_input_y_ptr),
                         reinterpret_cast<void**>(mlu_input_uv_ptr),
-                        dst_descs_.data(), dst_rois_.data(),
+                        dst_descs.data(), dst_rois.data(),
                         reinterpret_cast<void**>(mlu_output_ptr),
-                        workspace_size_, workspace_.MutableData(),
+                        *workspace_size, (*workspace)->MutableData(),
                         CNCV_INTER_BILINEAR),
       false);
+  CNRT_SAFE_CALL(cnrt::QueueSync(queue), false);
   return true;
 #else
   LOG(ERROR) << "[EasyDK Samples] [PreprocSSD] Needs CNCV but not found, please install CNCV";

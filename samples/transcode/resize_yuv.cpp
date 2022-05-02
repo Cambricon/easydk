@@ -27,25 +27,9 @@
 #include "device/mlu_context.h"
 #include "easycodec/vformat.h"
 #include "internal/cnrt_wrap.h"
+#include "utils.h"
 
 #ifdef HAVE_CNCV
-
-#define CNCV_SAFE_CALL(func, val)                                 \
-  do {                                                            \
-    cncvStatus_t ret = (func);                                    \
-    if (ret != CNCV_STATUS_SUCCESS) {                             \
-      LOG(ERROR) << "[EasyDK Samples] Call " #func " failed. error code: " << ret; \
-      return val;                                                 \
-    }                                                             \
-  } while (0)
-#define CNRT_SAFE_CALL(func, val)                                 \
-  do {                                                            \
-    cnrtRet_t ret = (func);                                       \
-    if (ret != CNRT_RET_SUCCESS) {                                \
-      LOG(ERROR) << "[EasyDK Samples] Call " #func " failed. error code: " << ret; \
-      return val;                                                 \
-    }                                                             \
-  } while (0)
 
 CncvResizeYuv::CncvResizeYuv(int dev_id) : device_id_(dev_id) {}
 

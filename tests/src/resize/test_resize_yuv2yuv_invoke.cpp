@@ -10,6 +10,10 @@
 #include "gtest/gtest.h"
 #include "internal/cnrt_wrap.h"
 #include "opencv2/opencv.hpp"
+#if (CV_MAJOR_VERSION >= 4)
+#include <opencv2/imgproc/imgproc_c.h>
+#endif
+
 #include "test_base.h"
 
 #define SAVE_RESULT 0
@@ -42,7 +46,7 @@ static void SaveImg(cv::Mat yuv_img, bool yuv_nv12, int cnt, std::string prefix)
 static void Rgb2Yuv(const std::string& path, TestResizeParam p, char* cpu_input, int frame_cnt) {
   cv::Mat src_image, src_yuv_image;
   // read src image
-  src_image = cv::imread(exe_path + dir + path, CV_LOAD_IMAGE_COLOR);
+  src_image = cv::imread(exe_path + dir + path);
   ASSERT_FALSE(src_image.empty()) << "[EasyDK Tests] [MluResize] read \"" << exe_path + dir + path << "\" failed";
   int src_img_area = p.src_w * p.src_h;
   // resize to src h x w

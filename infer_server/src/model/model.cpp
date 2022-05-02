@@ -256,8 +256,10 @@ bool Model::GetModelInfo(const std::vector<Shape>& in_shape) noexcept {
   std::vector<mm::DataType> o_dtypes = model_->GetOutputDataTypes();
 
   // get mlu io dim order
-  // FIXME(gaoyujia) : hard code get engine on device 0
-  MEngine* engine = GetEngine(0);
+  // get engine on device binded to this thread. If no device is binded, get engine on dev 0.
+  int dev_id = 0;
+  CHECK_CNRT_RET(cnrtGetDevice(&dev_id), "[EasyDK InferServer] [Model] Get device id failed", false);
+  MEngine* engine = GetEngine(dev_id);
   MContext* ctx = engine->CreateIContext();
   std::vector<MTensor*> inputs, outputs;
   MM_SAFECALL(mm::CreateInputTensors(ctx, &inputs), false);
