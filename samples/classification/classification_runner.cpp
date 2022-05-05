@@ -169,7 +169,7 @@ void ClassificationRunner::Process(edk::CnFrame frame) {
   detect_result.reserve(postproc_results.size());
   for (auto &obj : postproc_results) {
     edk::DetectObject detect_obj;
-    memset(&detect_obj, 0, sizeof(edk::DetectObject));
+    memset(&detect_obj.bbox, 0, sizeof(edk::BoundingBox));
     detect_obj.label = obj.label;
     detect_obj.score = obj.score;
     detect_result.emplace_back(std::move(detect_obj));
