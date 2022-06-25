@@ -156,10 +156,3 @@ After finished prerequisite, you can build instructions with the following steps
 
    A compilation package is provided at http://video.cambricon.com/models/edge.tar.gz. After decompressing the package, follows the steps in README to compile.
 
-## Documentation ##
-
-[Cambricon Forum Docs](https://www.cambricon.com/docs/easydk/user_guide_html/index.html)
-
-For more details, please refer to the documentation on the webpage, including how to use EasyDK, introduction to EasyDK modules and sample codes.
-
-Besides, please refer to the [EasyDK-based application porting tutorial](docs/ApplicationPortingTutorialBasedOnEasyDK.md) , [latest user guide](docs/release_document/latest/Cambricon-EasyDK-User-Guide-CN-vlatest.pdf) and other versions user guide can be found [here](docs/release_document) .
