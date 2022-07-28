@@ -485,7 +485,7 @@ class PreprocessCncvBase {
   cncvPixelFormat GetCncvPixFmt(PixelFmt fmt);
   uint32_t GetCncvDepthSize(cncvDepth_t depth);
   void SetStride(cncvImageDescriptor* desc);
-  void KeepAspectRatio(cncvRect* dst_roi, const cncvImageDescriptor& src, const cncvImageDescriptor& dst);
+  void KeepAspectRatio(cncvRect* dst_roi, const cncvRect& src_roi);
   cncvDepth_t GetCncvDepth(const DataType& type);
 
  protected:
@@ -574,26 +574,28 @@ void PreprocessCncvBase::SetStride(cncvImageDescriptor* desc) {
   }
 }
 
-void PreprocessCncvBase::KeepAspectRatio(cncvRect* dst_roi, const cncvImageDescriptor& src,
-                                         const cncvImageDescriptor& dst) {
-  float src_ratio = static_cast<float>(src.width) / src.height;
-  float dst_ratio = static_cast<float>(dst.width) / dst.height;
+void PreprocessCncvBase::KeepAspectRatio(cncvRect* dst_roi, const cncvRect& src_roi) {
+  uint32_t dst_w = dst_roi->w;
+  uint32_t dst_h = dst_roi->h;
+  float src_ratio = static_cast<float>(src_roi.w) / src_roi.h;
+  float dst_ratio = static_cast<float>(dst_w) / dst_h;
+
   if (src_ratio < dst_ratio) {
-    int pad_lenth = dst.width - src_ratio * dst.height;
+    int pad_lenth = dst_w - src_ratio * dst_h;
     pad_lenth = (pad_lenth % 2) ? pad_lenth - 1 : pad_lenth;
-    if (dst.width - pad_lenth / 2 < 0) return;
-    dst_roi->w = dst.width - pad_lenth;
+    if (dst_w - pad_lenth / 2 < 0) return;
+    dst_roi->w = dst_w - pad_lenth;
     dst_roi->x = pad_lenth / 2;
     dst_roi->y = 0;
-    dst_roi->h = dst.height;
+    dst_roi->h = dst_h;
   } else if (src_ratio > dst_ratio) {
-    int pad_lenth = dst.height - dst.width / src_ratio;
+    int pad_lenth = dst_h - dst_w / src_ratio;
     pad_lenth = (pad_lenth % 2) ? pad_lenth - 1 : pad_lenth;
-    if (dst.height - pad_lenth / 2 < 0) return;
-    dst_roi->h = dst.height - pad_lenth;
+    if (dst_h - pad_lenth / 2 < 0) return;
+    dst_roi->h = dst_h - pad_lenth;
     dst_roi->y = pad_lenth / 2;
     dst_roi->x = 0;
-    dst_roi->w = dst.width;
+    dst_roi->w = dst_w;
   }
 }
 cncvDepth_t PreprocessCncvBase::GetCncvDepth(const DataType& type) {
@@ -730,7 +732,7 @@ bool CncvResizeConvert::Execute(Package* pack, Buffer* output) {
     src_rois_[i].w = (frame.roi.w == 0.f ? 1 : frame.roi.w) * frame.width;
     src_rois_[i].h = (frame.roi.h == 0.f ? 1 : frame.roi.h) * frame.height;
     if (keep_aspect_ratio_) {
-      KeepAspectRatio(&dst_rois_[i], src_descs_[i], dst_descs_[i]);
+      KeepAspectRatio(&dst_rois_[i], src_rois_[i]);
     }
   }
 
