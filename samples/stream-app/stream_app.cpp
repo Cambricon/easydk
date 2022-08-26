@@ -42,7 +42,7 @@ DEFINE_string(func_name, "subnet0", "model function name");
 DEFINE_string(track_model_path, "", "track model path");
 DEFINE_string(track_func_name, "subnet0", "track model function name");
 DEFINE_int32(wait_time, 0, "time of one test case");
-DEFINE_string(net_type, "", "neural network type, SSD or YOLOv3");
+DEFINE_string(net_type, "", "network type, SSD or YOLOv3");
 DEFINE_int32(dev_id, 0, "run sample on which device");
 DEFINE_string(decode_type, "mlu", "decode type, choose from mlu/ffmpeg/ffmpeg-mlu.");
 

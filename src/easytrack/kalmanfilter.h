@@ -59,8 +59,8 @@ class KalmanFilter {
   Matrix project_mean_;
   Matrix project_covariance_;
 
-  float std_weight_position_;
-  float std_weight_velocity_;
+  float std_filter_position_;
+  float std_filter_velocity_;
 
   bool need_recalc_project_{true};
 };  // class KalmanFilter

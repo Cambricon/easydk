@@ -425,7 +425,7 @@ int64_t ModelLoader::GetOutputDataBatchAlignSize(int data_index) const {
 }
 
 ModelLoader::~ModelLoader() {
-  LOG(INFO) << "[EasyDK EasyInfer] [ModelLoader] Destroy neural network function";
+  LOG(INFO) << "[EasyDK EasyInfer] [ModelLoader] Destroy model";
   cnrtRet_t error_code = cnrtDestroyFunction(d_ptr_->function_);
   if (CNRT_RET_SUCCESS != error_code) {
     LOG(WARNING) << "[EasyDK EasyInfer] [ModelLoader] Destroy function failed. error_code : "

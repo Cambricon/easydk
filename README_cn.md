@@ -4,7 +4,7 @@
 
 EasyDK(Cambricon<sup>®</sup> Neuware Easy Development Kit)提供了一套面向 
 MLU(Machine Learning Unit,寒武纪机器学习单元)设备的高级别的接口（C++11标准），
-用于面向MLU平台（MLU270，MLU220，MLU370）快速开发和部署深度学习应用。
+用于面向MLU平台（MLU270，MLU220，MLU370）快速开发和部署人工智能应用。
 
 EasyDK共包含如下6个模块:
 
@@ -17,7 +17,7 @@ EasyDK共包含如下6个模块:
 
 ![modules](docs/images/software_stack.png)
 
-EasyDK还包含推理服务组件：提供了一套面向MLU（Machine Learning Unit，寒武纪机器学习单元）类似服务器的推理接口（C++11标准），以及模型加载与管理，推理任务调度等功能，极大地简化了面向MLU平台高性能深度学习应用的开发和部署工作。
+EasyDK还包含推理服务组件：提供了一套面向MLU（Machine Learning Unit，寒武纪机器学习单元）类似服务器的推理接口（C++11标准），以及模型加载与管理，推理任务调度等功能，极大地简化了面向MLU平台高性能人工智能应用的开发和部署工作。
 
 ![infer_server](docs/images/infer_server_software_stack.png)
 
@@ -29,7 +29,7 @@ EasyDK还包含推理服务组件：提供了一套面向MLU（Machine Learning 
 
 ## 快速入门 ##
 
-本节将简单介绍如何从零开始构建EasyDK，并运行示例代码完成简单的深度学习任务。
+本节将简单介绍如何从零开始构建EasyDK，并运行示例代码完成简单的人工智能任务。
 
 ### 配置要求 ###
 
@@ -156,3 +156,10 @@ Easydk仅支持源码编译的方式使用，按如下步骤编译Easydk (`${EAS
 
    可下载edge编译压缩包 http://video.cambricon.com/models/edge.tar.gz, 解压后按照README文档提供的步骤进行编译。
 
+## 文档 ##
+
+[Cambricon Forum Docs](https://www.cambricon.com/docs/easydk/user_guide_html/index.html)
+
+更多内容请参看文档，包括如何使用EasyDK，EasyDK模块的详细介绍以及一些示例代码等等。
+
+另外也可参看 [基于EasyDK的应用程序移植教程](docs/ApplicationPortingTutorialBasedOnEasyDK.md) , [最新的用户手册](docs/release_document/latest/Cambricon-EasyDK-User-Guide-CN-vlatest.pdf) 以及各版本的用户手册可以在 [这里](docs/release_document/) 查看。

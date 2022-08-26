@@ -35,7 +35,7 @@ void ResizeYuvToRgbaKernel(
     half* yuv_bias_gdram,
     int* mult_gdram,
     half** mask_gdram,
-    half** weight_gdram,
+    half** filter_gdram,
     int8_t** copy_filter_gdram,
     int dst_row,
     int dst_col,

@@ -173,7 +173,7 @@ int main(int argc, char** argv) {
   desc.strategy = infer_server::BatchStrategy::DYNAMIC;
   desc.name = "infer server demo";
   desc.show_perf = true;
-  // We recommend engine_num = total core number / model core number. For example, on MLU270(16 ipu cores),
+  // We recommend engine_num = total core number / model core number. For example, on MLU270(16 mlu cores),
   // and load a 4 core model(core numebr is a given parameter when generate model), engine_num = 16 / 4 = 4.
   desc.engine_num = 4;
 

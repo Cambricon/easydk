@@ -300,7 +300,7 @@ bool Model::GetModelInfo() noexcept {
 
 Model::~Model() {
   if (has_init_) {
-    LOG(INFO) << "[EasyDK InferServer] [Model] Destroy neural network function";
+    LOG(INFO) << "[EasyDK InferServer] [Model] Destroy model";
     cnrtRet_t error_code = cnrtDestroyFunction(function_);
     if (error_code != CNRT_RET_SUCCESS) {
       LOG(ERROR) << "[EasyDK InferServer] [Model] Destroy function failed. error code: " << error_code;

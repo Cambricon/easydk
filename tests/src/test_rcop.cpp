@@ -553,7 +553,7 @@ INSTANTIATE_TEST_CASE_P(Bang, ResizeConvertTestParam,
                     cv::Size(1280, 720),    // 720
                     cv::Size(1920, 1080),   // 1080
                     cv::Size(3840, 2160)),
-    // neural net work input size
+    // network input size
     testing::Values(
 #if FULL_TEST
                     cv::Size(32, 32),
@@ -587,7 +587,7 @@ INSTANTIATE_TEST_CASE_P(Bang, ResizeConvertCoreSplitTestParam,
                                             cv::Size(1280, 720), cv::Size(3840, 2160)}),
                     std::vector<cv::Size>({cv::Size(1920, 1080), cv::Size(1920, 1080),
                                             cv::Size(1920, 1080), cv::Size(1920, 1080)})),
-    // neural net work input size
+    // network input size
     testing::Values(
 #if FULL_TEST
                     cv::Size(32, 32),
@@ -623,7 +623,7 @@ INSTANTIATE_TEST_CASE_P(Bang, ResizeConvertRoiCoreSplitTestParam,
                                            cv::Rect(737, 247, 783, 717),
                                            cv::Rect(178, 179, 999, 373),
                                            cv::Rect(737, 247, 17, 17)})),
-    // neural net work input size
+    // network input size
     testing::Values(
 #if FULL_TEST
                     cv::Size(32, 32),
