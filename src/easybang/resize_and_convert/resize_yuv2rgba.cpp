@@ -47,7 +47,7 @@ void getResizedConvertWorkspaceSize(int* roi_rect_cpu_ptr,
   // mask pointer space
   temp_size += batch_num * 2 * sizeof(half*);
 
-  // weight pointer space
+  // filter pointer space
   temp_size += batch_num * 2 * sizeof(half*);
 
   // copy filter pointer space
@@ -90,14 +90,14 @@ void getResizedConvertWorkspaceSize(int* roi_rect_cpu_ptr,
     dst_roi_w_list[batch_iter] = dst_roi_w;
 
     size_t mask_size = 2 * mult * cur_roi_w_ * 4 * sizeof(half);
-    size_t weight_size = 2 * dst_roi_w * 4 * sizeof(half);
+    size_t filter_size = 2 * dst_roi_w * 4 * sizeof(half);
 
     for(int prev_batch = 0; prev_batch < batch_iter; prev_batch++) {
       if ((cur_roi_x == src_roi_x_list[prev_batch]) &&
           (cur_roi_w == src_roi_w_list[prev_batch]) &&
           (dst_roi_w == dst_roi_w_list[prev_batch])) {
         mask_size = 0;
-        weight_size = 0;
+        filter_size = 0;
         break;
       }
     }
@@ -114,13 +114,13 @@ void getResizedConvertWorkspaceSize(int* roi_rect_cpu_ptr,
       }
     }
 
-    temp_size += mask_size + weight_size + copy_filter_size;
+    temp_size += mask_size + filter_size + copy_filter_size;
   }
 
   *workspace_size = temp_size;
 }
 
-void prepareMaskAndWeights(void* cpu_workspace,
+void prepareMaskAndFilters(void* cpu_workspace,
                            void* workspace,
                            int* roi_rect_cpu_ptr,
                            int dst_row,
@@ -130,15 +130,15 @@ void prepareMaskAndWeights(void* cpu_workspace,
   // cpu pointer offset
   int* mult_cpu_ptr = (int*)(cpu_workspace);
   half** mask_pointer_cpu_ptr = (half**)(mult_cpu_ptr + batch_num);
-  half** weight_pointer_cpu_ptr = (half**)(mask_pointer_cpu_ptr + batch_num * 2);
-  int8_t** copy_filter_pointer_cpu_ptr = (int8_t**)(weight_pointer_cpu_ptr + batch_num * 2);
+  half** filter_pointer_cpu_ptr = (half**)(mask_pointer_cpu_ptr + batch_num * 2);
+  int8_t** copy_filter_pointer_cpu_ptr = (int8_t**)(filter_pointer_cpu_ptr + batch_num * 2);
   void* cur_cpu_ptr = (void*)(copy_filter_pointer_cpu_ptr + batch_num);
 
   // mlu gdram pointer offset
   int* mult_mlu_ptr = (int*)(workspace);
   half** mask_pointer_mlu_ptr = (half**)(mult_mlu_ptr + batch_num);
-  half** weight_pointer_mlu_ptr = (half**)(mask_pointer_mlu_ptr + batch_num * 2);
-  int8_t** copy_filter_pointer_mlu_ptr = (int8_t**)(weight_pointer_mlu_ptr + batch_num * 2);
+  half** filter_pointer_mlu_ptr = (half**)(mask_pointer_mlu_ptr + batch_num * 2);
+  int8_t** copy_filter_pointer_mlu_ptr = (int8_t**)(filter_pointer_mlu_ptr + batch_num * 2);
   void* cur_mlu_ptr = (void*)(copy_filter_pointer_mlu_ptr + batch_num);
 
   // batch loop
@@ -180,7 +180,7 @@ void prepareMaskAndWeights(void* cpu_workspace,
     // set mult to cpu addr
     mult_cpu_ptr[batch_iter] = mult;
 
-    // reuse computed mask and weight or compute current mask and weight
+    // reuse computed mask and filter or compute current mask and filter
     src_roi_x_list[batch_iter] = cur_roi_x;
     src_roi_w_list[batch_iter] = cur_roi_w;
     dst_roi_w_list[batch_iter] = dst_roi_w;
@@ -196,10 +196,10 @@ void prepareMaskAndWeights(void* cpu_workspace,
         mask_pointer_cpu_ptr[batch_iter * 2 + 1] =
           mask_pointer_cpu_ptr[prev_batch * 2 + 1];
 
-        weight_pointer_cpu_ptr[batch_iter * 2] =
-          weight_pointer_cpu_ptr[prev_batch * 2];
-        weight_pointer_cpu_ptr[batch_iter * 2 + 1] =
-          weight_pointer_cpu_ptr[prev_batch * 2 + 1];
+        filter_pointer_cpu_ptr[batch_iter * 2] =
+          filter_pointer_cpu_ptr[prev_batch * 2];
+        filter_pointer_cpu_ptr[batch_iter * 2 + 1] =
+          filter_pointer_cpu_ptr[prev_batch * 2 + 1];
 
         repeated = true;
         break;
@@ -211,19 +211,19 @@ void prepareMaskAndWeights(void* cpu_workspace,
       half* cur_mask_left_cpu_ptr = reinterpret_cast<half*>(cur_cpu_ptr);
       half* cur_mask_right_cpu_ptr = reinterpret_cast<half*>(cur_mask_left_cpu_ptr + mult * cur_roi_w_ * 4);
 
-      half* cur_weight_left_cpu_ptr = reinterpret_cast<half*>(cur_mask_right_cpu_ptr + mult * cur_roi_w_ * 4);
-      half* cur_weight_right_cpu_ptr = reinterpret_cast<half*>(cur_weight_left_cpu_ptr + dst_roi_w * 4);
+      half* cur_filter_left_cpu_ptr = reinterpret_cast<half*>(cur_mask_right_cpu_ptr + mult * cur_roi_w_ * 4);
+      half* cur_filter_right_cpu_ptr = reinterpret_cast<half*>(cur_filter_left_cpu_ptr + dst_roi_w * 4);
 
-      cur_cpu_ptr = reinterpret_cast<half*>(cur_weight_right_cpu_ptr + dst_roi_w * 4);
+      cur_cpu_ptr = reinterpret_cast<half*>(cur_filter_right_cpu_ptr + dst_roi_w * 4);
 
       // mlu pointer offset
       half* cur_mask_left_mlu_ptr = reinterpret_cast<half*>(cur_mlu_ptr);
       half* cur_mask_right_mlu_ptr = reinterpret_cast<half*>(cur_mask_left_mlu_ptr + mult * cur_roi_w_ * 4);
 
-      half* cur_weight_left_mlu_ptr = reinterpret_cast<half*>(cur_mask_right_mlu_ptr + mult * cur_roi_w_ * 4);
-      half* cur_weight_right_mlu_ptr = reinterpret_cast<half*>(cur_weight_left_mlu_ptr + dst_roi_w * 4);
+      half* cur_filter_left_mlu_ptr = reinterpret_cast<half*>(cur_mask_right_mlu_ptr + mult * cur_roi_w_ * 4);
+      half* cur_filter_right_mlu_ptr = reinterpret_cast<half*>(cur_filter_left_mlu_ptr + dst_roi_w * 4);
 
-      cur_mlu_ptr = reinterpret_cast<half*>(cur_weight_right_mlu_ptr + dst_roi_w * 4);
+      cur_mlu_ptr = reinterpret_cast<half*>(cur_filter_right_mlu_ptr + dst_roi_w * 4);
 
 #ifdef ZERO_COORDINATE
       float src_w_iter_base = 0.0f;
@@ -234,8 +234,8 @@ void prepareMaskAndWeights(void* cpu_workspace,
       int src_w_iter_int = -1;
       int src_w_iter_int_prev = -1;
 
-      float left_weight = 0.0;
-      float right_weight = 0.0;
+      float left_filter = 0.0;
+      float right_filter = 0.0;
 
       int mask_left_index = 0;
       int mask_right_index = 0;
@@ -266,19 +266,19 @@ void prepareMaskAndWeights(void* cpu_workspace,
           cur_mask_right_cpu_ptr[mask_right_index * 4 + 3] = 1;
         }
 
-        // compute weight data
-        right_weight = src_w_iter - src_w_iter_int;
-        left_weight = 1.0 - right_weight;
+        // compute filter data
+        right_filter = src_w_iter - src_w_iter_int;
+        left_filter = 1.0 - right_filter;
 
-        cur_weight_left_cpu_ptr[dst_w_iter * 4] = left_weight;
-        cur_weight_left_cpu_ptr[dst_w_iter * 4 + 1] = left_weight;
-        cur_weight_left_cpu_ptr[dst_w_iter * 4 + 2] = left_weight;
-        cur_weight_left_cpu_ptr[dst_w_iter * 4 + 3] = left_weight;
+        cur_filter_left_cpu_ptr[dst_w_iter * 4] = left_filter;
+        cur_filter_left_cpu_ptr[dst_w_iter * 4 + 1] = left_filter;
+        cur_filter_left_cpu_ptr[dst_w_iter * 4 + 2] = left_filter;
+        cur_filter_left_cpu_ptr[dst_w_iter * 4 + 3] = left_filter;
 
-        cur_weight_right_cpu_ptr[dst_w_iter * 4] = right_weight;
-        cur_weight_right_cpu_ptr[dst_w_iter * 4 + 1] = right_weight;
-        cur_weight_right_cpu_ptr[dst_w_iter * 4 + 2] = right_weight;
-        cur_weight_right_cpu_ptr[dst_w_iter * 4 + 3] = right_weight;
+        cur_filter_right_cpu_ptr[dst_w_iter * 4] = right_filter;
+        cur_filter_right_cpu_ptr[dst_w_iter * 4 + 1] = right_filter;
+        cur_filter_right_cpu_ptr[dst_w_iter * 4 + 2] = right_filter;
+        cur_filter_right_cpu_ptr[dst_w_iter * 4 + 3] = right_filter;
 
         // update data for next iter
         src_w_iter_int_prev = src_w_iter_int;
@@ -288,8 +288,8 @@ void prepareMaskAndWeights(void* cpu_workspace,
       mask_pointer_cpu_ptr[batch_iter * 2] = cur_mask_left_mlu_ptr;
       mask_pointer_cpu_ptr[batch_iter * 2 + 1] = cur_mask_right_mlu_ptr;
 
-      weight_pointer_cpu_ptr[batch_iter * 2] = cur_weight_left_mlu_ptr;
-      weight_pointer_cpu_ptr[batch_iter * 2 + 1] = cur_weight_right_mlu_ptr;
+      filter_pointer_cpu_ptr[batch_iter * 2] = cur_filter_left_mlu_ptr;
+      filter_pointer_cpu_ptr[batch_iter * 2 + 1] = cur_filter_right_mlu_ptr;
     }
 
     // reuse computed copy filter or compute current copy filter
@@ -550,7 +550,7 @@ bool PrepareKernelParam(int d_row, int d_col, int color_mode, int data_type,
   //  std::cout << std::endl;
   //}
 
-  // prepare const(weights and bias)
+  // prepare const(filters and bias)
   if (layerIn > 1) {
     int kernelLen = 2 * CI;
     for (int i = 0; i < 2 * CI * CO + CO; i++) {
@@ -684,7 +684,7 @@ float ResizeAndConvert(void* dst, void** y_plane_addrs, void** uv_plane_addrs,
                  "[EasyDK EasyBang] [MluResizeConvertOp] cnrtMalloc workspace FAILED. ERRCODE:" + to_string(ecode),
                  { free(cpu_workspace); }, -1);
 
-  prepareMaskAndWeights(cpu_workspace, workspace,
+  prepareMaskAndFilters(cpu_workspace, workspace,
                         src_rois_cpu, kparam->d_row, kparam->d_col,
                         kparam->batchNum, kparam->keep_aspect_ratio);
 
@@ -696,8 +696,8 @@ float ResizeAndConvert(void* dst, void** y_plane_addrs, void** uv_plane_addrs,
 
   int* mult_mlu_ptr = (int*)(workspace);
   half** mask_pointer_mlu_ptr = (half**)(mult_mlu_ptr + kparam->batchNum);
-  half** weight_pointer_mlu_ptr = (half**)(mask_pointer_mlu_ptr + kparam->batchNum * 2);
-  int8_t** copy_filter_pointer_mlu_ptr = (int8_t**)(weight_pointer_mlu_ptr + kparam->batchNum * 2);
+  half** filter_pointer_mlu_ptr = (half**)(mask_pointer_mlu_ptr + kparam->batchNum * 2);
+  int8_t** copy_filter_pointer_mlu_ptr = (int8_t**)(filter_pointer_mlu_ptr + kparam->batchNum * 2);
 
   cnrtKernelParamsBuffer_t params;
   cnrtGetKernelParamsBuffer(&params);
@@ -711,7 +711,7 @@ float ResizeAndConvert(void* dst, void** y_plane_addrs, void** uv_plane_addrs,
   cnrtKernelParamsBufferAddParam(params, &kparam->yuvBias, sizeof(half*));
   cnrtKernelParamsBufferAddParam(params, &mult_mlu_ptr, sizeof(int*));
   cnrtKernelParamsBufferAddParam(params, &mask_pointer_mlu_ptr, sizeof(half**));
-  cnrtKernelParamsBufferAddParam(params, &weight_pointer_mlu_ptr, sizeof(half**));
+  cnrtKernelParamsBufferAddParam(params, &filter_pointer_mlu_ptr, sizeof(half**));
   cnrtKernelParamsBufferAddParam(params, &copy_filter_pointer_mlu_ptr, sizeof(int8_t**));
   // cnrtKernelParamsBufferAddParam(params, &kparam->maskUV_mlu, sizeof(half *));
   cnrtKernelParamsBufferAddParam(params, &kparam->d_row, sizeof(int));

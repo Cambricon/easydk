@@ -13,7 +13,7 @@ Toolkit provides following modules:
 
 ![modules](docs/images/software_stack.png)
 
-Besides, toolkit contains InferServer component, which aims at simplify developing and deploying High-performance deep learning applications on Cambricon MLU270/MLU220/MLU370 platform. InferServer provides APIs for inference and it provides functions like model loading and management, inference task scheduling and so on.
+Besides, toolkit contains InferServer component, which aims at simplify developing and deploying High-performance AI applications on Cambricon MLU270/MLU220/MLU370 platform. InferServer provides APIs for inference and it provides functions like model loading and management, inference task scheduling and so on.
 
 ![infer_server](docs/images/infer_server_software_stack.png)
 
@@ -156,3 +156,10 @@ After finished prerequisite, you can build instructions with the following steps
 
    A compilation package is provided at http://video.cambricon.com/models/edge.tar.gz. After decompressing the package, follows the steps in README to compile.
 
+## Documentation ##
+
+[Cambricon Forum Docs](https://www.cambricon.com/docs/easydk/user_guide_html/index.html)
+
+For more details, please refer to the documentation on the webpage, including how to use EasyDK, introduction to EasyDK modules and sample codes.
+
+Besides, please refer to the [EasyDK-based application porting tutorial](docs/ApplicationPortingTutorialBasedOnEasyDK.md) , [latest user guide](docs/release_document/latest/Cambricon-EasyDK-User-Guide-CN-vlatest.pdf) and other versions user guide can be found [here](docs/release_document) .

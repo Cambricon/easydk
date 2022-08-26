@@ -21,7 +21,7 @@ const Matrix KalmanFilter::update_mat_trans_{KalmanFilter::update_mat_.Trans()};
 const Matrix KalmanFilter::motion_mat_trans_{KalmanFilter::motion_mat_.Trans()};
 
 KalmanFilter::KalmanFilter() : mean_(1, 8), covariance_(8, 8),
-                               std_weight_position_(1. / 20), std_weight_velocity_(1. / 160) {}
+                               std_filter_position_(1. / 20), std_filter_velocity_(1. / 160) {}
 
 void KalmanFilter::Initiate(const BoundingBox &measurement) {
   // initial state X(k-1|k-1)
@@ -35,10 +35,10 @@ void KalmanFilter::Initiate(const BoundingBox &measurement) {
 
   vector<float> std(8, 0);
   std[2] = 1e-2;
-  std[0] = std[1] = std[3] = 2 * std_weight_position_ * measurement.height;
+  std[0] = std[1] = std[3] = 2 * std_filter_position_ * measurement.height;
 
   std[6] = 1e-5;
-  std[4] = std[5] = std[7] = 10 * std_weight_velocity_ * measurement.height;
+  std[4] = std[5] = std[7] = 10 * std_filter_velocity_ * measurement.height;
 
   // init MMSE P(k-1|k-1)
   for (int i = 0; i < 8; ++i) covariance_(i, i) = std[i] * std[i];
@@ -51,9 +51,9 @@ void KalmanFilter::Predict() {
   // process noise covariance Q
 
   std[2] = 1e-2;
-  std[0] = std[1] = std[3] = std_weight_position_ * mean_(0, 3);
+  std[0] = std[1] = std[3] = std_filter_position_ * mean_(0, 3);
   std[6] = 1e-5;
-  std[4] = std[5] = std[7] = std_weight_velocity_ * mean_(0, 3);
+  std[4] = std[5] = std[7] = std_filter_velocity_ * mean_(0, 3);
 
   for (int i = 0; i < 8; ++i) {
     motion_cov(i, i) = std[i] * std[i];
@@ -73,7 +73,7 @@ void KalmanFilter::Predict() {
 void KalmanFilter::Project(const Matrix &mean, const Matrix &covariance) {
   if (!need_recalc_project_) return;
   float cov_val1 = 1e-1 * 1e-1;
-  float cov_val2 = std_weight_position_ * mean(0, 3);
+  float cov_val2 = std_filter_position_ * mean(0, 3);
   cov_val2 *= cov_val2;
 
   // measurement noise R
