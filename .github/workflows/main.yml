@@ -13,43 +13,64 @@ jobs:
         with:
           fetch-depth: 0
       - name: Lintgit Check
-        run: ./tools/lintgit master
+        run: ./tools/lintgit origin/master
 
       - uses: actions/checkout@v2
       - name: Run Test
         run: |
+          export NEUWARE_HOME=/usr/local/neuware
+          export LD_LIBRARY_PATH=\$LD_LIBRARY_PATH:/usr/local/neuware/lib64
           export GLOG_minloglevel=0
           # export GLOG_v=5
-          pip3 install -r infer_server/python/requirements.txt
           mkdir build
           pushd build
-            cmake -DBUILD_TESTS=ON -DBUILD_SAMPLES=ON -DCODE_COVERAGE_TEST=ON -DCNIS_WITH_PYTHON_API=ON ..
+            cmake -DPLATFORM=MLU370 -DBUILD_TESTS=ON -DBUILD_SAMPLES=ON -DCODE_COVERAGE_TEST=ON -DBUILD_PYTHON_API=ON ..
             make -j8
-            ./tests/tests_edk
-            ./infer_server/tests/apitest_cnis
-            ./infer_server/tests/unittest_cnis
-            ./../infer_server/python/test/run_pytest.sh
+            ./bin/tests_edk
+            if [ $? -ne 0 ];then
+              exit 1
+            fi
+            pip3 --default-timeout=1000 install -U pytest -i https://pypi.tuna.tsinghua.edu.cn/simple
+            pip3 --default-timeout=1000 install -r ../python/requirements.txt -i https://pypi.tuna.tsinghua.edu.cn/simple
+            ./../python/test/run_pytest.sh
             if [ $? -ne 0 ];then
               exit 1
             fi
           popd
-          pushd samples/classification
-            ./run_resnet50_270.sh
+          pushd samples/simple_demo/classification
+            ./run_resnet50.sh mlu370
+            if [ $? -ne 0 ];then
+              exit 1
+            fi
           popd
-          pushd samples/stream-app
-            ./run_ssd_270.sh
-            ./run_yolov3_270.sh
-            ./run_yolov5_270.sh
+          pushd samples/simple_demo/detection
+            ./run_yolov3.sh mlu370
+            if [ $? -ne 0 ];then
+              exit 1
+            fi
           popd
-          pushd samples/transcode
-            ./run_transcode.sh
+          pushd samples/easy_pipeline
+            ./run_resnet50.sh mlu370
+            if [ $? -ne 0 ];then
+              exit 1
+            fi
+            ./run_yolov3.sh mlu370
+            if [ $? -ne 0 ];then
+              exit 1
+            fi
           popd
-          pushd infer_server/samples/bin
-            ./cnis_demo ../../../samples/data/videos/cars.mp4
-            ./cnis_multi_stream_demo ../../../samples/data/videos/cars.mp4
-          popd
-          pushd infer_server/python/samples/
+          pushd python/samples/
+            pip3 --default-timeout=1000 install -r ../requirements.txt -i https://pypi.tuna.tsinghua.edu.cn/simple
             python cnis_async_demo.py
+            if [ $? -ne 0 ]; then
+                exit 1
+            fi
             python cnis_sync_demo.py
+            if [ $? -ne 0 ]; then
+                exit 1
+            fi
             python cnis_infer_only_demo.py
+            if [ $? -ne 0 ]; then
+                exit 1
+            fi
           popd

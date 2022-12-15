@@ -2,7 +2,6 @@
 # Try to find Cambricon Neuware libraries:
 # - cnrt
 # - cndrv
-# - ion (required on mlu220 edge)
 # - cncodec
 # - cncv
 # - magicmind_runtime
@@ -45,51 +44,32 @@ find_library(CNDRV_LIBS
              NO_DEFAULT_PATH
              NO_CMAKE_SYSTEM_PATH)
 
-# ---[ cncodec
-find_library(CNCODEC_LIBS
-             NAMES cncodec
-             PATHS ${NEUWARE_HOME}/lib64
-             NO_CMAKE_FIND_ROOT_PATH
-             NO_CMAKE_PATH
-             NO_DEFAULT_PATH
-             NO_CMAKE_SYSTEM_PATH)
-
-find_library(ION_LIBS
-             NAMES ion
-             PATHS ${NEUWARE_HOME}/lib64
-             NO_CMAKE_FIND_ROOT_PATH
-             NO_CMAKE_PATH
-             NO_DEFAULT_PATH
-             NO_CMAKE_SYSTEM_PATH)
-if(ION_LIBS)
-  list(APPEND CNCODEC_LIBS ${ION_LIBS})
-endif()
-if (CNCODEC_LIBS)
-  message(STATUS "Found CNCODEC: ${CNCODEC_LIBS}")
-endif()
-
 # ---[ cncodecv3
 find_library(CNCODECV3_LIBS
-             NAMES cncodec_v3
-             PATHS ${NEUWARE_HOME}/lib64
-             NO_CMAKE_FIND_ROOT_PATH
-             NO_CMAKE_PATH
-             NO_DEFAULT_PATH
-             NO_CMAKE_SYSTEM_PATH)
+            NAMES cncodec_v3
+            PATHS ${NEUWARE_HOME}/lib64
+            NO_CMAKE_FIND_ROOT_PATH
+            NO_CMAKE_PATH
+            NO_DEFAULT_PATH
+            NO_CMAKE_SYSTEM_PATH)
 if (CNCODECV3_LIBS)
   message(STATUS "Found CNCODE_V3: ${CNCODECV3_LIBS}")
+else()
+  message(FATAL_ERROR "CNCODE_V3 NOT FOUND")
 endif()
 
 # ---[ cncv
 find_library(CNCV_LIBS
-             NAMES cncv
-             PATHS ${NEUWARE_HOME}/lib64
-             NO_CMAKE_FIND_ROOT_PATH
-             NO_CMAKE_PATH
-             NO_DEFAULT_PATH
-             NO_CMAKE_SYSTEM_PATH)
+            NAMES cncv
+            PATHS ${NEUWARE_HOME}/lib64
+            NO_CMAKE_FIND_ROOT_PATH
+            NO_CMAKE_PATH
+            NO_DEFAULT_PATH
+            NO_CMAKE_SYSTEM_PATH)
 if(CNCV_LIBS)
   message(STATUS "Found CNCV: ${CNCV_LIBS}")
+else()
+  message(FATAL_ERROR "CNCV NOT FOUND")
 endif()
 
 # ---[ magicmind
@@ -103,4 +83,11 @@ find_library(MAGICMIND_RUNTIME_LIBS
 
 if(MAGICMIND_RUNTIME_LIBS)
   message(STATUS "Found MAGICMIND_RUNTIME: ${MAGICMIND_RUNTIME_LIBS}")
+else()
+  message(FATAL_ERROR "MAGICMIND_RUNTIME NOT FOUND")
 endif()
+
+find_file(HAVE_MM_COMMON_HEADER
+          mm_common.h
+          PATHS ${NEUWARE_HOME}/include
+          NO_DEFAULT_PATH)
