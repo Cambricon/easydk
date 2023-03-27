@@ -36,10 +36,20 @@
 #include "cnis/processor.h"
 #include "cnis/shape.h"
 
+
 #ifdef CNIS_USE_MAGICMIND
+// for magicmind
+#ifdef HAVE_MM_COMMON_HEADER
+#include "mm_common.h"
+#include "mm_runtime.h"
+#else
+#include "common.h"
 #include "interface_runtime.h"
-#include "mm_helper.h"
 #endif
+#include "mm_helper.h"
+
+#endif
+
 
 namespace infer_server {
 
@@ -144,7 +154,11 @@ class Model : public ModelInfo {
     if (iter == engine_map_.end()) {
       if (!SetCurrentDevice(device_id)) return nullptr;
       MModel::EngineConfig config;
+#if MM_MAJOR_VERSION <= 0 && MM_MINOR_VERSION < 13
       config.device_type = "MLU";
+#else
+      config.SetDeviceType("MLU");
+#endif
       engine = model_->CreateIEngine(config);
       if (!engine) return nullptr;
       engine_map_[device_id].reset(engine);

@@ -6,13 +6,13 @@ pushd $CURRENT_DIR
 mkdir -p cache
 
 if [ ! -f "cache/yolov3_nhwc.model" ]; then
-  wget -O cache/yolov3_nhwc.model http://video.cambricon.com/models/MLU370/yolov3_nhwc_tfu_0.8.2_uint8_int8_fp16.model
+  wget -O cache/yolov3_nhwc.model http://video.cambricon.com/models/magicmind/v1.1.0/yolov3_v1.1.0_4b_rgb_uint8.magicmind
 fi
 if [ ! -f "cache/label_map_coco.txt" ]; then
   wget -O cache/label_map_coco.txt http://video.cambricon.com/models/MLU270/yolov3/label_map_coco.txt
 fi
 if [ ! -f "cache/feature_extract_nhwc.model" ]; then
-  wget -O cache/feature_extract_nhwc.model http://video.cambricon.com/models/MLU370/feature_extract_nhwc_tfu_0.8.2_fp32_int8_fp16.model
+  wget -O cache/feature_extract_nhwc.model http://video.cambricon.com/models/magicmind/v1.1.0//feature_extract_v1.1.0_4b_rgb_fp32.magicmind
 fi
 model_file="${CURRENT_DIR}/cache/yolov3_nhwc.model"
 label_path="${CURRENT_DIR}/cache/label_map_coco.txt"

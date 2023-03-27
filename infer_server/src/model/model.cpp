@@ -65,8 +65,13 @@ bool ModelRunner::Init(MModel* model, mm_unique_ptr<MContext> ctx, const std::ve
   i_layouts_.resize(input_num_);
   o_layouts_.resize(output_num_);
 
+#if MM_MAJOR_VERSION <= 0 && MM_MINOR_VERSION < 12
   MM_SAFECALL(mm::CreateInputTensors(ctx_.get(), &inputs_), false);
   MM_SAFECALL(mm::CreateOutputTensors(ctx_.get(), &outputs_), false);
+#else
+  MM_SAFECALL(ctx_->CreateInputTensors(&inputs_), false);
+  MM_SAFECALL(ctx_->CreateOutputTensors(&outputs_), false);
+#endif
 
   auto dims2shape = [](const mm::Dims& d) { return Shape(d.GetDims()); };
   std::vector<mm::Dims> in_dims = model->GetInputDimensions();
@@ -262,8 +267,13 @@ bool Model::GetModelInfo(const std::vector<Shape>& in_shape) noexcept {
   MEngine* engine = GetEngine(dev_id);
   MContext* ctx = engine->CreateIContext();
   std::vector<MTensor*> inputs, outputs;
+#if MM_MAJOR_VERSION <= 0 && MM_MINOR_VERSION < 12
   MM_SAFECALL(mm::CreateInputTensors(ctx, &inputs), false);
   MM_SAFECALL(mm::CreateOutputTensors(ctx, &outputs), false);
+#else
+  MM_SAFECALL(ctx->CreateInputTensors(&inputs), false);
+  MM_SAFECALL(ctx->CreateOutputTensors(&outputs), false);
+#endif
   auto trans2layout = [](mm::DataType t, mm::Layout l) {
     DimOrder order = detail::CastDimOrder(l);
     if (order == DimOrder::INVALID) {

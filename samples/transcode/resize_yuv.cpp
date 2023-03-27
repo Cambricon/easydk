@@ -115,9 +115,14 @@ bool CncvResizeYuv::Process(const edk::CnFrame &src, edk::CnFrame *dst) {
     if (workspace_) CNRT_SAFE_CALL(cnrtFree(workspace_), false);
     CNRT_SAFE_CALL(cnrtMalloc(&(workspace_), required_workspace_size), false);
   }
-
+#if CNCV_MAJOR < 1
   CNCV_SAFE_CALL(cncvResizeYuv(handle_, batch_size, &(src_desc_), &(src_roi_), mlu_input_, &(dst_desc_), mlu_output_,
                                &(dst_roi_), required_workspace_size, workspace_, CNCV_INTER_BILINEAR), false);
+#else
+  CNCV_SAFE_CALL(cncvResizeYuv_AdvancedROI(handle_, batch_size, &(src_desc_), &(src_roi_), mlu_input_,
+                                           &(dst_desc_), &(dst_roi_), mlu_output_,
+                                           required_workspace_size, workspace_, CNCV_INTER_BILINEAR), false);
+#endif
   CNRT_SAFE_CALL(cnrt::QueueSync(queue_), false);
   return true;
 }

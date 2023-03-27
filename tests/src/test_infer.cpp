@@ -1,3 +1,5 @@
+#ifdef CNIS_USE_MAGICMIND
+
 #include <gtest/gtest.h>
 #include <cmath>
 #include <iostream>
@@ -269,3 +271,4 @@ TEST(Easyinfer, Infer) {
   TestInfer();
   TestInfer(true);
 }
+#endif

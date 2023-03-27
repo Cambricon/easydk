@@ -47,7 +47,17 @@ enum class DataType { UINT8, FLOAT32, FLOAT16, INT16, INT32, INVALID };
 /**
  * @brief Enumeration to specify dim order of model input and output
  */
-enum class DimOrder { NCHW, NHWC, HWCN, TNC, NTC, NONE, INVALID };
+enum class DimOrder {
+  NCHW = 1,
+  NHWC = 2,
+  HWCN = 3,
+  TNC = 4,
+  NTC = 5,
+  NONE = 6,
+  ARRAY = 7,
+  CUSTOM = 0x100,
+  INVALID = 0xFFFF,
+};
 
 /**
  * @brief Describe data layout on MLU or CPU

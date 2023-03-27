@@ -46,6 +46,7 @@ TranscodeRunner::TranscodeRunner(const VideoDecoder::DecoderType& decode_type, i
     dst_width_(dst_width), dst_height_(dst_height), output_file_name_(output_file_name) {
   // Create encoder
   edk::EasyEncode::Attr attr;
+  attr.dev_id = device_id;
   attr.frame_geometry.w = dst_width_;
   attr.frame_geometry.h = dst_height_;
   attr.pixel_format = edk::PixelFmt::NV12;
@@ -119,10 +120,14 @@ void TranscodeRunner::PacketCallback(const edk::CnPacket &packet) {
       file_.close();
     }
   }
-  if (packet.slice_type == edk::BitStreamSliceType::FRAME || packet.slice_type == edk::BitStreamSliceType::KEY_FRAME) {
+  if (packet.slice_type == edk::BitStreamSliceType::FRAME) {
     frame_count_++;
     std::cout << "[EasyDK Samples] [TranscodeRunner] encode frame count: " << frame_count_ << ", pts: "
               << packet.pts << std::endl;
+  } else if (packet.slice_type == edk::BitStreamSliceType::KEY_FRAME) {
+    frame_count_++;
+    std::cout << "[EasyDK Samples] [TranscodeRunner] encode frame count: " << frame_count_ << ", pts: "
+              << packet.pts << " (key frame)" << std::endl;
   } else {
     std::cout << "[EasyDK Samples] [TranscodeRunner] encode head sps/pps"  << std::endl;
   }

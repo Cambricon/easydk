@@ -21,6 +21,7 @@
 #include "session.h"
 
 #include <list>
+#include <queue>
 #include <string>
 #include <utility>
 #include <vector>
@@ -31,6 +32,8 @@
 #include "profile.h"
 
 namespace infer_server {
+
+#define EngineTaskNum std::pair<Engine*, uint32_t>
 
 Executor::Executor(const SessionDesc& desc, PriorityThreadPool* tp, int device_id)
     : desc_(desc), tp_(tp), device_id_(device_id) {
@@ -116,22 +119,21 @@ void Executor::DispatchLoop() noexcept {
 
     // dispatch to engine
     Engine* idle{nullptr};
-    if (idle_) {
+    auto cmp = [](EngineTaskNum left, EngineTaskNum right) { return left.second > right.second; };
+    std::priority_queue<EngineTaskNum, std::vector<EngineTaskNum>, decltype(cmp)> engine_idle_q(cmp);
+    for (auto& it : engines_) {
+      if (it->IsIdle()) {
+        engine_idle_q.push(std::make_pair(it.get(), it->TaskNum()));
+      }
+    }
+    if (!engine_idle_q.empty()) {
+      idle = engine_idle_q.top().first;
+    }
+    if (!idle) {
+      dispatch_lk.lock();
+      dispatch_cond_.wait(dispatch_lk, [this]() -> bool { return idle_; });
+      dispatch_lk.unlock();
       idle = idle_.exchange(idle);
-    } else {
-      // find idle engine
-      for (auto& it : engines_) {
-        if (it->IsIdle()) {
-          idle = it.get();
-          break;
-        }
-      }
-      if (!idle) {
-        dispatch_lk.lock();
-        dispatch_cond_.wait(dispatch_lk, [this]() -> bool { return idle_; });
-        dispatch_lk.unlock();
-        idle = idle_.exchange(idle);
-      }
     }
     VLOG(2) << "[EasyDK InferServer] [Executor] " << desc_.name << "] dispatch to engine " << idle_;
     idle->Run(std::move(pack));

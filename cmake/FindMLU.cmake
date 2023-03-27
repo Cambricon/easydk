@@ -104,3 +104,8 @@ find_library(MAGICMIND_RUNTIME_LIBS
 if(MAGICMIND_RUNTIME_LIBS)
   message(STATUS "Found MAGICMIND_RUNTIME: ${MAGICMIND_RUNTIME_LIBS}")
 endif()
+
+find_file(HAVE_MM_COMMON_HEADER
+          mm_common.h
+          PATHS ${NEUWARE_HOME}/include
+          NO_DEFAULT_PATH)

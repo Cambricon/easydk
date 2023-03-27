@@ -10,7 +10,7 @@ endif()
 project(easydk C CXX)
 
 set(EDK_VERSION_MAJOR 3)
-set(EDK_VERSION_MINOR 0)
+set(EDK_VERSION_MINOR 2)
 set(EDK_VERSION_PATCH 0)
 set(EDK_VERSION "${EDK_VERSION_MAJOR}.${EDK_VERSION_MINOR}.${EDK_VERSION_PATCH}")
 
@@ -22,9 +22,9 @@ option(BUILD_SAMPLES "Build samples" ON)
 option(CODE_COVERAGE_TEST "Build code coverage test" OFF)
 
 option(WITH_CODEC "Build easy codec" ON)
-option(WITH_INFER "Build easy infer" ON)
+option(WITH_INFER "Build easy infer" OFF)
 option(WITH_TRACKER "Build easy tracker" ON)
-option(WITH_BANG "Build easy Bang" ON)
+option(WITH_BANG "Build easy Bang" OFF)
 option(ENABLE_KCF "Build with KCF track" OFF)
 option(WITH_BACKWARD "Build with Backward" ON)
 option(WITH_TURBOJPEG "Build Turbo Jpeg" OFF)
@@ -33,7 +33,7 @@ option(WITH_INFER_SERVER "Build infer server" ON)
 option(CNIS_RECORD_PERF "Enable record performance" ON)
 option(CNIS_WITH_CONTRIB "Build contrib content" ON)
 option(CNIS_WITH_CURL "Build infer server with curl" ON)
-option(CNIS_USE_MAGICMIND "Build infer server with magicmind" OFF)
+option(CNIS_USE_MAGICMIND "Build infer server with magicmind" ON)
 option(CNIS_WITH_PYTHON_API "Build python api" OFF)
 
 option(SANITIZE_MEMORY "Enable MemorySanitizer for sanitized targets." OFF)
@@ -63,6 +63,11 @@ if (NOT CMAKE_BUILD_TYPE)
   set(CMAKE_BUILD_TYPE Release)
 endif()
 message(STATUS "!!!!! BUILD ${CMAKE_BUILD_TYPE} !!!!!")
+
+if (build_inference)
+  set(WITH_INFER ON)
+  set(WITH_BANG ON)
+endif()
 
 #######################################################################
 
@@ -186,7 +191,7 @@ if(WITH_CODEC)
     set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -fvisibility=default")
     set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fvisibility=default")
     message("------------------- Turbo-JPEG and libyuv END -----------------------")
-  
+
     list(APPEND EDK_DEFINITIONS "ENABLE_TURBOJPEG")
     target_include_directories(easydk PRIVATE "${PROJECT_SOURCE_DIR}/3rdparty/libyuv/include"
                                               "${PROJECT_SOURCE_DIR}/3rdparty/libjpeg-turbo")
@@ -214,6 +219,10 @@ if (WITH_INFER_SERVER)
 
   if (CNIS_USE_MAGICMIND)
     target_link_libraries(easydk PUBLIC ${MAGICMIND_RUNTIME_LIBS})
+  endif()
+
+  if(HAVE_MM_COMMON_HEADER)
+    add_definitions(-DHAVE_MM_COMMON_HEADER)
   endif()
 
   if (CNIS_RECORD_PERF)

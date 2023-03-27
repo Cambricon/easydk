@@ -1,3 +1,5 @@
+#ifdef HAVE_BANG
+
 #include <chrono>
 #include <memory>
 #include <mutex>
@@ -296,3 +298,5 @@ TEST(resize, resize_yuv2yuv_invoke) {
   TestResizeParam param = {src_width, src_height, dst_width, dst_height, batch_size, core_num, yuv_nv12};
   Process(param, image_name, thread_num, batch_num, print_hw_time, print_time);
 }
+
+#endif

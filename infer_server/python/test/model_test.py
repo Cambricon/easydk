@@ -55,4 +55,4 @@ class TestModel(object):
       assert model.input_num() == 1
       assert model.output_num() == 2
       assert model.batch_size() == 4
-      assert model.get_key() == "./yolov3_nhwc_tfu_0.8.2_uint8_int8_fp16.model"
+      assert model.get_key() == "./yolov3_v1.1.0_4b_rgb_uint8.magicmind"

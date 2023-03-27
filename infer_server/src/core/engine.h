@@ -80,6 +80,7 @@ class Engine {
   }
 
   bool IsIdle() noexcept { return task_num_.load() < nodes_.size(); }
+  uint32_t TaskNum() noexcept { return task_num_.load(); }
 
   size_t MaxLoad() noexcept { return nodes_.size(); }
 

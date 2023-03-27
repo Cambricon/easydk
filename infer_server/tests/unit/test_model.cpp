@@ -39,13 +39,13 @@ namespace infer_server {
 TEST_F(InferServerTest, Model) {
   auto m = std::make_shared<Model>();
 #ifdef CNIS_USE_MAGICMIND
-  std::string model_uri = "http://video.cambricon.com/models/MLU370/resnet50_nhwc_tfu_0.8.2_uint8_int8_fp16.model";
+  std::string model_uri = "http://video.cambricon.com/models/magicmind/v1.1.0/resnet50_v1.1.0_4b_rgb_uint8.magicmind";
   // download model
   auto tmp = InferServer::LoadModel(model_uri);
   InferServer::UnloadModel(tmp);
   tmp.reset();
 
-  ASSERT_TRUE(m->Init("resnet50_nhwc_tfu_0.8.2_uint8_int8_fp16.model"));
+  ASSERT_TRUE(m->Init("resnet50_v1.1.0_4b_rgb_uint8.magicmind"));
   auto* model = m->GetModel();
 
   size_t i_num = model->GetInputNum();

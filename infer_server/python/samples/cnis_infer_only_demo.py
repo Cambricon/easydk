@@ -59,7 +59,7 @@ class SyncDefaultPreprocPostprocDemo(object):
     if self.core_ver == cnis.CoreVersion.MLU220:
       self.model_dir = "http://video.cambricon.com/models/MLU220/Primary_Detector/ssd/vgg16_ssd_b4c4_bgra_mlu220.cambricon"
     elif self.core_ver == cnis.CoreVersion.MLU370:
-      self.model_dir = "http://video.cambricon.com/models/MLU370/yolov3_nhwc_tfu_0.8.2_uint8_int8_fp16.model"
+      self.model_dir = "http://video.cambricon.com/models/magicmind/v1.1.0/yolov3_v1.1.0_4b_rgb_uint8.magicmind"
 
 
   @staticmethod
