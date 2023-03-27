@@ -32,7 +32,8 @@
 namespace infer_server {
 
 #ifdef CNIS_USE_MAGICMIND
-static const char* model_url = "http://video.cambricon.com/models/MLU370/resnet50_nhwc_tfu_0.8.2_uint8_int8_fp16.model";
+static const char* model_url =
+    "http://video.cambricon.com/models/magicmind/v1.1.0/resnet50_v1.1.0_4b_rgb_uint8.magicmind";
 #else
 constexpr const char* model_url =
     "http://video.cambricon.com/models/MLU270/Primary_Detector/ssd/resnet34_ssd.cambricon";

@@ -55,7 +55,7 @@ using video::PreprocessType;
 
 #ifdef CNIS_USE_MAGICMIND
 static constexpr const char* model_url =
-    "http://video.cambricon.com/models/MLU370/resnet50_nhwc_tfu_0.8.2_uint8_int8_fp16.model";
+    "http://video.cambricon.com/models/magicmind/v1.1.0/resnet50_v1.1.0_4b_rgb_uint8.magicmind";
 static constexpr bool preproc_normalize{false};
 static constexpr bool keep_aspect_ratio{true};
 static constexpr int pad_value{128};
@@ -188,7 +188,7 @@ class InferServerRequestTest : public InferServerTestAPI {
 
   Session_t PrepareSession(const std::string& name, std::shared_ptr<Processor> preproc,
                            std::shared_ptr<Processor> postproc, size_t batch_timeout, BatchStrategy strategy,
-                           std::shared_ptr<Observer> observer, bool cncv_used = false) {
+                           std::shared_ptr<Observer> observer, bool cncv_used = true) {
     SessionDesc desc;
     desc.name = name;
     desc.model = model_;

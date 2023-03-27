@@ -29,7 +29,14 @@
 #include "cnrt.h"
 
 #ifdef CNIS_USE_MAGICMIND
+// magicmind
+#ifdef HAVE_MM_COMMON_HEADER
+#include "mm_common.h"
+#include "mm_runtime.h"
+#else
+#include "common.h"
 #include "interface_runtime.h"
+#endif
 #endif
 
 namespace infer_server {
@@ -134,7 +141,12 @@ inline DimOrder CastDimOrder(magicmind::Layout order) noexcept {
     RETURN_DIM_ORDER(HWCN)
     RETURN_DIM_ORDER(TNC)
     RETURN_DIM_ORDER(NTC)
+#if MM_MAJOR_VERSION <= 0 && MM_MINOR_VERSION < 14
     RETURN_DIM_ORDER(NONE)
+#else
+    RETURN_DIM_ORDER(ARRAY)
+#endif
+
 #undef RETURN_DIM_ORDER
     default:
       LOG(ERROR) << "[EasyDK InferServer] [CastDimOrder] Unsupported dim order";

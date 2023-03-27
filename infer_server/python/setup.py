@@ -143,7 +143,7 @@ class CMakeBuild(build_ext):
 
 setup(
     name="cnis",
-    version="3.0.0",
+    version="3.2.0",
     author="Cambricon",
     url='https://gitee.com/SolutionSDK/easydk',
     author_email="@cambricon.com",

@@ -23,7 +23,7 @@ jobs:
           pip3 install -r infer_server/python/requirements.txt
           mkdir build
           pushd build
-            cmake -DBUILD_TESTS=ON -DBUILD_SAMPLES=ON -DCODE_COVERAGE_TEST=ON -DCNIS_WITH_PYTHON_API=ON ..
+            cmake -DBUILD_TESTS=ON -DBUILD_SAMPLES=ON -DCODE_COVERAGE_TEST=ON -DCNIS_USE_MAGICMIND=OFF -DCNIS_WITH_PYTHON_API=ON -DWITH_INFER=ON -DWITH_BANG=ON ..
             make -j8
             ./tests/tests_edk
             ./infer_server/tests/apitest_cnis

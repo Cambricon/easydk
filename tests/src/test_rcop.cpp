@@ -1,3 +1,5 @@
+#ifdef HAVE_BANG
+
 #include <glog/logging.h>
 #include <gtest/gtest.h>
 #include <opencv2/opencv.hpp>
@@ -731,3 +733,5 @@ TEST(Bang, RCOpBatchNotFull) {
 }
 
 }  // namespace
+
+#endif

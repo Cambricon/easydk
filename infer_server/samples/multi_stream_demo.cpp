@@ -43,7 +43,7 @@
 // #undef USE_CNCV_PREPROC
 
 constexpr const char* g_model_path_mlu370 =
-    "http://video.cambricon.com/models/MLU370/yolov3_nhwc_tfu_0.8.2_uint8_int8_fp16.model";
+    "http://video.cambricon.com/models/magicmind/v1.1.0/yolov3_v1.1.0_4b_rgb_uint8.magicmind";
 constexpr const char* g_model_path_mlu270 =
     "http://video.cambricon.com/models/MLU270/yolov5/yolov5_b4c4_rgb_mlu270.cambricon";
 #ifdef CNIS_HAVE_CURL

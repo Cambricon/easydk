@@ -23,9 +23,10 @@
 
 #include <memory>
 
-#include "easyinfer/mlu_memory_op.h"
 #include "video_decoder.h"
 #include "runner.h"
+#include "cnrt.h"
+
 #ifdef __GNUC__
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wdeprecated-declarations"
@@ -183,7 +184,7 @@ class FFmpegDecodeImpl : public VideoDecoderImpl {
   }
   void ReleaseFrame(edk::CnFrame&& frame) override {
     for (uint32_t i = 0; i < frame.n_planes; i++) {
-      mem_op.FreeMlu(frame.ptrs[i]);
+      if (frame.ptrs[i]) cnrtFree(frame.ptrs[i]);
     }
   }
   bool CopyFrameD2H(void *dst, const edk::CnFrame &frame) override {
@@ -260,8 +261,16 @@ class FFmpegDecodeImpl : public VideoDecoderImpl {
 
     cn_frame.device_id = device_id_;
     for (unsigned i = 0; i < cn_frame.n_planes; i++) {
-      cn_frame.ptrs[i] = mem_op.AllocMlu(plane_size[i]);
-      mem_op.MemcpyH2D(cn_frame.ptrs[i], cpu_plane[i], plane_size[i]);
+      cnrtRet_t ret_code = cnrtMalloc(&cn_frame.ptrs[i], plane_size[i]);
+      if (ret_code != CNRT_RET_SUCCESS) {
+        LOG(ERROR) << "[EasyDK Samples] [FFmpegDecodeImpl] ProcessFrame() malloc mlu data failed ";
+        return false;
+      }
+      ret_code = cnrtMemcpy(cn_frame.ptrs[i], cpu_plane[i], plane_size[i], CNRT_MEM_TRANS_DIR_HOST2DEV);
+      if (ret_code != CNRT_RET_SUCCESS) {
+        LOG(ERROR) << "[EasyDK Samples] [FFmpegDecodeImpl] ProcessFrame() memcpy host data to mlu failed ";
+        return false;
+      }
     }
 
     // Send cn_frame to handle
@@ -271,7 +280,6 @@ class FFmpegDecodeImpl : public VideoDecoderImpl {
     return true;
   }
 
-  edk::MluMemoryOp mem_op;
   AVCodecContext* decode_{nullptr};
   AVFrame *av_frame_ = nullptr;
   std::atomic<int> eos_got_{0};
@@ -420,7 +428,7 @@ class FFmpegMluDecodeImpl : public VideoDecoderImpl {
   }
   void ReleaseFrame(edk::CnFrame&& frame) override {
     for (uint32_t i = 0; i < frame.n_planes; i++) {
-      mem_op.FreeMlu(frame.ptrs[i]);
+      if (frame.ptrs[i]) cnrtFree(frame.ptrs[i]);
     }
   }
   bool CopyFrameD2H(void *dst, const edk::CnFrame &frame) override {
@@ -467,13 +475,27 @@ class FFmpegMluDecodeImpl : public VideoDecoderImpl {
     plane_size[1] = cn_frame.height * cn_frame.strides[1] / 2;
     cn_frame.frame_size = plane_size[0] + plane_size[1];
     cn_frame.device_id = device_id_;
+    cnrtRet_t error_code;
     for (unsigned i = 0; i < cn_frame.n_planes; i++) {
-      cn_frame.ptrs[i] = mem_op.AllocMlu(plane_size[i]);
+      error_code = cnrtMalloc(&cn_frame.ptrs[i], plane_size[i]);
+      if (error_code != CNRT_RET_SUCCESS) {
+        LOG(ERROR) << "[EasyDK Samples] [FFmpegMluDecodeImpl] malloc mlu data failed."
+        return false;
+      }
+
 #ifdef FFMPEG_MLU_OUTPUT_ON_MLU
+      error_code = cnrtMemcpy(cn_frame.ptrs[i], frame->data[i], plane_size[i], CNRT_MEM_TRANS_DIR_DEV2DEV);
+      if (error_code != CNRT_RET_SUCCESS) {
+        LOG(ERROR) << "[EasyDK Samples] [FFmpegMluDecodeImpl] memcpy mlu data to cpu failed."
+        return false;
+      }
       // cn_frame.ptrs[i] = frame->data[i];  // For now, it is not possible to use the mlu data without d2d copy
-      mem_op.MemcpyD2D(cn_frame.ptrs[i], frame->data[i], plane_size[i]);
 #else
-      mem_op.MemcpyH2D(cn_frame.ptrs[i], frame->data[i], plane_size[i]);
+      error_code = cnrtMemcpy(cn_frame.ptrs[i], frame->data[i], plane_size[i], CNRT_MEM_TRANS_DIR_HOST2DEV);
+      if (error_code != CNRT_RET_SUCCESS) {
+        LOG(ERROR) << "[EasyDK Samples] [FFmpegMluDecodeImpl] memcpy mlu data to cpu failed."
+        return false;
+      }
 #endif
     }
 
@@ -484,7 +506,6 @@ class FFmpegMluDecodeImpl : public VideoDecoderImpl {
     return true;
   }
 
-  edk::MluMemoryOp mem_op;
   AVCodecContext* decode_{nullptr};
   AVFrame *av_frame_ = nullptr;
 #ifdef FFMPEG_MLU_OUTPUT_ON_MLU

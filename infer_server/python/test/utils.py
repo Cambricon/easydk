@@ -34,7 +34,7 @@ tag = "stream_0"
 
 model_dir = "http://video.cambricon.com/models/MLU270/Primary_Detector/ssd/vgg16_ssd_b4c4_bgra_mlu270.cambricon"
 if cnis.get_device_core_version(dev_id=0) == cnis.CoreVersion.MLU370:
-  model_dir = "http://video.cambricon.com/models/MLU370/yolov3_nhwc_tfu_0.8.2_uint8_int8_fp16.model"
+  model_dir = "http://video.cambricon.com/models/magicmind/v1.1.0/yolov3_v1.1.0_4b_rgb_uint8.magicmind"
 
 def prepare_video_frame():
   """Read image from file. Convert OpenCV mat to VideoFrame (convert color and copy data from cpu to mlu)"""

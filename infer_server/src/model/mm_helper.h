@@ -22,7 +22,17 @@
 #define INFER_SERVER_MM_HELPER_H_
 
 #include <memory>
+#ifdef CNIS_USE_MAGICMIND
+
+#ifdef HAVE_MM_COMMON_HEADER
+#include "mm_common.h"
+#include "mm_runtime.h"
+#else
+#include "common.h"
 #include "interface_runtime.h"
+#endif
+
+#endif
 
 namespace infer_server {
 

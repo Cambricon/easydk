@@ -46,6 +46,7 @@ struct PredictorPrivate {
         os << i_data[idx] << "\n";
       }
     } else if (dtype == DataType::FLOAT16) {
+#if CNRT_MAJOR_VERSION < 6
       const uint16_t* i_data = reinterpret_cast<const uint16_t*>(data);
       float d;
       for (size_t idx = 0; idx < cnt; ++idx) {
@@ -53,6 +54,7 @@ struct PredictorPrivate {
         if (ret != CNRT_RET_SUCCESS) throw std::runtime_error("internal error");
         os << d << "\n";
       }
+#endif
     } else if (dtype == DataType::UINT8) {
       const uint8_t* i_data = reinterpret_cast<const uint8_t*>(data);
       for (size_t idx = 0; idx < cnt; ++idx) {

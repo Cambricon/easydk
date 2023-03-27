@@ -31,8 +31,15 @@
 #include <string>
 #include <thread>
 
+#include "cxxutil/exception.h"
 #include "easyinfer/mlu_memory_op.h"
 #include "encoder.h"
+
+#define CHECK_CNRT_RET(err_code, str)                         \
+  if (CNRT_RET_SUCCESS != err_code) {                         \
+    THROW_EXCEPTION(Exception::MEMORY, std::string(str) +     \
+        " CNRT error code: " + std::to_string(error_code));   \
+  }
 
 #ifdef ENABLE_MLU200_CODEC
 #include <cn_jpeg_enc.h>
@@ -553,11 +560,15 @@ void Mlu200Encoder::ReceivePacket(void *_packet) {
       cn_packet.pts = packet->pts;
       cn_packet.codec_type = attr_.codec_type;
       cn_packet.buf_id = reinterpret_cast<uint64_t>(cn_packet.data);
-      if (packet_cnt_++) {
-        cn_packet.slice_type = BitStreamSliceType::FRAME;
-      } else {
+
+      if (packet->sliceType == CNCODEC_SLICE_H264_SPS_PPS || packet->sliceType == CNCODEC_SLICE_HEVC_VPS_SPS_PPS) {
         cn_packet.slice_type = BitStreamSliceType::SPS_PPS;
+      } else if (packet->sliceType == CNCODEC_SLICE_NALU_IDR || packet->sliceType == CNCODEC_SLICE_NALU_I) {
+        cn_packet.slice_type = BitStreamSliceType::KEY_FRAME;
+      } else {
+        cn_packet.slice_type = BitStreamSliceType::FRAME;
       }
+      packet_cnt_++;
     }
 
     attr_.packet_callback(cn_packet);
@@ -591,24 +602,35 @@ void Mlu200Encoder::CopyFrame(cncodecFrame *dst, const CnFrame &input) {
     uv_size = input.strides[1] * input.height >> 1;
   }
 
+  cnrtRet_t error_code;
   if (input.frame_size > 0) {
-    MluMemoryOp mem_op;
     switch (attr_.pixel_format) {
       case PixelFmt::NV12:
       case PixelFmt::NV21: {
         VLOG(5) << "[EasyDK EasyCodec] [Mlu200Encoder] Copy frame luminance";
-        mem_op.MemcpyH2D(reinterpret_cast<void *>(dst->plane[0].addr), input.ptrs[0], frame_size);
+        error_code = cnrtMemcpy(reinterpret_cast<void *>(dst->plane[0].addr), input.ptrs[0], frame_size,
+                                CNRT_MEM_TRANS_DIR_HOST2DEV);
+        CHECK_CNRT_RET(error_code, "[EasyDK Mlu200Encoder] [CopyFrame] Memcpy host data Y to device failed.");
         VLOG(5) << "[EasyDK EasyCodec] [Mlu200Encoder] Copy frame chroma";
-        mem_op.MemcpyH2D(reinterpret_cast<void *>(dst->plane[1].addr), input.ptrs[1], uv_size);
+        error_code = cnrtMemcpy(reinterpret_cast<void *>(dst->plane[1].addr), input.ptrs[1], uv_size,
+                                CNRT_MEM_TRANS_DIR_HOST2DEV);
+        CHECK_CNRT_RET(error_code, "[EasyDK Mlu200Encoder] [CopyFrame] Memcpy host data UV to device failed.");
         break;
       }
       case PixelFmt::I420: {
         VLOG(5) << "[EasyDK EasyCodec] [Mlu200Encoder] Copy frame luminance";
-        mem_op.MemcpyH2D(reinterpret_cast<void *>(dst->plane[0].addr), input.ptrs[0], frame_size);
+        error_code = cnrtMemcpy(reinterpret_cast<void *>(dst->plane[0].addr), input.ptrs[0], frame_size,
+                                CNRT_MEM_TRANS_DIR_HOST2DEV);
+        CHECK_CNRT_RET(error_code, "[EasyDK Mlu200Encoder] [CopyFrame] Memcpy host data Y to device failed.");
         VLOG(5) << "[EasyDK EasyCodec] [Mlu200Encoder] Copy frame chroma 0";
-        mem_op.MemcpyH2D(reinterpret_cast<void *>(dst->plane[1].addr), input.ptrs[1], uv_size >> 1);
+        error_code = cnrtMemcpy(reinterpret_cast<void *>(dst->plane[1].addr), input.ptrs[1], uv_size >> 1,
+                                CNRT_MEM_TRANS_DIR_HOST2DEV);
+        CHECK_CNRT_RET(error_code, "[EasyDK Mlu200Encoder] [CopyFrame] Memcpy host data U to device failed.");
         VLOG(5) << "[EasyDK EasyCodec] [Mlu200Encoder] Copy frame chroma 1";
-        mem_op.MemcpyH2D(reinterpret_cast<void *>(dst->plane[2].addr), input.ptrs[2], uv_size >> 1);
+        error_code = cnrtMemcpy(reinterpret_cast<void *>(dst->plane[2].addr), input.ptrs[2], uv_size >> 1,
+                                CNRT_MEM_TRANS_DIR_HOST2DEV);
+        CHECK_CNRT_RET(error_code, "[EasyDK Mlu200Encoder] [CopyFrame] Memcpy host data V to device failed.");
+
         break;
       }
       case PixelFmt::ARGB:
@@ -616,7 +638,9 @@ void Mlu200Encoder::CopyFrame(cncodecFrame *dst, const CnFrame &input) {
       case PixelFmt::RGBA:
       case PixelFmt::BGRA:
         VLOG(5) << "[EasyDK EasyCodec] [Mlu200Encoder] Copy frame RGB family";
-        mem_op.MemcpyH2D(reinterpret_cast<void *>(dst->plane[0].addr), input.ptrs[0], frame_size << 2);
+        error_code = cnrtMemcpy(reinterpret_cast<void *>(dst->plane[0].addr), input.ptrs[0], frame_size << 2,
+                                CNRT_MEM_TRANS_DIR_HOST2DEV);
+        CHECK_CNRT_RET(error_code, "[EasyDK Mlu200Encoder] [CopyFrame] Memcpy host data V to device failed.");
         break;
       default:
         THROW_EXCEPTION(Exception::UNSUPPORTED, "[EasyDK EasyCodec] [Mlu200Encoder] Unsupported pixel format");

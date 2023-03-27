@@ -24,6 +24,7 @@
 #include <vector>
 
 #include "cnis/processor.h"
+#include "internal/cnrt_wrap.h"
 
 namespace infer_server {
 namespace detail {
@@ -66,8 +67,8 @@ bool CastDataType(void *src_data, void *dst_data, DataType src_dtype, DataType d
   if (src_dtype != dst_dtype) {
     int size = shape.BatchDataCount();
     cnrtRet_t error_code = CNRT_RET_SUCCESS;
-    error_code = cnrtCastDataType(src_data, detail::CastDataType(src_dtype), dst_data,
-                                  detail::CastDataType(dst_dtype), size, nullptr);
+    error_code = cnrt::CastDataType(src_data, detail::CastDataType(src_dtype), dst_data,
+                                    detail::CastDataType(dst_dtype), size, nullptr);
     CHECK_CNRT_RET(error_code, "[EasyDK InferServer] Cast data type failed.", false);
   }
   return true;
@@ -104,19 +105,19 @@ bool TransLayout(void *src_data, void *dst_data, DataLayout src_layout, DataLayo
 
   switch (bits) {
     case 1 << 0:
-      error_code = cnrtCastDataType(src_data, detail::CastDataType(src_layout.dtype), dst_data,
-                                    detail::CastDataType(dst_layout.dtype), size, nullptr);
+      error_code = cnrt::CastDataType(src_data, detail::CastDataType(src_layout.dtype), dst_data,
+                                      detail::CastDataType(dst_layout.dtype), size, nullptr);
       CHECK_CNRT_RET(error_code, "[EasyDK InferServer] [Translayout] Cast data type failed.", false);
       break;
     case 1 << 1:
-      error_code = cnrtTransDataOrder(src_data, detail::CastDataType(src_layout.dtype), dst_data, n_dims, dim_values,
-                                      axis.data());
+      error_code = cnrt::TransDataOrder(src_data, detail::CastDataType(src_layout.dtype), dst_data, n_dims, dim_values,
+                                        axis.data());
       CHECK_CNRT_RET(error_code, "[EasyDK InferServer] [Translayout] Trans data order failed.", false);
       break;
     case 1 << 0 | 1 << 1:
       error_code =
-          cnrtTransOrderAndCast(src_data, detail::CastDataType(src_layout.dtype), dst_data,
-                                detail::CastDataType(dst_layout.dtype), nullptr, n_dims, dim_values, axis.data());
+          cnrt::TransOrderAndCast(src_data, detail::CastDataType(src_layout.dtype), dst_data,
+                                  detail::CastDataType(dst_layout.dtype), nullptr, n_dims, dim_values, axis.data());
       CHECK_CNRT_RET(error_code, "[EasyDK InferServer] [Translayout] Trans data order and cast data type failed.",
                      false);
       break;

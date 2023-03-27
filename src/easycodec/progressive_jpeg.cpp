@@ -33,7 +33,7 @@ extern "C" {
 }
 #endif
 
-#define ALIGN(size, alignment) (((u32_t)(size) + (alignment)-1) & ~((alignment)-1))
+#define ALIGN(size, alignment) (((uint32_t)(size) + (alignment)-1) & ~((alignment)-1))
 
 #define CALL_CNRT_FUNC(func, msg)                                                            \
   do {                                                                                       \

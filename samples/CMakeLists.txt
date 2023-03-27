@@ -74,7 +74,7 @@ if (CNCV_LIBS)
   target_compile_definitions(stream-app PRIVATE HAVE_CNCV)
 endif()
 
-target_include_directories(stream-app PRIVATE 
+target_include_directories(stream-app PRIVATE
                            ${Samples_INCLUDE_DIRS}
                            ${PROJECT_SOURCE_DIR}/include
                            ${PROJECT_SOURCE_DIR}/infer_server/include
@@ -94,7 +94,7 @@ target_compile_options(classification PRIVATE ${COMPILE_FLAGS})
 if (CNCV_LIBS)
   target_compile_definitions(classification PRIVATE HAVE_CNCV)
 endif()
-target_include_directories(classification PRIVATE 
+target_include_directories(classification PRIVATE
                            ${Samples_INCLUDE_DIRS}
                            ${PROJECT_SOURCE_DIR}/include
                            ${PROJECT_SOURCE_DIR}/infer_server/include

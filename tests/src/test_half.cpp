@@ -1,3 +1,5 @@
+#ifdef HAVE_BANG
+
 #include <gtest/gtest.h>
 #include <sstream>
 
@@ -71,3 +73,5 @@ TEST(EasyBang_Half, operator) {
 
   EXPECT_TRUE(ret != half(4.0f));
 }
+
+#endif

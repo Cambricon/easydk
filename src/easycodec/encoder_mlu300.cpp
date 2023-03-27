@@ -29,8 +29,15 @@
 #include <string>
 #include <thread>
 
+#include "cxxutil/exception.h"
 #include "easyinfer/mlu_memory_op.h"
 #include "encoder.h"
+
+#define CHECK_CNRT_RET(err_code, str)                         \
+  if (CNRT_RET_SUCCESS != err_code) {                         \
+    THROW_EXCEPTION(Exception::MEMORY, std::string(str) +     \
+        " CNRT error code: " + std::to_string(error_code));   \
+  }
 
 #ifdef ENABLE_MLU300_CODEC
 
@@ -652,25 +659,35 @@ void Mlu300Encoder::CopyFrame(cncodecFrame_t *dst, const CnFrame &input) {
     uv_size = input.strides[1] * input.height >> 1;
   }
 
+  cnrtRet_t error_code;
   if (input.frame_size > 0) {
-    MluMemoryOp mem_op;
-    // cnrtRet_t cnrt_ecode = CNRT_RET_SUCCESS;
     switch (attr_.pixel_format) {
       case PixelFmt::NV12:
       case PixelFmt::NV21: {
         VLOG(5) << "[EasyDK EasyCodec] [Mlu300Encoder] Copy frame luminance";
-        mem_op.MemcpyH2D(reinterpret_cast<void *>(dst->plane[0].dev_addr), input.ptrs[0], frame_size);
+        error_code = cnrtMemcpy(reinterpret_cast<void *>(dst->plane[0].dev_addr), input.ptrs[0], frame_size,
+                                CNRT_MEM_TRANS_DIR_HOST2DEV);
+        CHECK_CNRT_RET(error_code, "[EasyDK Mlu300Encoder] [CopyFrame] Memcpy host data Y to device failed.");
         VLOG(5) << "[EasyDK EasyCodec] [Mlu300Encoder] Copy frame chroma";
-        mem_op.MemcpyH2D(reinterpret_cast<void *>(dst->plane[1].dev_addr), input.ptrs[1], uv_size);
+        error_code = cnrtMemcpy(reinterpret_cast<void *>(dst->plane[1].dev_addr), input.ptrs[1], uv_size,
+                                CNRT_MEM_TRANS_DIR_HOST2DEV);
+        CHECK_CNRT_RET(error_code, "[EasyDK Mlu300Encoder] [CopyFrame] Memcpy host data UV to device failed.");
         break;
       }
       case PixelFmt::I420: {
         VLOG(5) << "[EasyDK EasyCodec] [Mlu300Encoder] Copy frame luminance";
-        mem_op.MemcpyH2D(reinterpret_cast<void *>(dst->plane[0].dev_addr), input.ptrs[0], frame_size);
+        error_code = cnrtMemcpy(reinterpret_cast<void *>(dst->plane[0].dev_addr), input.ptrs[0], frame_size,
+                                CNRT_MEM_TRANS_DIR_HOST2DEV);
+        CHECK_CNRT_RET(error_code, "[EasyDK Mlu300Encoder] [CopyFrame] Memcpy host data Y to device failed.");
         VLOG(5) << "[EasyDK EasyCodec] [Mlu300Encoder] Copy frame chroma 0";
-        mem_op.MemcpyH2D(reinterpret_cast<void *>(dst->plane[1].dev_addr), input.ptrs[1], uv_size >> 1);
+        error_code = cnrtMemcpy(reinterpret_cast<void *>(dst->plane[1].dev_addr), input.ptrs[1], uv_size >> 1,
+                                CNRT_MEM_TRANS_DIR_HOST2DEV);
+        CHECK_CNRT_RET(error_code, "[EasyDK Mlu300Encoder] [CopyFrame] Memcpy host data U to device failed.");
         VLOG(5) << "[EasyDK EasyCodec] [Mlu300Encoder] Copy frame chroma 1";
-        mem_op.MemcpyH2D(reinterpret_cast<void *>(dst->plane[2].dev_addr), input.ptrs[2], uv_size >> 1);
+        error_code = cnrtMemcpy(reinterpret_cast<void *>(dst->plane[2].dev_addr), input.ptrs[2], uv_size >> 1,
+                                CNRT_MEM_TRANS_DIR_HOST2DEV);
+        CHECK_CNRT_RET(error_code, "[EasyDK Mlu300Encoder] [CopyFrame] Memcpy host data V to device failed.");
+
         break;
       }
       default:

@@ -50,6 +50,8 @@
 #include "easybang/resize_and_colorcvt.h"
 #endif
 
+#define ALGIN_EVEN_BOTTOM(x)  (x) & (0x01) ? (x) &= (~uint64_t(1)) : (x);
+
 namespace infer_server {
 namespace video {
 namespace detail {
@@ -643,7 +645,7 @@ class CncvResizeConvert : public PreprocessCncvBase {
       src_descs_[i].color_space = colorspace_;
       src_descs_[i].depth = CNCV_DEPTH_8U;
     }
-
+#if CNCV_MAJOR < 1
     size_t ptr_size = batch_size_ * sizeof(void*);
     mlu_input_y_ = Buffer(ptr_size, dev_id_);
     mlu_input_uv_ = Buffer(ptr_size, dev_id_);
@@ -651,19 +653,54 @@ class CncvResizeConvert : public PreprocessCncvBase {
     cpu_input_y_ = Buffer(ptr_size);
     cpu_input_uv_ = Buffer(ptr_size);
     cpu_output_ = Buffer(ptr_size);
+#else
+    if (mlu_input_) cnrtFree(mlu_input_);
+    int ret = cnrtMalloc(reinterpret_cast<void **>(&mlu_input_), plane_number_ * batch_size_ * sizeof(void *));
+    if (ret != CNRT_RET_SUCCESS) {
+      LOG(ERROR) << "[EasyDK InferServer] [CncvResizeConvert] malloc input pointer failed";
+    }
+    if (mlu_output_) cnrtFree(mlu_output_);
+    ret = cnrtMalloc(reinterpret_cast<void **>(&mlu_output_), batch_size_ * sizeof(void *));
+    if (ret != CNRT_RET_SUCCESS) {
+      LOG(ERROR) << "[EasyDK InferServer] [CncvResizeConvert] malloc output pointer failed";
+    }
+
+    cpu_input_.resize(plane_number_ * batch_size_);
+    cpu_output_.resize(batch_size_);
+    src_rois_.resize(batch_size_);
+    src_descs_.resize(batch_size_);
+    dst_descs_.resize(batch_size_);
+    dst_rois_.resize(batch_size_);
+
+#endif
   }
 
-  ~CncvResizeConvert() {}
+  ~CncvResizeConvert() {
+#if CNCV_MAJOR >= 1
+    if (mlu_input_) cnrtFree(mlu_input_);
+    if (mlu_output_) cnrtFree(mlu_output_);
+    if (workspace_buffer_) cnrtFree(workspace_buffer_);
+#endif
+  }
 
   bool Execute(Package* pack, Buffer* output);
 
  private:
+#if CNCV_MAJOR < 1
   Buffer mlu_input_y_;
   Buffer mlu_input_uv_;
   Buffer mlu_output_;
   Buffer cpu_input_y_;
   Buffer cpu_input_uv_;
   Buffer cpu_output_;
+#else
+  std::vector<void**> cpu_input_;
+  std::vector<void**> cpu_output_;
+  void** mlu_input_ = nullptr;
+  void** mlu_output_ = nullptr;
+  void* workspace_buffer_ = nullptr;
+  const int plane_number_ = 2;
+#endif
 
   std::vector<cncvImageDescriptor> src_descs_;
   std::vector<cncvImageDescriptor> dst_descs_;
@@ -676,14 +713,16 @@ class CncvResizeConvert : public PreprocessCncvBase {
 
 bool CncvResizeConvert::Execute(Package* pack, Buffer* output) {
   auto batch_size = pack->data.size();
+  if (keep_aspect_ratio_) {
+    CNRT_SAFE_CALL(cnrtMemset(output->MutableData(), pad_value_, output->MemorySize()), false);
+  }
+
+#if CNCV_MAJOR < 1
   size_t ptr_size = batch_size * sizeof(void*);
   // init mlu buff
   void* mlu_input_y_ptr = mlu_input_y_.MutableData();
   void* mlu_input_uv_ptr = mlu_input_uv_.MutableData();
   void* mlu_output_ptr = mlu_output_.MutableData();
-  if (keep_aspect_ratio_) {
-    CNRT_SAFE_CALL(cnrtMemset(output->MutableData(), pad_value_, output->MemorySize()), false);
-  }
 
   // init cpu ptr
   void** cpu_input_y_ptr = reinterpret_cast<void**>(cpu_input_y_.MutableData());
@@ -709,6 +748,8 @@ bool CncvResizeConvert::Execute(Package* pack, Buffer* output) {
     src_descs_[i].pixel_fmt = GetCncvPixFmt(frame.format);
     src_descs_[i].width = frame.width;
     src_descs_[i].height = frame.height;
+    src_descs_[i].width = ALGIN_EVEN_BOTTOM(frame.width);
+    src_descs_[i].height = ALGIN_EVEN_BOTTOM(frame.height);
     if (frame.stride[0] > 1) {
       src_descs_[i].stride[0] = frame.stride[0];
       src_descs_[i].stride[1] = frame.stride[1];
@@ -731,6 +772,9 @@ bool CncvResizeConvert::Execute(Package* pack, Buffer* output) {
     src_rois_[i].y = crop_y;
     src_rois_[i].w = (frame.roi.w == 0.f ? 1 : frame.roi.w) * frame.width;
     src_rois_[i].h = (frame.roi.h == 0.f ? 1 : frame.roi.h) * frame.height;
+    src_rois_[i].w = ALGIN_EVEN_BOTTOM(src_rois_[i].w);
+    src_rois_[i].h = ALGIN_EVEN_BOTTOM(src_rois_[i].h);
+    if (src_rois_[i].h & 0x01) src_rois_[i].h &= ~static_cast<int>(1);
     if (keep_aspect_ratio_) {
       KeepAspectRatio(&dst_rois_[i], src_rois_[i]);
     }
@@ -766,6 +810,79 @@ bool CncvResizeConvert::Execute(Package* pack, Buffer* output) {
                         workspace_size_, workspace_.MutableData(),
                         CNCV_INTER_BILINEAR),
       false);
+#else
+  size_t output_offset = 0;
+  for (size_t i = 0; i < batch_size; ++i) {
+    VideoFrame& frame = pack->data[i]->GetLref<VideoFrame>();
+    if (frame.format != PixelFmt::NV12 && frame.format != PixelFmt::NV21) {
+      LOG(ERROR) << "[EasyDK InferServer] [CncvResizeConvert] Pixel format " << PixelFmtStr(frame.format)
+                 << " is not supported!";
+      return false;
+    }
+    // init src descs
+    src_descs_[i].pixel_fmt = GetCncvPixFmt(frame.format);
+    src_descs_[i].width = frame.width;
+    src_descs_[i].height = frame.height;
+    src_descs_[i].width = ALGIN_EVEN_BOTTOM(frame.width);
+    src_descs_[i].height = ALGIN_EVEN_BOTTOM(frame.height);
+    if (frame.stride[0] > 1) {
+      src_descs_[i].stride[0] = frame.stride[0];
+      src_descs_[i].stride[1] = frame.stride[1];
+      src_descs_[i].stride[2] = frame.stride[2];
+    } else {
+      SetStride(&src_descs_[i]);
+    }
+
+    // init dst rect
+    dst_rois_[i].x = 0;
+    dst_rois_[i].y = 0;
+    dst_rois_[i].w = dst_descs_[i].width;
+    dst_rois_[i].h = dst_descs_[i].height;
+
+    // init src rect
+    ClipBoundingBox(&frame.roi);
+    int32_t crop_x = frame.roi.x * frame.width;
+    int32_t crop_y = frame.roi.y * frame.height;
+    src_rois_[i].x = crop_x;
+    src_rois_[i].y = crop_y;
+    src_rois_[i].w = (frame.roi.w == 0.f ? 1 : frame.roi.w) * frame.width;
+    src_rois_[i].h = (frame.roi.h == 0.f ? 1 : frame.roi.h) * frame.height;
+    src_rois_[i].w = ALGIN_EVEN_BOTTOM(src_rois_[i].w);
+    src_rois_[i].h = ALGIN_EVEN_BOTTOM(src_rois_[i].h);
+    if (keep_aspect_ratio_) {
+      KeepAspectRatio(&dst_rois_[i], src_rois_[i]);
+    }
+
+    // copy one input frame addr to device
+    cpu_input_[plane_number_ * i] = reinterpret_cast<void**>(frame.plane[0].MutableData());
+    cpu_input_[plane_number_ * i + 1] = reinterpret_cast<void**>(frame.plane[1].MutableData());
+    cpu_output_[i] = reinterpret_cast<void**>((*output)(output_offset).MutableData());
+    output_offset += dst_descs_[i].stride[0] * dst_descs_[i].height;
+  }
+  CNRT_SAFE_CALL(cnrtMemcpy(mlu_input_, cpu_input_.data(), sizeof(void *) * batch_size * plane_number_,
+                            CNRT_MEM_TRANS_DIR_HOST2DEV),
+                 false);
+  CNRT_SAFE_CALL(cnrtMemcpy(mlu_output_, cpu_output_.data(), sizeof(void *) * batch_size, CNRT_MEM_TRANS_DIR_HOST2DEV),
+                 false);
+
+  size_t required_workspace_size = 0;
+  CNCV_SAFE_CALL(cncvGetResizeConvertWorkspaceSize(batch_size, src_descs_.data(), src_rois_.data(), dst_descs_.data(),
+                                                   dst_rois_.data(), &required_workspace_size),
+                 false);
+
+  if (required_workspace_size != workspace_size_) {
+    workspace_size_ = required_workspace_size;
+    if (workspace_buffer_) cnrtFree(workspace_buffer_);
+    CNRT_SAFE_CALL(cnrtMalloc(&workspace_buffer_, required_workspace_size),
+                   false);
+  }
+
+  CNCV_SAFE_CALL(cncvResizeConvert_AdvancedROI(handle_, batch_size, src_descs_.data(), src_rois_.data(), mlu_input_,
+                                               dst_descs_.data(), dst_rois_.data(), mlu_output_, workspace_size_,
+                                               workspace_buffer_, CNCV_INTER_BILINEAR),
+                false);
+
+#endif
   return true;
 }
 

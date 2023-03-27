@@ -146,8 +146,19 @@ static CnrtInitTool cnrt_init_tool;
 
 bool MluContext::CheckDeviceId(int id) {
   _cnrt_init_tool::cnrt_init_tool.Init();
+#if CNRT_MAJOR_VERSION < 5
   cnrtDev_t dev;
   return CNRT_RET_SUCCESS == cnrtGetDeviceHandle(&dev, id);
+#else
+  unsigned int count;
+  cnrtGetDeviceCount(&count);
+  if (id >= static_cast<int>(count) || id < 0) {
+    LOG(ERROR) << "[EasyDK] GetDeviceInfo(): device id is invalid, device_id: " << id << ", total count: "
+               << count;
+    return false;
+  }
+  return true;
+#endif
 }
 
 uint32_t MluContext::GetDeviceNum() {
