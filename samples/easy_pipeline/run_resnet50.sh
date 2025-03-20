@@ -7,7 +7,7 @@ mkdir -p cache
 mkdir -p output
 
 PrintUsages(){
-    echo "Usages: run.sh [mlu370/mlu590/ce3226]"
+    echo "Usages: run.sh [mlu370/ce3226]"
 }
 
 if [ $# -ne 1 ]; then
@@ -22,10 +22,6 @@ if [[ ${1} == "ce3226" ]]; then
     REMOTE_MODEL_PATH=http://video.cambricon.com/models/magicmind/${MM_VER}/resnet50_${MM_VER}_4b_rgb_uint8.magicmind
 elif [[ ${1} == "mlu370" ]]; then
     MM_VER=v0.13.0
-    MODEL_PATH=${MODEL_DIR}/resnet50_${MM_VER}_4b_rgb_uint8.magicmind
-    REMOTE_MODEL_PATH=http://video.cambricon.com/models/magicmind/${MM_VER}/resnet50_${MM_VER}_4b_rgb_uint8.magicmind
-elif [[ ${1} == "mlu590" ]]; then
-    MM_VER=v0.14.0
     MODEL_PATH=${MODEL_DIR}/resnet50_${MM_VER}_4b_rgb_uint8.magicmind
     REMOTE_MODEL_PATH=http://video.cambricon.com/models/magicmind/${MM_VER}/resnet50_${MM_VER}_4b_rgb_uint8.magicmind
 else
